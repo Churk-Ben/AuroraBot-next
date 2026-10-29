@@ -10,6 +10,7 @@ from aurora_core.ctx import Context, StateKey, install_context
 from aurora_core.discovery import Plugin, load_plugins, register_plugins
 from aurora_core.hooks import HookConnections, HookSlot
 from aurora_core.invocation import invoke_operation
+from aurora_core.lifecycle import PREPARE, STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
@@ -47,6 +48,7 @@ async def run_counter(data_dir: Path, name: str, amount: int) -> int:
     if not name:
         raise ValueError("计数器名称不能为空")
     registry = bootstrap()
+    install_lifecycle_slots(registry)
     plugin = Plugin(
         PROVIDER,
         (
@@ -67,21 +69,18 @@ async def run_counter(data_dir: Path, name: str, amount: int) -> int:
     ctx = install_context(registry)
     storage = StorageService(data_dir)
     hooks = HookConnections(registry)
-    try:
-        persistence = ContextPersistence(ctx, storage.snapshot_store())
-        await persistence.start()
-    except BaseException:
-        hooks.close()
-        storage.close()
-        ctx.close()
-        raise
-    try:
+    persistence = ContextPersistence(ctx, storage.snapshot_store())
+    subscription: str | None = None
+
+    @hook_handler("dev.example.counter:handlers/prepare", slot=PREPARE)
+    def prepare() -> None:
+        nonlocal subscription
         counter = Counter(ctx, name)
         binding = hooks.connect(
             INCREMENT,
             Id("dev.example.counter:handlers/increment"),
-            slot_instance="application",
-            handler_instance=name,
+            slot_instance="counter",
+            handler_instance="counter",
             target=counter.increment,
         )
 
@@ -90,16 +89,28 @@ async def run_counter(data_dir: Path, name: str, amount: int) -> int:
             return await hooks.invoke(binding, value)
 
         registry.register(entry_from(add, provider=PROVIDER))
-        ctx.subscribe(lambda change: print(f"{name}: {change.value}"), key=COUNT, location={"counter": name})
-        result = await invoke_operation(registry, ADD, amount)
+        subscription = ctx.subscribe(
+            lambda change: print(f"{name}: {change.value}"), key=COUNT, location={"counter": name}
+        )
+
+    @hook_handler("dev.example.counter:handlers/stop", slot=STOP)
+    def stop() -> None:
+        if subscription is not None:
+            ctx.unsubscribe(subscription)
+
+    for phase, callback in ((PREPARE, prepare), (STOP, stop)):
+        entry = entry_from(callback, provider=PROVIDER)
+        registry.register(entry)
+        hooks.connect(phase, entry.id, slot_instance="counter", handler_instance="counter")
+    lifecycle = Lifecycle(ctx, hooks, [LifecycleComponent("counter")], persistence=persistence, storage=storage)
+    await lifecycle.start()
+    try:
+        result = await lifecycle.run(invoke_operation, registry, ADD, amount)
         if type(result) is not int:
             raise TypeError("计数操作必须返回整数")
         return result
     finally:
-        hooks.close()
-        await persistence.close()
-        storage.close()
-        ctx.close()
+        await lifecycle.stop()
 
 
 def main() -> None:
