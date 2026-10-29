@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from typing import override
 
 _SEGMENT = r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*"
 _ID_PATTERN = re.compile(
@@ -31,5 +32,6 @@ class Id:
     def local_path(self) -> str:
         return self.value.split("/", 1)[1]
 
+    @override
     def __str__(self) -> str:
         return self.value

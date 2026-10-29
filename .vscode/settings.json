@@ -17,5 +17,5 @@
     "Dockerfile": "Dockerfile.*, docker-compose.*, compose.*"
   },
   "basedpyright.analysis.inlayHints.variableTypes": false,
-  "basedpyright.disableLanguageServices": true
+  "basedpyright.analysis.typeCheckingMode": "basic"
 }
