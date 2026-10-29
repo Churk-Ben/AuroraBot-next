@@ -3,7 +3,7 @@
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from .ids import Id
 from .registry import RegistryEntry
@@ -34,7 +34,7 @@ def _decorate(declaration: Declaration) -> Callable[[F], F]:
         if hasattr(function, _ATTRIBUTE):
             raise ValueError("同一函数只允许一个公共声明")
         setattr(function, _ATTRIBUTE, declaration)
-        return function
+        return cast(F, function)
 
     return decorate
 
