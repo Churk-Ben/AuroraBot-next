@@ -23,7 +23,7 @@ typeCheckingMode = "basic"
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
-include = ["packages/*/src", "tests"]
+include = ["packages/*/src", "tests", "examples"]
 exclude = ["**/__pycache__", "**/node_modules", ".venv", "build", "dist"]
 extraPaths = [
     "packages/aurora_core/src",
