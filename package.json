@@ -4,10 +4,36 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --experimental-strip-types scripts/check.ts"
+    "check": "node scripts/check.ts",
+    "typecheck": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
+    "lint": "pnpm lint:oxlint && pnpm lint:eslint && pnpm lint:style",
+    "lint:oxlint": "oxlint -c oxlint.config.ts --deny-warnings .",
+    "lint:eslint": "eslint . --max-warnings 0",
+    "lint:style": "stylelint \"{apps,packages}/**/*.{css,scss,vue,html}\" --allow-empty-input --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run"
   },
-  "packageManager": "pnpm@12.15.0",
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vben/eslint-config": "workspace:*",
+    "@vben/oxlint-config": "workspace:*",
+    "@vben/stylelint-config": "workspace:*",
+    "@vben/tsconfig": "workspace:*",
+    "@vitejs/plugin-vue": "catalog:",
+    "eslint": "catalog:",
+    "happy-dom": "catalog:",
+    "jiti": "catalog:",
+    "oxlint": "catalog:",
+    "prettier": "catalog:",
+    "stylelint": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vue": "catalog:"
+  },
   "engines": {
-    "node": ">=22.6.0"
-  }
+    "node": ">=24.15.0 <25"
+  },
+  "packageManager": "pnpm@12.15.0"
 }
