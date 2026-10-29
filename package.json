@@ -2,8 +2,12 @@
   "name": "aurorabot-workspace",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --experimental-strip-types scripts/check.ts"
+  },
   "packageManager": "pnpm@12.15.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.6.0"
   }
 }
