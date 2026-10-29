@@ -63,6 +63,7 @@ def test_receiver_registered_after_declaration_and_rejection():
     registry.replace(RegistryEntry(target, "registry", KindReceiver(frozenset({"operation"})), "example"))
     result = inspect_admissions(registry)[-1]
     assert result.status == AdmissionStatus.REJECTED
+    assert result.reason is not None
     assert "resource" in result.reason
 
 

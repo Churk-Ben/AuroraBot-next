@@ -18,6 +18,21 @@ dev = ["pytest>=8", "ruff>=0.9"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+include = ["packages/*/src", "tests"]
+exclude = ["**/__pycache__", "**/node_modules", ".venv", "build", "dist"]
+extraPaths = [
+    "packages/aurora_core/src",
+    "packages/aurora_model_adapter/src",
+    "packages/aurora_bot/src",
+    "packages/aurora_cli/src",
+    "packages/aurora_api/src",
+]
+
 [tool.uv.workspace]
 members = [
     "packages/aurora_core",

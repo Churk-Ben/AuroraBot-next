@@ -5,14 +5,16 @@
   "type": "module",
   "scripts": {
     "check": "node scripts/check.ts",
-    "typecheck": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
+    "typecheck": "pnpm typecheck:python && pnpm typecheck:typescript",
     "lint": "pnpm lint:oxlint && pnpm lint:eslint && pnpm lint:style",
     "lint:oxlint": "oxlint -c oxlint.config.ts --deny-warnings .",
     "lint:eslint": "eslint . --max-warnings 0",
     "lint:style": "stylelint \"{apps,packages}/**/*.{css,scss,vue,html}\" --allow-empty-input --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck:typescript": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
+    "typecheck:python": "pyright --project pyproject.toml"
   },
   "devDependencies": {
     "@types/node": "catalog:",
@@ -26,6 +28,7 @@
     "jiti": "catalog:",
     "oxlint": "catalog:",
     "prettier": "catalog:",
+    "pyright": "catalog:",
     "stylelint": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

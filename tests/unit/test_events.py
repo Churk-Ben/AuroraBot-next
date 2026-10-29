@@ -13,7 +13,12 @@ OTHER = Id("dev.example:events/other")
 def test_filters_and_independent_payloads():
     bus = EventBus()
     received = []
-    bus.subscribe(lambda event: event.payload.append("修改"), event_type=CHANGED)
+
+    def mutate(event):
+        assert isinstance(event.payload, list)
+        event.payload.append("修改")
+
+    bus.subscribe(mutate, event_type=CHANGED)
     bus.subscribe(received.append, event_type=CHANGED)
     source = ["原始"]
     bus.publish(OTHER, source)
@@ -40,7 +45,11 @@ def test_reentrant_publication_keeps_fifo_order():
 def test_unsubscribe_skips_pending_callbacks_and_does_not_cross_buses():
     bus = EventBus()
     received = []
-    bus.subscribe(lambda event: bus.unsubscribe(handle))
+
+    def cancel(event):
+        bus.unsubscribe(handle)
+
+    bus.subscribe(cancel)
     handle = bus.subscribe(received.append)
     assert EventBus().unsubscribe(handle) is False
     bus.publish(CHANGED, None)
@@ -65,7 +74,11 @@ def test_listener_failure_does_not_stop_delivery(caplog):
 def test_subscribe_during_dispatch_only_receives_future_events():
     bus = EventBus()
     received = []
-    bus.subscribe(lambda event: bus.subscribe(received.append))
+
+    def subscribe_during_dispatch(event):
+        bus.subscribe(received.append)
+
+    bus.subscribe(subscribe_during_dispatch)
     bus.publish(CHANGED, 1)
     assert received == []
     bus.publish(CHANGED, 2)
@@ -94,7 +107,8 @@ def test_async_callbacks_are_rejected():
         pass
 
     with pytest.raises(TypeError, match="同步"):
-        bus.subscribe(callback)
+        # 故意传入异步回调，验证运行时接口拒绝非法调用。
+        bus.subscribe(callback)  # pyright: ignore[reportArgumentType]
 
 
 def test_cross_thread_access_is_explicitly_rejected():

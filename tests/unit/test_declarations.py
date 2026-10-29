@@ -29,7 +29,9 @@ def test_decorator_preserves_function_and_does_not_register_or_call():
     assert calls == []
     entry = entry_from(decorated, provider="example")
     register_plugins(registry, [Plugin("example", (entry,))])
-    assert registry.get(entry.id).target("内容", prefix="前缀") == "前缀内容"
+    target = registry.get(entry.id).target
+    assert callable(target)
+    assert target("内容", prefix="前缀") == "前缀内容"
     assert calls == ["内容"]
 
 
@@ -54,6 +56,8 @@ def test_bound_method_keeps_its_instance():
     first = entry_from(Service(1).read, provider="example")
     second = entry_from(Service(2).read, provider="example")
     assert first.id == second.id
+    assert callable(first.target)
+    assert callable(second.target)
     assert first.target() == 1
     assert second.target() == 2
     registry = bootstrap()
