@@ -5,9 +5,15 @@ from dataclasses import dataclass
 from typing import override
 
 _SEGMENT = r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*"
-_ID_PATTERN = re.compile(
-    rf"(?P<namespace>{_SEGMENT}(?:\.{_SEGMENT})+):(?P<domain>{_SEGMENT})/(?P<path>{_SEGMENT}(?:/{_SEGMENT})*)"
-)
+_NAMESPACE = rf"{_SEGMENT}(?:\.{_SEGMENT})+"
+_ID_PATTERN = re.compile(rf"(?P<namespace>{_NAMESPACE}):(?P<domain>{_SEGMENT})/(?P<path>{_SEGMENT}(?:/{_SEGMENT})*)")
+
+
+def validate_namespace(value: str) -> str:
+    """校验定义归属名称；与公共 ID 共用命名空间语法。"""
+    if not isinstance(value, str) or re.fullmatch(_NAMESPACE, value) is None:
+        raise ValueError(f"无效的命名空间：{value!r}")
+    return value
 
 
 @dataclass(frozen=True)
