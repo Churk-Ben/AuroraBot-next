@@ -141,3 +141,15 @@ class HookConnections:
             raise RuntimeError("hook 接口必须在创建它的宿主线程调用")
         self._closed = True
         self._connections.clear()
+
+    def disconnect_instance(self, instance_id: str) -> int:
+        """组件停止成功后移除涉及它的实例连接，不影响其他实例。"""
+        self._check_open()
+        keys = [
+            key
+            for key, connection in self._connections.items()
+            if instance_id in (connection.slot_instance, connection.handler_instance)
+        ]
+        for key in keys:
+            del self._connections[key]
+        return len(keys)
