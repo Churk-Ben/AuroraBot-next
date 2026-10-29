@@ -1,12 +1,22 @@
 [project]
-name = "aurorabot-workspace"
+name = "aurorabot-ai"
 version = "0.1.0"
-description = "AuroraBot monorepo workspace"
+description = "AuroraBot unified installation package"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["aurora-bot>=0.1.0", "aurora-cli>=0.1.0", "aurora-api>=0.1.0"]
 
-[tool.uv]
-package = false
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.uv.workspace]
 members = [
@@ -20,6 +30,9 @@ members = [
 [tool.uv.sources]
 aurora-core = { workspace = true }
 aurora-model-adapter = { workspace = true }
+aurora-bot = { workspace = true }
+aurora-cli = { workspace = true }
+aurora-api = { workspace = true }
 
 [tool.ruff]
 line-length = 120
