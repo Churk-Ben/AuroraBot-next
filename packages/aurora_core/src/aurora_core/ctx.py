@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from threading import get_ident
 from typing import Literal
 
+from .declarations import entry_from, operation
 from .events import Event, EventBus
 from .ids import Id
 from .registry import DefinitionRegistry, RegistryEntry
@@ -88,12 +89,14 @@ class Context:
             raise TypeError(f"目标不是 StateKey 状态定义：{key}")
         return entry.target
 
+    @operation("org.aurora.core:operations/ctx/get")
     def get(self, key: Id, *, location: Mapping[str, str] | None = None) -> object:
         """读取精确地址的独立副本；缺失定义或状态均抛出 KeyError。"""
         self._check_open()
         self._definition(key)
         return deepcopy(self._values[StateAddress(key, _location(location))])
 
+    @operation("org.aurora.core:operations/ctx/set")
     def set(self, key: Id, value: object, *, location: Mapping[str, str] | None = None) -> None:
         """校验成功后整项替换；复制或校验失败不提交，也不通知。"""
         self._check_open()
@@ -124,6 +127,7 @@ class Context:
         self._revision = change.revision
         self._events.publish(CTX_CHANGED, change)
 
+    @operation("org.aurora.core:operations/ctx/delete")
     def delete(self, key: Id, *, location: Mapping[str, str] | None = None) -> bool:
         """删除一个精确地址；不存在时返回 False，不产生修订或通知。"""
         self._check_open()
@@ -139,6 +143,7 @@ class Context:
         self._events.publish(CTX_CHANGED, change)
         return True
 
+    @operation("org.aurora.core:operations/ctx/list")
     def list(self, *, key: Id | None = None, location: Mapping[str, str] | None = None) -> tuple[StateAddress, ...]:
         """按完整 ID 与定位字段排序枚举已赋值地址，不返回值或未赋值定义。
 
@@ -159,6 +164,7 @@ class Context:
             )
         )
 
+    @operation("org.aurora.core:operations/ctx/subscribe")
     def subscribe(
         self,
         callback: Callable[[StateChange], None],
@@ -183,6 +189,7 @@ class Context:
 
         return self._events.subscribe(notify, event_type=CTX_CHANGED)
 
+    @operation("org.aurora.core:operations/ctx/unsubscribe")
     def unsubscribe(self, handle: str) -> bool:
         """取消尚未开始的通知；关闭后仍可幂等取消。"""
         return self._events.unsubscribe(handle)
@@ -204,14 +211,8 @@ def install_context(registry: DefinitionRegistry) -> Context:
     registry.register_many(
         [
             *(
-                RegistryEntry(
-                    Id(f"org.aurora.core:operations/ctx/{name}"),
-                    "operation",
-                    getattr(ctx, name),
-                    "aurora_core",
-                    register_to=Id("org.aurora.core:registries/operations"),
-                )
-                for name in ("get", "set", "delete", "list", "subscribe", "unsubscribe")
+                entry_from(target, provider="aurora_core")
+                for target in (ctx.get, ctx.set, ctx.delete, ctx.list, ctx.subscribe, ctx.unsubscribe)
             ),
             RegistryEntry(
                 CTX_CHANGED, "event", StateChange, "aurora_core", register_to=Id("org.aurora.core:registries/events")

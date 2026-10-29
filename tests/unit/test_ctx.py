@@ -1,5 +1,6 @@
 """验证共享状态访问与变化通知的可观察语义。"""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -171,4 +172,42 @@ def test_cross_thread_write_is_rejected(state):
     _, ctx = state
     with ThreadPoolExecutor(max_workers=1) as pool, pytest.raises(RuntimeError, match="宿主线程"):
         pool.submit(ctx.set, CONFIG, 1).result()
+    assert ctx.list() == ()
+
+
+def test_copy_failure_does_not_commit_or_notify(state):
+    class Uncopyable:
+        def __deepcopy__(self, memo):
+            raise TypeError("不可复制")
+
+    _, ctx = state
+    received = []
+    ctx.subscribe(received.append)
+    with pytest.raises(TypeError, match="不可复制"):
+        ctx.set(CONFIG, Uncopyable())
+    assert ctx.list() == ()
+    assert received == []
+
+
+def test_coroutine_writes_follow_host_call_order(state):
+    _, ctx = state
+    received = []
+    ctx.subscribe(received.append)
+
+    async def write(value):
+        ctx.set(CONFIG, value)
+
+    async def run():
+        await asyncio.gather(write(1), write(2), write(3))
+
+    asyncio.run(run())
+    assert [change.revision for change in received] == [1, 2, 3]
+    assert ctx.get(CONFIG) == 3
+
+
+@pytest.mark.parametrize("location", [{"session_id": ""}, {"": "s1"}, {"session_id": 1}])
+def test_invalid_location_is_rejected_without_write(state, location):
+    _, ctx = state
+    with pytest.raises(ValueError, match="非空字符串"):
+        ctx.set(CONFIG, 1, location=location)
     assert ctx.list() == ()
