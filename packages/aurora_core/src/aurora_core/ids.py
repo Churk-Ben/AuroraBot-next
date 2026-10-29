@@ -1,0 +1,35 @@
+"""公共定义 ID 的格式与组成。"""
+
+import re
+from dataclasses import dataclass
+
+_SEGMENT = r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*"
+_ID_PATTERN = re.compile(
+    rf"(?P<namespace>{_SEGMENT}(?:\.{_SEGMENT})+):(?P<domain>{_SEGMENT})/(?P<path>{_SEGMENT}(?:/{_SEGMENT})*)"
+)
+
+
+@dataclass(frozen=True)
+class Id:
+    """定义身份；不包含实例、文件位置或权限信息。"""
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, str) or _ID_PATTERN.fullmatch(self.value) is None:
+            raise ValueError(f"无效的公共 ID：{self.value!r}")
+
+    @property
+    def namespace(self) -> str:
+        return self.value.split(":", 1)[0]
+
+    @property
+    def domain(self) -> str:
+        return self.value.split(":", 1)[1].split("/", 1)[0]
+
+    @property
+    def local_path(self) -> str:
+        return self.value.split("/", 1)[1]
+
+    def __str__(self) -> str:
+        return self.value
