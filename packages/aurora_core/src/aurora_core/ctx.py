@@ -58,6 +58,22 @@ class StateChange:
     existed: bool
 
 
+@dataclass(frozen=True)
+class StateRecord:
+    """快照中的单个状态地址与独立数据副本。"""
+
+    address: StateAddress
+    value: object
+
+
+@dataclass(frozen=True)
+class ContextSnapshot:
+    """一次同步捕获的完整状态；revision 仅用于当前 ctx 的写入追踪。"""
+
+    revision: int
+    records: tuple[StateRecord, ...]
+
+
 class Context:
     """仅在创建线程访问的共享状态，适用于单宿主事件循环。
 
@@ -70,6 +86,7 @@ class Context:
         self._registry = registry
         self._owner = get_ident()
         self._closed = False
+        self._restored = False
         self._validating = False
         self._values: dict[StateAddress, object] = {}
         self._revision = 0
@@ -89,6 +106,16 @@ class Context:
             raise TypeError(f"目标不是 StateKey 状态定义：{key}")
         return entry.target
 
+    def _validated_copy(self, definition: StateKey, value: object) -> object:
+        candidate = deepcopy(value)
+        if definition.validate is not None:
+            result = definition.validate(deepcopy(candidate))
+            if inspect.iscoroutine(result):
+                result.close()
+            if result is not None:
+                raise TypeError("状态校验器通过时必须返回 None")
+        return candidate
+
     @operation("org.aurora.core:operations/ctx/get")
     def get(self, key: Id, *, location: Mapping[str, str] | None = None) -> object:
         """读取精确地址的独立副本；缺失定义或状态均抛出 KeyError。"""
@@ -106,13 +133,7 @@ class Context:
         address = StateAddress(key, _location(location))
         self._validating = True
         try:
-            candidate = deepcopy(value)
-            if definition.validate is not None:
-                result = definition.validate(deepcopy(candidate))
-                if inspect.iscoroutine(result):
-                    result.close()
-                if result is not None:
-                    raise TypeError("状态校验器通过时必须返回 None")
+            candidate = self._validated_copy(definition, value)
             change = StateChange(
                 address,
                 self._revision + 1,
@@ -193,6 +214,44 @@ class Context:
     def unsubscribe(self, handle: str) -> bool:
         """取消尚未开始的通知；关闭后仍可幂等取消。"""
         return self._events.unsubscribe(handle)
+
+    def snapshot(self) -> ContextSnapshot:
+        """在宿主线程同步复制全部状态，后台 I/O 只消费该独立快照。"""
+        self._check_open()
+        if self._validating:
+            raise RuntimeError("校验期间不得创建快照")
+        self._validating = True
+        try:
+            records = tuple(StateRecord(address, deepcopy(self._values[address])) for address in self.list())
+            return ContextSnapshot(self._revision, records)
+        finally:
+            self._validating = False
+
+    def restore(self, records: tuple[StateRecord, ...]) -> None:
+        """在首次写入前原子恢复完整快照，全部通过当前定义校验后才提交。
+
+        恢复不重放历史事件；宿主应在恢复结束后配置运行环境并启动工作组件。
+        未安装的状态定义、重复地址或无效值会拒绝整个快照。
+        """
+        self._check_open()
+        if self._validating or self._restored or self._revision or self._values:
+            raise RuntimeError("只能在首次写入前恢复 ctx")
+        pending: dict[StateAddress, object] = {}
+        self._validating = True
+        try:
+            for record in records:
+                definition = self._definition(record.address.key)
+                location = dict(record.address.location)
+                if len(location) != len(record.address.location):
+                    raise ValueError("快照业务定位字段重复")
+                address = StateAddress(record.address.key, _location(location))
+                if address in pending:
+                    raise ValueError(f"快照地址重复：{address}")
+                pending[address] = self._validated_copy(definition, record.value)
+        finally:
+            self._validating = False
+        self._values = pending
+        self._restored = True
 
     def close(self) -> None:
         """释放内存和订阅；宿主必须先完成所需持久化。"""
