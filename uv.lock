@@ -1,0 +1,71 @@
+version = 1
+revision = 3
+requires-python = ">=3.12"
+
+[manifest]
+members = [
+    "aurora-api",
+    "aurora-bot",
+    "aurora-cli",
+    "aurora-core",
+    "aurora-model-adapter",
+    "aurorabot-workspace",
+]
+
+[[package]]
+name = "aurora-api"
+version = "0.1.0"
+source = { editable = "packages/aurora_api" }
+dependencies = [
+    { name = "aurora-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
+
+[[package]]
+name = "aurora-bot"
+version = "0.1.0"
+source = { editable = "packages/aurora_bot" }
+dependencies = [
+    { name = "aurora-core" },
+    { name = "aurora-model-adapter" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aurora-core", editable = "packages/aurora_core" },
+    { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
+]
+
+[[package]]
+name = "aurora-cli"
+version = "0.1.0"
+source = { editable = "packages/aurora_cli" }
+dependencies = [
+    { name = "aurora-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
+
+[[package]]
+name = "aurora-core"
+version = "0.1.0"
+source = { editable = "packages/aurora_core" }
+
+[[package]]
+name = "aurora-model-adapter"
+version = "0.1.0"
+source = { editable = "packages/aurora_model_adapter" }
+dependencies = [
+    { name = "aurora-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
+
+[[package]]
+name = "aurorabot-workspace"
+version = "0.1.0"
+source = { virtual = "." }

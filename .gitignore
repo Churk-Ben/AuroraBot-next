@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / build outputs
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+.vite/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db

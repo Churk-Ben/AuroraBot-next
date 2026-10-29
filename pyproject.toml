@@ -1,0 +1,29 @@
+[project]
+name = "aurorabot-workspace"
+version = "0.1.0"
+description = "AuroraBot monorepo workspace"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "packages/aurora_core",
+    "packages/aurora_model_adapter",
+    "packages/aurora_bot",
+    "packages/aurora_cli",
+    "packages/aurora_api",
+]
+
+[tool.uv.sources]
+aurora-core = { workspace = true }
+aurora-model-adapter = { workspace = true }
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.format]
+line-ending = "lf"

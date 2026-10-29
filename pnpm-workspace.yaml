@@ -1,0 +1,3 @@
+packages:
+  - packages/aurora_client
+  - apps/*
