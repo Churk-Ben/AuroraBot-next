@@ -1,0 +1,44 @@
+{
+  "name": "@vben/stylelint-config",
+  "version": "5.7.0",
+  "private": true,
+  "homepage": "https://github.com/AuroraBot-Dev/AuroraBot",
+  "bugs": "https://github.com/AuroraBot-Dev/AuroraBot/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AuroraBot-Dev/AuroraBot.git",
+    "directory": "tooling/stylelint-config"
+  },
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "index.mjs"
+  ],
+  "main": "./index.mjs",
+  "module": "./index.mjs",
+  "exports": {
+    ".": {
+      "import": "./index.mjs",
+      "default": "./index.mjs"
+    }
+  },
+  "peerDependencies": {
+    "stylelint": "^17.6.0"
+  },
+  "dependencies": {
+    "@stylistic/stylelint-plugin": "catalog:",
+    "postcss": "catalog:",
+    "postcss-html": "catalog:",
+    "postcss-scss": "catalog:",
+    "stylelint-config-recess-order": "catalog:",
+    "stylelint-config-recommended": "catalog:",
+    "stylelint-config-recommended-scss": "catalog:",
+    "stylelint-config-recommended-vue": "catalog:",
+    "stylelint-config-standard": "catalog:",
+    "stylelint-order": "catalog:",
+    "stylelint-scss": "catalog:"
+  },
+  "devDependencies": {
+    "stylelint": "catalog:"
+  }
+}
