@@ -3,11 +3,17 @@
 from collections.abc import Iterable
 from typing import TextIO
 
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
 from ...declarations import Command
-from ...utils.table import print_table
 
 DEFINITIONS = {"help": {"help": "列出当前可用命令"}}
 
 
 def execute(commands: Iterable[Command], output: TextIO) -> None:
-    print_table(("命令 ID", "用途"), [(str(item.id), item.help) for item in commands], output=output)
+    table = Table("命令 ID", "用途")
+    for item in commands:
+        table.add_row(Text(str(item.id)), Text(item.help))
+    Console(file=output).print(table)

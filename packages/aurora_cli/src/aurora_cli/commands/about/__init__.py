@@ -8,7 +8,9 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TextIO
 
-from ...utils.table import print_table
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
 DEFINITIONS = {"about": {"help": "了解 AuroraBot 与当前运行环境"}}
 LOGO = """                              ▄          ▄
@@ -52,5 +54,8 @@ def execute(root: Path, output: TextIO) -> int:
         )
     )
     print(f"{LOGO}\n\n{ABOUT}\n", file=output)
-    print_table(("项目", "内容"), rows, output=output)
+    table = Table("项目", "内容")
+    for label, value in rows:
+        table.add_row(Text(label), Text(value))
+    Console(file=output).print(table)
     return 0

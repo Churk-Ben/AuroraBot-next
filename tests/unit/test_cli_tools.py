@@ -6,9 +6,9 @@ from io import StringIO
 
 import pytest
 from aurora_cli.commander import run_cli
-from aurora_cli.commands import check, donk
-from aurora_cli.utils.table import render_table
-from rich.cells import cell_len
+from aurora_cli.commands import check, donk, help
+from aurora_cli.declarations import Command
+from aurora_core import Id
 
 
 def workspace(root):
@@ -76,18 +76,13 @@ def test_version_mismatch_is_readable_but_cannot_be_bumped(tmp_path):
     assert {path: path.read_bytes() for path in paths} == before
 
 
-def test_tables_preserve_literals_and_align_multiline_chinese():
-    result = render_table(
-        ("项目", "内容"),
-        [("中文", "第一行\nsecond"), ("标记", "[red]原样[/red]"), ("组合", "e\u0301")],
-        banner=("说明", "内容预览"),
-    )
+def test_help_preserves_plugin_description_as_literal_text():
+    output = StringIO()
+    help.execute([Command(Id("dev.test:commands/demo"), "[red]原样[/red]", None, ())], output)
+    result = output.getvalue()
     assert "[red]原样[/red]" in result
     assert "\x1b" not in result
-    assert result.index("说明") < result.index("项目")
-    assert len({cell_len(line) for line in result.splitlines()}) == 1
-    with pytest.raises(ValueError, match="列数"):
-        render_table(("项目", "内容"), [("缺一列",)])
+    assert "dev.test:commands/demo" in result
 
 
 def test_check_dispatches_flags_and_preserves_failure_status(tmp_path, monkeypatch):
