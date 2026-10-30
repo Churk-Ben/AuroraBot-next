@@ -2,6 +2,13 @@
 
 ## 2026-10-30
 
+- aurora_bot.control 提供内置控制插件，可通过显式 Plugin 清单或同名 aurorabot.plugins 入口启用。Serial、Branch、While、Parallel 组件复用 core 的实例连接和单次调用，可相互嵌套；core 不承担业务流程控制。
+- 控制连接在握手时交换双方的 ctx 地址描述和可选 schema，由插槽实例的 accept 判断兼容性；描述不同但被接收时记录 warning，无 schema 时允许使用代码约定。执行请求仅携带 run_id、execution_id 和父调用标识，业务输入输出由各组件自行读取和更新 ctx，不通过执行参数或返回值传递。
+- StateBinding 将实例业务位置按 run_id 定位；同一运行的重复调用可更新同一位置，需要调用历史的组件自行增加 execution_id 定位。地址不构成写权限边界，也不保证共享业务状态的并发安全。每次子调用生成独立 execution_id，控制完成由等待调用确定，ctx 变化订阅用于观察状态。
+- Serial 按 priority 和连接顺序依次等待，失败或取消终止后续调用；Branch 从 ctx 读取条件并选择一个子实例，None 跳过，未知实例报错；While 先判断条件，执行唯一循环体，达到显式上限且仍需继续时失败；Parallel 按显式并发上限运行，失败或取消时取消其他任务并等待清理，再传播异常。
+- 当前控制插件登记 org.aurora.bot:control/children（hook_slot）、org.aurora.bot:handlers/control/execute（hook_handler）和 org.aurora.bot:state/control（state_key）。控制状态按实例、运行和调用定位，记录 running/completed/failed/cancelled、父子调用关系及选择或迭代信息；每次根调用使用新的 ExecutionRequest，不提供重复请求去重或崩溃续跑。
+- 根执行可交给 Lifecycle.run 管理；控制组件没有脱离根调用的后台任务，正常关闭完成任务清理与最终状态写入后由宿主持久化。离线用例覆盖地址握手、兼容与拒绝、四类控制行为、嵌套、并发限制、父/子取消、组合结果恢复以及宿主关闭后的清理写入恢复。此切片不包含 ModelClient、ReAct 默认装配或 CLI 对话入口。
+
 - id/list（亦可写作 id list）按完整 ID 排序展示当前定义总表的 ID、kind 与 provider，包含 core 自举、CLI 内置定义及已启用插件声明。命令身份为 org.aurora.cli:commands/id/list，通过命令包自动发现；无需数据目录，不构造 ctx 或启动装配，因此不包含 prepare/start 阶段动态登记的定义。
 
 - 命令可通过 passthrough 的非空帮助文本显式启用参数透传。无自身参数的命令原样接收全部参数，包括 --help；有自身参数的命令只将首个 -- 及后续内容交给执行器，其前参数继续严格解析。执行器或 operation 接收名为 passthrough 的 list[str]，保留顺序、空字符串、含空格参数及分隔符，由命令决定下游转发方式，不拼接 shell 字符串。
