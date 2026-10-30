@@ -17,6 +17,9 @@
 
 ### 实现与验证记录
 
+- examples/react_agent/main.py 使用正式 ReActAgent、ReActDefaults、ModelCall 和 ToolExecutor，显式装配本地加法工具与 FakeModel。运行 `uv run python examples/react_agent/main.py --data-dir build/react-demo --guide "保留当前计算进度"` 可观察工具往返和流式期间引导；`--tool-error` 演示失败观察，`--tool-delay 0.2 --timeout 0.01` 演示超时，`--text "无需行动"` 演示无行动结束。同一数据目录重复运行保留上下文与消费位置，Ctrl+C 保存取消状态和待接纳工具结果；示例清理已消费 inbox 与中间值，只保留最近模型输出和恢复所需工具批次。
+- 本切片完整 uv run aurora check 通过：339 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查；4 项新增真实进程测试验证正常/失败/超时工具往返、引导、重启恢复与 SIGINT 后结果接纳。CLI 显式启用 aurora_bot.react、aurora_bot.model、aurora_bot.tools、aurora_bot.react_defaults 可枚举新增组件与端口。真实模型连接未验证；正式默认装配资源、模型工厂与绑定恢复、cadence/world 以及 CLI 对话仍待后续切片，M2 尚未整体完成。
+
 - aurora_bot.react_defaults 提供 ReActDefaults，将 build_prompt、ModelCall、interpret_response、ToolExecutor 与 record_observation 显式连接到 ReActAgent 的 prepare/infer/act/observe 阶段。三个默认处理器以 component 及 /execute 插头登记；模型和工具继续使用各自的组件定义。默认连接要求工作阶段为空，连接失败撤销本次新增连接；客户端仍由宿主持有并关闭。
 - 默认上下文以实例级 ReActContext 保存 messages、guidance_sequence 和 pending，消息与引导位置整项提交。prepare 按序接纳输入并准备模型可见工具清单；工具失败观察仍进入下一轮推理。模型文本仅保留为内部上下文，不自动发送给用户；无工具且 stop 可正常结束，length/content_filter 或不一致的结束原因明确失败。
 - 工具请求与其全部结果成组回填。中断后的 pending 在下一次激活时接纳已保存结果，其余结果标为 interrupted；不复用其他 turn_id 的输出，不自动重跑动作，也不假定中断时没有副作用。完成的工具结果在 after_call 扩展失败时仍保留，后续工具不继续执行。上下文、inbox 和恢复所需工具记录的裁剪由装配明确。
