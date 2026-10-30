@@ -3,8 +3,10 @@
 import asyncio
 import logging
 import math
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
-from typing import Literal, NotRequired, TypedDict, cast
+from dataclasses import dataclass
+from typing import Literal, NotRequired, Protocol, TypedDict, cast
 from uuid import uuid4
 
 from aurora_core.bootstrap import REGISTRY_DIRECTORY
@@ -14,6 +16,7 @@ from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
+from aurora_core.storage import StorageService
 from aurora_model_adapter import JsonValue, ToolCall, ToolDefinition
 from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry
@@ -91,6 +94,33 @@ def read_request(value: object) -> ToolBatchRequest:
     return cast(ToolBatchRequest, value)
 
 
+@dataclass(frozen=True)
+class ToolInstance:
+    """工厂创建的工具及其资源关闭入口；关闭失败时宿主保留实例供重试。"""
+
+    plug: ExecutionPlug
+    aclose: Callable[[], Awaitable[None]] | None = None
+
+
+class ToolFactory(Protocol):
+    """异步创建显式工具实例；返回前失败或取消时，工厂负责释放自身部分资源。
+
+    插头须沿用装配分配的 instance_id 与 input/output 地址，config 为该工具的 JSON 配置。
+    与模型一样，共享 storage 由宿主关闭，不由工具工厂关闭。
+    """
+
+    async def __call__(
+        self,
+        *,
+        ctx: Context,
+        storage: StorageService,
+        instance_id: str,
+        input_state: StateBinding,
+        output_state: StateBinding,
+        config: dict[str, JsonValue],
+    ) -> ToolInstance: ...
+
+
 class ToolSpec:
     """工具定义引用组件身份；运行时实例在 ToolExecutor 中显式连接。
 
@@ -98,7 +128,7 @@ class ToolSpec:
     工具通过 input 地址读取完整 ToolCall，通过 output 写入 JSON 结果。
     """
 
-    def __init__(self, component: Id, definition: ToolDefinition) -> None:
+    def __init__(self, component: Id, definition: ToolDefinition, *, factory: ToolFactory | None = None) -> None:
         encode_json(definition)
         if not isinstance(component, Id):
             raise TypeError("工具组件身份必须为 Id")
@@ -116,6 +146,9 @@ class ToolSpec:
             raise ValueError("工具参数使用 JSON Schema Draft 2020-12")
         Draft202012Validator.check_schema(schema)
         self.component = component
+        if factory is not None and not callable(factory):
+            raise TypeError("工具工厂必须可调用")
+        self.factory = factory
         self._definition = deepcopy(definition)
         self._validator = Draft202012Validator(self._definition["parameters"], registry=Registry())
 

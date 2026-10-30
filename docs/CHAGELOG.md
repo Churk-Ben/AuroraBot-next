@@ -17,6 +17,9 @@
 
 ### 实现与验证记录
 
+- 模型适配插件登记 state/config 与 state/bindings：前者按名称保存 adapter/model 和可选 base_url/credential，后者将逻辑角色映射到配置名称。credential 只保存运行期凭证引用；api_key 与未知字段拒绝写入。resolve_model 只解析 adapters 注册表中的工厂，不从配置导入模块、不缓存客户端；同一定义可以创建独立实例。
+- ToolSpec 可显式提供异步 ToolFactory。工厂接收 ctx、宿主 storage、分配的 instance_id、input/output 地址及工具 JSON 配置，返回 ToolInstance(plug, aclose)。工厂返回前的失败或取消由工厂释放部分资源；成功返回后的资源由装配负责关闭。工具沿用装配分配的身份和工作地址，共享 storage 仍由宿主关闭。
+
 - examples/react_agent/main.py 使用正式 ReActAgent、ReActDefaults、ModelCall 和 ToolExecutor，显式装配本地加法工具与 FakeModel。运行 `uv run python examples/react_agent/main.py --data-dir build/react-demo --guide "保留当前计算进度"` 可观察工具往返和流式期间引导；`--tool-error` 演示失败观察，`--tool-delay 0.2 --timeout 0.01` 演示超时，`--text "无需行动"` 演示无行动结束。同一数据目录重复运行保留上下文与消费位置，Ctrl+C 保存取消状态和待接纳工具结果；示例清理已消费 inbox 与中间值，只保留最近模型输出和恢复所需工具批次。
 - 本切片完整 uv run aurora check 通过：339 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查；4 项新增真实进程测试验证正常/失败/超时工具往返、引导、重启恢复与 SIGINT 后结果接纳。CLI 显式启用 aurora_bot.react、aurora_bot.model、aurora_bot.tools、aurora_bot.react_defaults 可枚举新增组件与端口。真实模型连接未验证；正式默认装配资源、模型工厂与绑定恢复、cadence/world 以及 CLI 对话仍待后续切片，M2 尚未整体完成。
 
