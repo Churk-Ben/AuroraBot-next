@@ -2,6 +2,69 @@
 
 ## 2026-10-30
 
+### 持续巡检工作台示例
+
+`examples/live_workshop/main.py` 通过真实 CLI 宿主常驻运行，默认监听 `127.0.0.1:10270`。模拟世界每 8 秒更新一次；示例内 cadence 订阅世界 ctx，空闲时触发 DefaultAssembly 的 ReActAgent。离线 FakeModel 通过 ModelCall 发起巡检工具，再调用报告工具，最后结束本次激活并等待后续任务。无需模型凭证或外部服务。
+
+- 巡检工具连接 Serial、While、Branch、Parallel：初始化计数、逐步递增并判断奇偶、并行计算双倍与平方。临时状态可通过 ctx/watch 观察，执行完成或取消后清理。
+- 运行中写入 request 会追加引导，由当前 bot 循环继续接纳；调度所有者串行管理激活。自动巡检在忙碌时跳过，暂停自动巡检仍保持世界更新与远程 CLI 可用。
+- 报告以 SQLite 台账持久化，通过 ctx 镜像展示累计数量与最近 10 条结果；成功激活后裁剪旧消息，FakeModel 仅保留最近请求样本。日志写入 `build/live-workshop/logs/aurora.log` 并轮转。
+- Ctrl+C 停止服务与订阅，取消并等待调度、世界任务，再关闭工具和模型并保存 ctx。重启保留设置、模型角色绑定、报告和 bot 上下文；已消费的 request 不自动重放，中断的工具结果在下一次激活接纳，不自动重做动作。
+- world 来源及 cadence 调度实现在示例目录内；`aurora_world` 插件参与发现。TUI、Panel 与 TS client 尚无完整运行入口，本示例使用已有 Python CLI 和 HTTP/WS 能力。
+
+在仓库根目录打开三个终端。终端一启动宿主，直到 Ctrl+C 才退出；`-l DEBUG` 可观察完整日志，`-d` 可选择独立数据目录：
+
+```powershell
+uv run python examples/live_workshop/main.py
+# 显式启动及参数示例
+uv run python examples/live_workshop/main.py -l DEBUG -d build/workshop-two serve --port 10271
+```
+
+终端二持续看报告；watch 仅推送订阅后的变化，已有报告用 get 读取。将 key 换成 `org.aurora.bot:state/run` 可观察 bot 阶段，换成 `org.aurora.bot:state/control` 可观察控制组件：
+
+```powershell
+uv run aurora --connect http://127.0.0.1:10270 ctx watch --key dev.example.workshop:state/reports
+```
+
+终端三读写正在运行的宿主。下面命令按需单独执行，ctx/set 是整项替换；settings 中省略的字段按默认值解释：
+
+```powershell
+# 查看状态地址、调度状态及累计报告
+uv run aurora --connect http://127.0.0.1:10270 ctx list
+uv run aurora --connect http://127.0.0.1:10270 ctx get dev.example.workshop:state/status
+uv run aurora --connect http://127.0.0.1:10270 ctx get dev.example.workshop:state/reports
+
+# 暂停自动任务，放慢步骤，便于观察运行中追加引导
+uv run aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/settings '{"automatic":false,"interval":8,"steps":3,"delay":1}'
+uv run aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/request '{"text":"手动巡检","steps":10}'
+uv run aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/request '{"text":"运行中追加检查","steps":2}'
+
+# 让工具失败一次；bot 将失败结果写入报告，宿主继续接受后续任务
+uv run aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/request '{"text":"故障演示","fail":true}'
+uv run aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/request '{"text":"故障后的正常任务","steps":4}'
+
+# 查看模型消息与工具往返；运行状态使用相同 location
+uv run aurora --connect http://127.0.0.1:10270 ctx get org.aurora.bot:state/messages --location '{"instance_id":"workshop"}'
+
+# 清除最后一次请求的展示值，不取消已接纳任务
+uv run aurora --connect http://127.0.0.1:10270 ctx delete dev.example.workshop:state/request
+
+# 恢复默认自动巡检
+uv run aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/settings '{"automatic":true}'
+
+# 改用更快的离线模型；Ctrl+C 并重新启动宿主后生效
+uv run aurora --connect http://127.0.0.1:10270 ctx set org.aurora.model_adapter:state/bindings '{"reasoning":"fast"}'
+
+# 通过示例入口枚举插件定义，不启动常驻服务
+uv run python examples/live_workshop/main.py id list
+```
+
+`--config '{"automatic":false}'` 可在首次启动时初始化 settings，已保存的 settings 优先；interval 范围为 0.5–3600 秒，delay 为 0–2 秒，steps 为 1–20。默认只开放示例与 bot 的指定状态 key；内部运行状态用于观察，调度输入使用 settings/request，模型选择使用 bindings。
+
+跨进程测试覆盖自动循环与 WS 观察、四类控制组件、真实 CLI 写入、运行中追加引导、失败后继续执行、设置与报告持久化、模型绑定重启生效，以及执行中 SIGINT 后清理与恢复。
+
+完整 `uv run --locked aurora check` 通过：367 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查；示例与新增测试的 basedpyright 检查为 0 错误、0 警告。
+
 ### 主动 bot、ReActAgent 与外围环境的设计决策
 
 - 设计以 bot 为中心：外围环境提供感知、执行、持久化与调度条件，尊重 bot 对关注对象、目标推进和行动的选择。没有新用户消息时，bot 仍可推进目标或主动行动；回复消息是可选择的行动，一次激活允许不采取行动就正常结束。
