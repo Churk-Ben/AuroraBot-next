@@ -2,6 +2,33 @@
 
 ## 2026-10-30
 
+- commands/ 的直接子包通过无参数 plugin() 工厂返回 core Plugin，CLI 按包名排序自动发现并统一登记；下划线开头的内部包不参与发现。包入口仅声明元数据和函数引用，文件、连接及任务在执行或生命周期阶段创建。发现范围为内置命令包，外部 entry point 仍需 --plugin 显式启用。
+- 命令必须且只能绑定 operation 完整 ID 或 executor callable。operation 默认要求运行期宿主，返回值以 JSON 输出；executor 默认不启动宿主，接收 CommandContext 与解析后的命名参数，可同步或异步执行，自行输出并返回 None 或 0–255 的整数退出码。CommandContext 提供 root、output、registry 与已接收命令目录。
+- executor 通过 runtime=true 声明需要 core 状态操作和生命周期，通过 assembly_argument 指定由宿主消费的 id 类型装配参数。所有执行绑定复用最小调用机制；重复 ID 在执行前拒绝，不完整或不兼容声明不进入可执行命令目录。
+- about、check、donk、help、ctx 与 run 各自在包内提供执行绑定和运行需求；commander 按声明选择运行环境，host 只负责装配与生命周期，执行层无需具体命令 ID 白名单。空命令与分组帮助由 CLI 展示基础设施提供，即使 help 命令包缺席仍可查看目录。
+- 自包含命令示例：在 packages/aurora_cli/src/aurora_cli/commands/hello/__init__.py 中定义以下内容，即可通过 uv run aurora hello Aurora 执行，无需修改中央分派或登记列表：
+
+```python
+from aurora_cli.declarations import CommandContext, command_plugin
+
+
+def execute(context: CommandContext, name: str) -> int:
+    print(f"你好，{name}", file=context.output)
+    return 0
+
+
+def plugin():
+    return command_plugin(__name__, {
+        "hello": {
+            "help": "打招呼",
+            "arguments": [{"name": "name"}],
+            "executor": execute,
+        }
+    })
+```
+
+- 验收通过完整 aurora check：190 项 Python 测试、9 项工具链测试，Pyright basic 无错误。覆盖命令包独立新增与移除、外部入口显式启用、同步/异步执行器、自定义退出码、运行期状态恢复、重复 ID 和无效绑定拒绝；安装后的 CLI wheel 在独立环境中完成命令发现与 ctx 调用。
+
 - CLI 分派在选择输出流后显式检查 None；无标准输出的环境须提供 output 文本流，各命令接收非空 TextIO。
 
 - about 与 help 的表格使用 Rich 内置 box.SIMPLE，隐藏外框、保留表头分隔线，不设置隔行变暗。
