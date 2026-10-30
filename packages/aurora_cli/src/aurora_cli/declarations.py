@@ -15,6 +15,8 @@ CONFIG = Id("org.aurora.cli:state/config")
 
 
 ARGUMENT_TYPES = frozenset({"string", "integer", "json", "id", "location", "flag"})
+ALLOWED_SPEC_FIELDS = frozenset({"help", "operation", "arguments", "executor", "runtime", "assembly_argument"})
+ALLOWED_ARGUMENT_FIELDS = frozenset({"name", "type", "option", "required"})
 
 
 @dataclass(frozen=True)
@@ -47,7 +49,13 @@ def command_plugin(
     return Plugin(
         provider,
         tuple(
-            RegistryEntry(Id(f"{namespace}:commands/{name}"), "command", dict(spec), provider, register_to=COMMANDS)
+            RegistryEntry(
+                Id(f"{namespace}:commands/{name}"),
+                "command",
+                dict(spec),
+                provider,
+                register_to=COMMANDS,
+            )
             for name, spec in definitions.items()
         ),
     )
@@ -57,9 +65,7 @@ def read_command(entry: RegistryEntry) -> Command:
     if entry.kind != "command" or not isinstance(entry.target, Mapping):
         raise TypeError("命令必须使用 command kind 和映射描述")
     spec = entry.target
-    if set(spec) - {"help", "operation", "arguments", "executor", "runtime", "assembly_argument"} or not isinstance(
-        spec.get("help"), str
-    ):
+    if set(spec) - ALLOWED_SPEC_FIELDS or not isinstance(spec.get("help"), str):
         raise ValueError("命令描述缺少 help 或包含不支持的字段")
     operation = Id(spec["operation"]) if "operation" in spec else None
     executor = spec.get("executor")
@@ -77,7 +83,7 @@ def read_command(entry: RegistryEntry) -> Command:
         raise TypeError("命令 arguments 必须为列表或元组")
     names = set()
     for argument in arguments:
-        if not isinstance(argument, dict) or set(argument) - {"name", "type", "option", "required"}:
+        if not isinstance(argument, dict) or set(argument) - ALLOWED_ARGUMENT_FIELDS:
             raise ValueError("参数仅支持 name、type、option、required")
         name = argument.get("name")
         if (
@@ -104,7 +110,15 @@ def read_command(entry: RegistryEntry) -> Command:
         or not any(item["name"] == assembly_argument and item.get("type") == "id" for item in arguments)
     ):
         raise ValueError("assembly_argument 须引用运行期命令的 id 类型参数")
-    return Command(entry.id, spec["help"], operation, tuple(deepcopy(arguments)), executor, runtime, assembly_argument)
+    return Command(
+        entry.id,
+        spec["help"],
+        operation,
+        tuple(deepcopy(arguments)),
+        executor,
+        runtime,
+        assembly_argument,
+    )
 
 
 class CommandReceiver:

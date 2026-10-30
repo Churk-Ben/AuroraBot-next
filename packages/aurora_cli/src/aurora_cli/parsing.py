@@ -48,13 +48,13 @@ def root_parser() -> argparse.ArgumentParser:
         allow_abbrev=False, prog="aurora", description="AuroraBot 当前进程宿主与命令入口", add_help=False
     )
     parser.add_argument("-h", "--help", action="store_true", dest="show_help", help="查看命令帮助")
-    parser.add_argument("--root", type=Path, default=Path.cwd(), help="命令使用的项目根目录")
+    parser.add_argument("-r", "--root", type=Path, default=Path.cwd(), help="命令使用的项目根目录")
     parser.add_argument("--debug", action="store_true", help="显示完整异常信息")
-    parser.add_argument("--data-dir", type=Path, help="宿主独占的数据目录；执行命令时必填")
+    parser.add_argument("-d", "--data-dir", type=Path, help="宿主独占的数据目录；执行命令时必填")
     parser.add_argument("--plugin", action="append", default=[], help="启用 aurorabot.plugins 入口，可重复")
     parser.add_argument("--namespace", default="org.aurora.cli", help="交互短名的命名空间")
     parser.add_argument("--assembly", type=Id, help="命令运行期间启动的装配完整 ID")
-    parser.add_argument("--config", type=json_object, help="恢复后、prepare 前写入 CLI 配置状态的 JSON 对象")
+    parser.add_argument("-c", "--config", type=json_object, help="恢复后、prepare 前写入 CLI 配置状态的 JSON 对象")
     parser.add_argument("command", nargs="?", help="完整命令 ID 或当前命名空间中的路径")
     parser.add_argument("arguments", nargs=argparse.REMAINDER, help="命令参数；全局选项须放在命令前")
     return parser
