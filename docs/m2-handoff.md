@@ -1,208 +1,156 @@
-# M2 最小 bot：规划与设计意图交接
+# M2 最小 bot：实现交接
 
-交接日期：2026-10-30。代码基线：`e15fb3a`（提供公共 ID 目录查看命令）。
+核对日期：2026-10-30。代码基线：`4eb4d6e`（明确组件层级定义并分离实例与执行身份）。
 
 ## 1. 从哪里继续
 
-M0、M1 已完成，M1.8 微内核集成验收通过。下一阶段是 M2：在现有 core 上装配最小 bot，完成模型调用、流式输出、一次工具循环、取消和状态恢复。
+M0、M1 和 M2.1 已完成。当前可用的是微内核、CLI 基础宿主、四类控制组件、模型协议与假模型，以及通过 ctx 交换输入输出的 ModelCall。默认 bot、真实模型适配、对话提交/取消和 ReAct 工具循环仍待实现。
 
-`aurora_model_adapter` 与 `aurora_bot` 当前只有包骨架和依赖声明，尚无 ModelClient、ReAct 或对话运行实现。不能将公共 ID 目录中的规划对象理解为已经存在的实现。
+建议下一切片是确定性本地工具组件，再用假模型完成“工具请求 → 执行 → 观察回填 → 再次推理”。它验证进程内组合，不代替默认装配、对话运行和 M2 整体验收。产品语义存在分歧时先询问用户，不从规划 ID 推导已批准行为。
 
-本文件是用户明确要求的交接文档，用于新对话继续任务；本次只整理规划与设计意图，不开始 M2 编码。
+阅读顺序：
 
-推荐阅读顺序：
+1. [AGENTS.md](../AGENTS.md)：协作与编码规范。
+2. 本文件与 [计划](plan.md)：当前进度、接续任务和决策点。
+3. [设计文档](aurorabot-design-v0.2.2.md)：第 4、5、7、8 节的已实现边界。
+4. [公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)：第 5 节模型协议与第 6.0 节当前 bot 组件；后续 bot 表格为规划。
+5. [示例指南](../examples/START.md)：计数器、控制组件和假模型的离线启动方式。
+6. [变更记录](CHAGELOG.md)：按日期及条目上下文阅读，历史描述不覆盖当前接口。
 
-1. 根目录 [AGENTS.md](../AGENTS.md)：协作与编码规范。
-2. 本文件：已确定边界、设计背景、下一步切片。
-3. [设计文档](aurorabot-design-v0.2.2.md)：重点阅读第 7、8、9、11 节。
-4. [公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)：第 5、6 节的模型、bot、状态与事件身份。
-5. [总体计划](plan.md)：M2.1–M2.8 及 D03、D05、D06、D07、D10。
-6. [变更记录](CHAGELOG.md)：现有接口的实际语义；历史条目按日期和上下文阅读，不把早期实现描述当作当前实现。
+接手时先检查工作区和最新提交，保留用户改动，不重新实现已交付切片。
 
-新对话先检查工作区与最新提交，保留用户改动。建议从 M2.1 的模型协议和确定性假模型开始，完成可离线验收的切片；具体未决语义按第 5 节收敛。
+## 2. 已确定的组件模型
 
-## 2. 设计意图的来源与效力
+- core 提供登记、ctx、订阅、实例连接、单次调用和生命周期；控制、模型、工具、ReAct 属于插件。
+- bot 组件业务数据由实例自行读写 ctx。插头与插槽握手交换 ctx 地址和可选 schema；执行只传递运行及调用身份，没有业务参数或返回值。
+- 双方可以描述 schema，由插槽接收方判断兼容性；双方描述不同但被接收时 warning。局部约定可不提供 schema，不为少量特殊连接强造契约。
+- 等待调用确定执行结束；ctx 变化和 EventBus 用于通知，组件也可主动订阅以触发更新。不是所有状态写入都触发执行，事件也不提供历史回放。
+- 根组件控制子调用，Serial、Branch、While、Parallel 可嵌套。core 不遍历业务树、不推断隐藏的 ctx 依赖。
+- 调用关系、共享服务所有权与生命周期依赖分别表达。使用共享客户端不意味着拥有关闭它的权力或可以任意并发调用。
 
-### 2.1 已有设计约束
+### 2.1 定义、实例与执行身份
 
-- core 提供登记、寻址、状态、订阅、连接、生命周期和单次调用机制；bot、模型、工具及业务流程属于各功能包或插件。
-- `hook_handler` 表达插头，`hook_slot` 表达插槽。组件可以同时提供两者，运行时连接必须区分组件实例。
-- 从根组件进入业务执行；每个组件决定如何调用自己插槽中的连接，如何传递结果、处理失败和终止。
-- 顺序、并行、选择、循环由相应控制组件提供。core 不通过一次通用遍历决定所有组件的执行行为。
-- 登记成功、声明被接收、实例已连接、实际调用是不同阶段。ID、发现顺序和目录表格顺序不自动成为业务执行顺序。
-- 插槽接收方判断兼容性；无需以 schema 相同作为全局条件，也不要求每个内部函数都拥有公共 ID。
-- 实际依赖由装配表达，不从隐藏的 ctx 读写关系自动推断。
-- 默认装配先服务实际 bot 场景，不提前冻结完整装配语言、任意执行图或通用流程引擎。
-
-### 2.2 用户补充的思考：作为背景理解
-
-用户在进入 M2 前分享了与另一 AI 的讨论，并明确说明：上下文不完整，**不要直接当作要求**。
-
-该段思考的核心是：hook 更像 slot；插件可以接入插头，也可以向其他插件暴露能力；组件像插线板一样组合成树形结构。普通顺序组合可能表现得像前序遍历，但特殊控制组件应真正拥有并行、选择和循环的控制权。用户认可连接式组合相对代码紧耦合的价值，也意识到其中可能产生隐式依赖，希望通过装配和运行控制改善。
-
-这段思考帮助解释已有设计方向，但不授权立即实现所有控制组件、依赖推断器或图优化算法。
-
-### 2.3 助手提出的分析：尚非用户确认的新增约束
-
-以下是讨论中给出的建议，应在具体实现时检验，不能伪装成已经冻结的协议：
-
-- 插件是能力提供和装配单位，组件实例更适合作为运行结构节点。
-- 树可以描述拥有关系或调用层级；共享服务可能使静态连接成为图，不必强制所有关系都是严格树。
-- 循环组件可以重复调用同一连接，不一定需要在结构中创建环。
-- 调用关系、资源所有权和生命周期依赖应分别考虑；调用共享服务不意味着调用者拥有关闭它的权力。
-- 装配算法可以检查已表达的依赖，不能可靠补齐所有隐藏依赖。
-- 接口除了参数类型，还可能涉及可重入、并发、重复调用、取消和失败语义；只补当前组合真正需要的约定。
-
-M2 应用一个小而完整的 bot 验证这些想法，而不是先建设一套覆盖所有未来场景的框架。
-
-## 3. 当前可复用的实现
-
-### 3.1 core
-
-源码目录：[aurora_core](../packages/aurora_core/src/aurora_core)。
-
-| 能力 | 当前接口与约束 |
+| 字段 | 当前含义 |
 | --- | --- |
-| 公共身份与总表 | `Id`、`RegistryEntry`、`DefinitionRegistry`；同一作用域 ID 唯一，批量登记原子检查，替换须显式进行 |
-| 插件发现 | `Plugin`、`load_plugins`、`register_plugins`；entry point group 为 `aurorabot.plugins`，外部入口只按显式选择启用，必需依赖须同时选中 |
-| 声明接收 | `inspect_admissions`；缺席可选 CLI/API 接收方保留声明并告警，不阻断插件其余能力 |
-| 声明装饰器 | `@operation`、`@hook_handler`、`entry_from`；只附加声明，登记与连接由装配显式完成 |
-| ctx | `Context`、`StateKey`、`install_context`；地址为完整状态 ID 加业务定位，读写复制，set 整项替换，每次成功 set 都通知 |
-| 订阅 | ctx 订阅后续变更；EventBus 提供同步进程内发布订阅，监听器失败不撤销已提交状态 |
-| 持久化 | `ContextPersistence` 与 `JsonSnapshotStore`；默认保存全部 ctx 状态，严格 JSON，临时文件写完后替换正式快照，后台合并写入 |
-| 存储 | `StorageService`；宿主显式传入数据目录，提供框架 SQLite JSON KV、ctx 快照路径及插件目录 |
-| 实例连接 | `HookConnections.connect` 显式给出两端 ID、实例标识及可选绑定 callable；排序为 priority 从小到大，同值保持连接顺序 |
-| 单次调用 | `invoke_callable`、`invoke_operation`、`HookConnections.invoke`；同步在宿主线程运行，异步结果等待，取消向调用传播 |
-| 生命周期 | `Lifecycle`、`LifecycleComponent`；按显式依赖 prepare/start，依赖者先停止，最后由宿主保证 flush |
+| definition_id | 完整 Id，登记为 component，指向组件类或局部执行函数 |
+| instance_id | 实例身份，默认 UUID，也可显式传入非空字符串；重复取得同一组件的 plug 保持身份 |
+| run_id | 一次业务运行的关联标识，父子调用共享 |
+| execution_id | 单次调用身份；ExecutionRequest.child() 创建新身份并记录父调用 |
+| reference | definition_id.instance_id 展示字符串；内部字段分开保存，不交给 Id 解析 |
 
-注意：
+`component_entries(definition_id, component, execute, provider=..., children=False)` 显式生成组件及其 /execute 插头定义；children=True 同时生成 /children 插槽。这是 bot 插件的声明约定，core 仍按完整 ID 与显式 kind 寻址，不根据路径推断运行时树。
 
-- ctx 保存的是状态数据，不是函数、服务实例、连接或任务。模型配置的可恢复描述与实际 ModelClient 对象必须分开。
-- ctx 访问限宿主线程；同线程并发协程中的单次修改有顺序，读改写组合不是事务。
-- 生命周期恢复快照后执行 `configure`，再执行组件 prepare/start；配置所需的状态定义应在恢复前登记。
-- `Lifecycle.run` 跟踪通过它接收的调用。组件自行创建的任务须由组件 stop 收束。
-- 关闭顺序：停止入口 → 等待或取消在途调用 → 组件最后写入并结束来源 → 最终 flush → 释放存储和 ctx。
-- 失败不得假报成功；停止或落盘失败保留可重试资源。协程超时不能抢占同步阻塞函数。
-- 路由包装器中的 target、registry、identity 等参数已采用仅限位置参数，业务可使用同名关键字参数。
-- 不要为 ReAct 循环、工具流程或模型选择给 core 增加业务特例。
+示例中的局部业务函数也通过此 helper 登记，再包装为 ExecutionPlug；普通私有辅助函数不要求登记。ExecutionSlot 校验插头归属，同一插槽内子实例的 instance_id 唯一；LifecycleComponent 的 instance_id 则须在同一宿主内唯一。
 
-### 3.2 CLI
+### 2.2 控制接口与状态
 
-源码目录：[aurora_cli](../packages/aurora_cli/src/aurora_cli)。
+源码：[control/execution.py](../packages/aurora_bot/src/aurora_bot/control/execution.py)、[control/components.py](../packages/aurora_bot/src/aurora_bot/control/components.py)。
 
-- `main` 负责进程入口与错误码；`commander` 负责发现、解析后分派；`host` 负责运行期装配。
-- `declarations` 定义命令描述和接收规则；`execution` 统一调用执行绑定；`parsing` 处理 argv；`presentation` 提供目录和分组帮助。
-- 内置 `commands/` 的直接子包导出无参数 `plugin()`，返回 core `Plugin`，宿主自动发现。新增命令无需修改中央白名单或按具体 ID 分派的分支。
-- 命令绑定 `operation` 或 `executor`，两者择一。operation 运行于宿主并默认输出 JSON；executor 可以自定义输出，支持同步或异步，通过 `runtime` 声明是否需要宿主。
-- `CommandContext` 提供 root、output、registry 与已接收命令目录；`assembly_argument` 声明由宿主消费的装配选择参数。
-- 当前装配入口是同步工厂，以关键字接收 registry、ctx、hooks、storage，返回 `LifecycleComponent` 可迭代对象；工厂负责连接，资源初始化放在 prepare/start。这是现有 CLI 宿主约定，不等于已冻结所有 bot 装配格式。
-- bot 可用 core 的普通登记项声明 CLI 命令，不能为使用 CLI 的辅助类型而建立 bot 对 CLI 实现的硬依赖。
-- `passthrough` 为显式启用的原样参数透传；保留 argv 列表和分隔符，不拼接 shell 字符串。具体语义见当前 parsing 与测试。
-- 当前命令包含 about、check、donk、ctx、help、run、id/list；`-v/--version` 读取已安装 CLI 版本并快速退出。
-- `id list` 展示启动装配前已登记的总表，不含 prepare/start 中动态登记的定义；它不启动宿主。
-- CLI 当前只操作本进程宿主。另起一个 `cancel` 进程不能凭共享数据目录取消已有进程中的任务；M2 的取消入口必须按实际进程关系设计。
-- about 和帮助表格直接使用 Rich `box.SIMPLE`，无外框、不隔行变暗；不恢复 `utils.table` 自绘层。
+- `ExecutionSlot(Serial.definition_id, hooks, instance_id="root")` 创建串行组件的插槽；Serial(ctx, slot) 要求插槽与自身定义匹配。
+- `ExecutionPlug(definition_id, execute, instance_id="worker", states=...)` 暴露执行和地址；slot.connect(plug, priority=...) 返回两端地址与 schema 的握手信息。
+- StateBinding(key, location=...) 在显式位置上加入 run_id，不自动加入 definition_id、instance_id 或 execution_id。需要实例隔离的业务地址由装配明确填写；同一运行中的重复调用可以更新同一地址。
+- 控制状态使用 `org.aurora.bot:state/control`，按 definition_id、instance_id、run_id、execution_id 定位，携带父调用及当前选择/迭代信息。
+- 控制状态只覆盖在途调用。完成、失败、取消时先发布终态变化，再删除本次地址，不保存调用树或历史。需要记录过程的订阅者自行收集。
+- 控制组件没有脱离根调用的后台任务；根调用可交给 Lifecycle.run 跟踪。业务状态保留策略由装配负责。
 
-M2.7 特别注意：operation 的通用 JSON 输出不自动变成流式对话 UI。需设计 CLI 如何消费增量并处理取消，同时维持 bot 无 CLI/API 实现依赖，以及命令自包含扩展能力。
+| 组件 | 执行语义 |
+| --- | --- |
+| Serial | priority 从小到大，同值按连接顺序，逐个等待；失败或取消停止后续调用 |
+| Branch | 选择函数返回一个子实例 instance_id；None 跳过，未知实例报错 |
+| While | 先判断条件，只连接一个循环体；多步骤用 Serial；显式正整数 max_iterations，达到上限且条件仍真时失败 |
+| Parallel | 显式正整数 concurrency 控制异步并发；失败或取消时取消其余任务并等待清理，再传播异常 |
 
-### 3.3 验收基线
+Controller 是公共基类定义，不是可独立运行的第五种控制流程。Parallel 不提供线程执行或共享 ctx 写入事务。
 
-M1.8 验收时完整检查通过：196 项 Python 测试、9 项工具链测试、Pyright basic、格式/lint、TypeScript 与工作区入口检查。
+## 3. 模型协议与调用组件
 
-关键证据：
+### 3.1 aurora_model_adapter
 
-- [关闭顺序集成测试](../tests/e2e/test_m1_shutdown.py)：磁盘 I/O 阻塞期间接收 20 个在途调用，记录 22 次状态变化与最终资源关闭顺序，恢复全部业务地址。
-- [真实 CLI 进程测试](../tests/e2e/test_m1_cli_process.py)：watch、SIGINT、最后写入、下一进程恢复；停止和落盘故障均非零退出。
-- [生命周期与持久化集成测试](../tests/e2e/test_lifecycle_persistence.py)：可选处理器禁用、落盘失败重试、损坏快照保护。
-- [命令扩展集成测试](../tests/e2e/test_cli_extensions.py)：命令包新增/移除、外部入口显式启用、运行期执行器与状态恢复。
-- [独立计数器](../examples/core_counter/main.py)：仅安装本次 core wheel 的环境中，两次执行输出 2 和 5；CLI、bot、API、模型适配包均不可导入。
+源码：[models.py](../packages/aurora_model_adapter/src/aurora_model_adapter/models.py)、[protocols.py](../packages/aurora_model_adapter/src/aurora_model_adapter/protocols.py)、[fake.py](../packages/aurora_model_adapter/src/aurora_model_adapter/fake.py)。
 
-M1.8 后还有调用参数、透传和 ID 列表提交；196 是该里程碑的历史验收数字，不是对当前测试总数的新声明。本次交接整理未重跑全套测试。
+- Message、ToolDefinition、ToolCall、ModelRequest、ModelResponse 与 ModelChunk 用 TypedDict 表达普通 JSON 数据，不包含 SDK 对象。
+- ToolCall 包含完整 id、name、arguments；参数必须是完整 JSON 对象。供应商的参数片段由适配层组装，bot 不消费半截 JSON；文本仍逐段输出。
+- await client.complete(request) 返回完整响应；async with client.stream(request) as chunks 消费异步片段。
+- chunk 区分 text、tool_call、finish。ResponseBuffer 累计文本与完整工具请求，不保留片段历史，要求唯一且最后的 finish；缺失结束、重复工具 ID 等协议错误明确失败。
+- finish_reason 为 stop、tool_calls、length、content_filter。模型响应结束不代表整个 bot 对话成功完成。
+- ModelCapabilities 声明 streaming、tool_calls；能力不足明确拒绝，不自动降级。请求包含工具定义或工具历史时同样检查工具能力。
+- ModelFactory 是异步工厂协议，接收 ModelConfig 与关键字 api_key。ModelConfig 提供 model 与可选 base_url；凭证从运行期参数注入，不写入 ctx。工厂加载与绑定恢复尚未实现。
+- ModelError、UnsupportedCapability、ModelProtocolError 表达模型边界错误；取消和超时沿用标准异常，真实供应商错误映射待适配器实现。
+- FakeModel 通过 FakeReply 回调确定性生成输出，无网络和密钥依赖，可用于完整响应、流式、工具请求及故障测试。它没有单独的公共 adapter ID。
 
-## 4. M2 任务拆分与建议交付顺序
+插件入口为 aurora_model_adapter，登记 adapters、model_client 及四个模型 schema，共六项定义。LiteLLM 与 state/config、state/bindings 仍为规划。
 
-以下沿用总体计划的任务编号；文件名是建议落点，按实际职责调整，不为目录齐全创建空实现。
+### 3.2 aurora_bot.model
 
-| 任务 | 交付内容 | 可验证出口 |
+源码：[model.py](../packages/aurora_bot/src/aurora_bot/model.py)。
+
+`ModelCall(ctx, client, *, instance_id=None, request_state, output_state, streaming=True)` 使用注入客户端，从 request_state 读取请求，在 output_state 更新同一个 ModelCallState。插头通过 states 的 input/output 交换地址。
+
+输出包含 status、execution_id、text、tool_calls、finish_reason，失败时包含异常类型名称 error。收到部分文本后失败或取消时保留文本，并标记 failed/cancelled；异常继续传播。completed 只表示这次模型请求完成，不执行工具或继续 ReAct。
+
+调用组件通过上下文管理关闭单次响应流，装配在全部调用结束后关闭共享 client。同一输出地址必须串行调用；不同 run 可分开定位，但客户端是否支持并发仍由其实现决定。
+
+插件入口为 aurora_bot.model，登记 ModelCall component 与其 /execute 两项定义。实际组件 ID 为 `org.aurora.bot:handlers/model_call`；它与规划中的 ReAct call_model 处理器的装配关系尚未确定。
+
+## 4. 宿主与存储边界
+
+core 的关键接口与注意事项：
+
+- Context、StateKey、install_context：状态地址由完整 ID 与业务定位构成；读写复制，set 整项替换，每次成功 set 均通知，list 返回已赋值地址并排序。缺失 get 抛 KeyError，缺失 delete 返回 False。
+- ctx 访问限宿主线程；同线程单次修改有序，读改写不是事务。EventBus 同步分发后续事件，监听器异常不撤销已提交状态。
+- ContextPersistence 默认保存全部 ctx，快照要求严格 JSON，后台合并写入；Context.set 只执行已配置校验，不保证值可序列化。运行时服务、连接、任务由装配持有，凭证不写入 ctx。
+- StorageService 使用显式数据根，提供 framework/ctx.json、framework/structured.sqlite3 及插件命名空间目录；插件可自行管理数据库。
+- Lifecycle 恢复快照后执行 configure，再 prepare/start。Lifecycle.run 跟踪根调用；组件自行创建的任务由其所有者收束。
+- 关闭顺序为停止入口、等待/取消在途调用、组件最后写入、最终 flush、释放资源。停止或落盘失败报告错误并保留可重试资源，不假报正常退出。
+
+三个示例各自使用独立数据目录。控制与模型示例启动时清理恢复出的临时控制状态，收尾清理中间值和旧结果，只保留最新业务输出；这是示例保留策略，core 不提供自动裁剪。快照恢复不自动重建实例或续跑调用。
+
+CLI 基础能力：
+
+- 内置 commands/ 直接子包导出无参数 plugin()，自动发现；外部插件通过 aurorabot.plugins entry point 显式选择。
+- main、commander、declarations、parsing、execution、host、presentation 分担入口、发现、声明、解析、执行、宿主和展示，不通过具体命令 ID 特判。
+- 命令绑定 operation 或 executor 二选一；runtime 声明是否需要宿主。passthrough 只在显式启用时保留原始 argv，不拼接 shell 字符串。
+- CLI 装配入口是同步工厂，关键字接收 registry、ctx、hooks、storage，返回 LifecycleComponent 可迭代对象；资源初始化在 prepare/start。这不冻结默认 bot 的装配格式。
+- 当前有 about、check、donk、help、ctx get/set/delete/list/watch、run、id/list；没有 chat/cancel。id list 不启动宿主，不包含 prepare/start 动态登记的项。
+- CLI 操作本进程宿主；另起进程不能凭共享数据目录取消在途任务。流式对话与取消须维持实际宿主关联，bot 不硬依赖 CLI/API 实现。
+
+## 5. 接续任务与待定决策
+
+完整任务表见 [计划第 6、11 节](plan.md)。当前 M2.2、M2.5 仅有组件基础，M2.3、M2.4、M2.6、M2.7 尚待实现，M2.8 整体验收未完成。
+
+| 决策 | 已确定 | 仍需确认或实现 |
 | --- | --- | --- |
-| M2.1 模型协议与假实现 | model_adapter 的请求、响应、流式 chunk、工具调用、能力声明、ModelClient 与工厂协议；确定性假模型 | 文本、流式、工具请求、失败、取消均可离线驱动；公共接口不含 SDK 类型 |
-| M2.2 默认装配与绑定 | bot 默认 assembly、逻辑模型角色、实例创建、连接及资源所有权；可恢复绑定描述 | 同一定义可产生不同实例；先恢复配置再创建运行对象；无 CLI/API 也能启动 |
-| M2.3 LiteLLM 适配 | 单独适配器负责 SDK 转换、增量工具参数组装、错误与取消映射、连接释放 | 模拟 SDK 响应完成边界测试；能力不足明确拒绝或按显式配置降级 |
-| M2.4 对话运行与状态 | 进程内 send/cancel、会话和运行身份、状态机、事件与重启处理 | started 后恰有一个终态；完成、失败、取消可区分；重复请求与取消竞态有明确定义 |
-| M2.5 默认 ReAct 控制 | bot 控制组件、提示词资源、prepare/infer/act/observe/finish/error 插槽与默认处理器 | 根组件控制调用；无工具时结束，有工具时再次推理；轮次限制可解释；控制逻辑不进入 core |
-| M2.6 基本工具路径 | 工具登记、参数校验、before_call/after_call、结果/失败表达；确定性本地工具 | 未知工具和非法参数不执行；工具结果进入下一轮；失败、超时、取消不悬挂 |
-| M2.7 CLI 对话接入 | bot 命令声明、CLI 流式展示与取消、进程内调用保留 | CLI 可显示增量和唯一终态；中断完成清理；CLI 缺席不影响 bot 进程内运行 |
-| M2.8 最小 bot 验收 | 模型/插槽契约测试、默认装配、工具循环、取消、重启 | 无网络与密钥即可验收假模型；可用配置下另做真实模型冒烟，分开报告结果 |
+| D03 绑定恢复 | ctx 保存 JSON，装配持有运行时对象，凭证单独注入 | 可恢复配置/角色引用、恢复后重建客户端与实例 |
+| D05 默认装配 | 定义、实例、运行、执行身份分离；端口显式连接 | 默认根组件、连接与注入的最小装配描述 |
+| D06 资源收尾 | 宿主根调用收束，单次流由调用方关闭，共享客户端由所有者关闭 | 真实 HTTP 资源与工具任务的超时、取消及清理 |
+| D07 真实模型边界 | 异步协议、完整工具请求、逐段文本、终态与能力拒绝 | LiteLLM 映射、供应商错误、参数增量组装 |
+| D10 对话运行 | 模型调用状态可观察，但不等于会话运行 | send 等待/返回、忙碌与重复提交、取消竞态、重启遗留 run |
+| 工具与 ReAct | 可复用控制组件和模型协议 | 参数校验、工具失败表达与继续策略、观察回填、终止限制 |
+| CLI 流式接入 | 命令扩展机制可用 | 增量打印、Ctrl+C、同宿主取消与 bot 无 CLI 硬依赖 |
 
-建议小步推进：
+不默认写 ctx 就等于 send，不承诺事件可靠投递或重启透明续跑。规划中的 conversation 操作和端点不强制决定 TUI/Panel 的交互机制。
 
-1. 首先交付 M2.1：围绕“返回文本”和“请求一个工具”定义最小协议，再加入流式与取消验证；不先实现所有供应商参数。
-2. M2.2 使用假模型打通装配与生命周期，证明服务注入、同定义多实例和收尾可用。
-3. M2.3 可与假模型驱动的 M2.4–M2.6 路径分开推进；真实供应商连接不应阻塞离线开发。整个 M2 验收仍包含适配器。
-4. M2.4 先明确运行语义，再实现 M2.5 的控制组件和 M2.6 的工具往返。插槽表只是接入位置，不能代替实际控制组件。
-5. 业务行为稳定后接 CLI，避免让 CLI 输出和参数格式决定底层对话协议。
+依赖方向为 core ← model_adapter ← bot，bot 也直接依赖 core；LiteLLM SDK 类型只停留在适配器内部。M3 的 HTTP/WS、client/TUI 和 M4 的多模型、agent、MCP 不纳入当前最小工具切片。
 
-首次演示目标：输入 → 模型请求确定性工具 → 执行并记录观察 → 再次推理 → 输出最终结果；另演示一次流式取消和一次工具失败。
+## 6. 检查与证据
 
-## 5. 实现前或实现中必须收敛的决策
-
-| 决策 | 时点 | 需要明确的问题 |
-| --- | --- | --- |
-| D07 模型边界 | M2.1，M2.3 复核 | async 接口形态、文本与工具增量的关联、结束标记、能力检查、错误映射、调用取消和服务关闭责任 |
-| D03 绑定恢复 | M2.2 | ctx 保存哪些配置和引用，实例由谁持有，恢复如何重建；凭证如何注入，避免无意纳入完整状态快照 |
-| D05 装配格式 | M2.2 | 根组件选择、组件实例标识、连接与注入的最小表示；调用关系、共享服务和生命周期依赖如何表达 |
-| D06 资源收尾 | M2.2–M2.6 | 模型流、HTTP 客户端、工具任务由谁关闭；组件自行创建的任务如何等待或取消 |
-| D10 运行语义 | M2.4 | send 的返回与等待语义、忙碌会话策略、重复请求、run ID、取消竞态、终态提交、遗留进行中运行的恢复 |
-| CLI 流式接入 | M2.7 | 谁订阅增量、谁打印、谁处理 Ctrl+C；cancel 如何作用于同一宿主；命令如何避免导入 CLI 实现 |
-
-上述问题没有全部确定。可以先开展不依赖它们的工作；影响公共接口或明显存在多种产品语义时及时询问用户，不把候选默认值写成用户已批准的要求。
-
-尤其不能直接假定：
-
-- 所有 ctx 写入都触发业务执行，或写入某个状态天然等同于 send。
-- 事件订阅会自动提供历史回放、远程传输或可靠投递。
-- 已登记的 conversation/send、cancel 或 HTTP 端点规划强制决定未来 TUI/Panel 交互。
-- 重启后可以透明续跑模型调用或工具执行；消息和配置恢复与运行恢复是不同问题。
-- 共用 ModelClient 意味着任意并发安全，或所有组件均有权关闭该实例。
-- 凭证、服务实例可以直接放进 ctx；当前持久化语义是保存全部状态数据。
-
-推荐先使用明确的进程内调用关系验证执行，再按实际需求设计状态与事件通知；这属于实施建议，不是已经确认的完整提交协议。
-
-## 6. 公共身份与包边界
-
-沿用现有目录中的规划身份，不为同一能力新造同义 ID。主要入口：
-
-- model_adapter：adapters 注册表、model_client 服务、litellm 适配器、model_request/response/chunk/capabilities、state/config 与 state/bindings。
-- bot：assemblies/default、operations/conversation/send 与 cancel、commands/chat 与 cancel、prompts/soul 与 react。
-- ReAct：react/prepare、infer、act、observe、finish、error；默认 handlers/react/* 由控制组件接入并调用。
-- 工具：registries/tools、tools/before_call 与 after_call、tool_definition/call/result。
-- 状态和事件：state/config、messages、run；run/started、completed、cancelled、failed 和 message/delta。
-
-完整 namespace、kind 与路径以 [ID 目录](aurorabot-id-catalog-v0.2.2.md) 为准。公共 ID 表示定义，模型名、会话和 run 等业务定位不能通过不断修改定义 ID 来表达。
-
-依赖方向保持：core ← model_adapter ← bot；bot 也直接使用 core。CLI/API 通过公开接入方式参与装配，不能成为 bot 的必装实现依赖。LiteLLM SDK 类型只停留在适配器边界。
-
-M2 暂不承接 M3 的 HTTP/WS、远程 client/TUI，也不承接 M4 的多模型编排、agent 通信或 MCP。并行、选择等控制组件按最小 bot 的实际需要引入。
-
-## 7. 工作方式与命令
-
-- 主要注释、docstring 和提交信息使用中文；小步提交，提交信息以动词开头。
-- 修改 README.md 或 AGENTS.md 前必须征得用户确认；普通变更说明放入 docs/CHAGELOG.md。本交接文件是用户明确指定的独立文档。
-- scripts/ 首选 Node/TypeScript；Python 类型检查采用 Pyright basic。编辑器可能与命令行类型桩有所不同，输出流等可空对象要真实校验，不用忽略诊断掩盖问题。
-- PyPI 统一安装包为 aurorabot-ai，依赖各功能包。当前 donk 暂统一更新 Python 工作区版本和内部依赖；未来拆仓策略未冻结。
-- 用户希望命令自包含、插件可插拔；不要把新命令的 ID 特例加回 commander 或 host。
-- 旧项目只可参考文件组织和用户可见效果，不借用其旧架构与实现来覆盖当前设计。
-- 安装和检查：
+`4eb4d6e` 的变更记录报告完整 aurora check 通过：256 项 Python 测试、9 项工具链测试及格式、lint、类型检查。本次文档核对的模型协议、组件身份、控制、ModelCall 及两个相关示例测试共 45 项通过；未重新运行完整检查。
 
 ```powershell
 uv sync --all-packages
 pnpm install --frozen-lockfile
 uv run aurora check
 pnpm typecheck:python
-uv run pytest tests/e2e/test_m1_shutdown.py tests/e2e/test_m1_cli_process.py
-uv run aurora id list
+uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_identity.py tests/unit/test_bot_control.py tests/unit/test_model_call.py tests/e2e/test_control_flow_example.py tests/e2e/test_model_call_example.py -q
+uv run aurora --plugin aurora_bot.control --plugin aurora_bot.model --plugin aurora_model_adapter id list
 ```
 
-针对故障用对应工具的精准命令；check 不做任意参数透传。M2 提交前保留 M1 核心和 CLI 回归检查，新增测试聚焦模型协议、控制行为与可观察结果。
+行为证据：
 
-真实模型验证须在可用配置下进行，不索要或输出明文密钥；没有可用连接时如实记录真实冒烟未执行，不能将模拟 SDK 测试当作真实连接成功。
+- [组件身份](../tests/unit/test_component_identity.py)：定义层级、实例隔离与展示引用。
+- [模型协议](../tests/contract/test_model_protocol.py)：流关闭、能力拒绝、结束和工具请求。
+- [控制组件](../tests/unit/test_bot_control.py)、[模型组件](../tests/unit/test_model_call.py)：组合、失败、取消、临时状态清理与部分文本。
+- [控制示例](../tests/e2e/test_control_flow_example.py)、[模型示例](../tests/e2e/test_model_call_example.py)：真实进程、退出码与最终快照。
+- [宿主关闭](../tests/e2e/test_m1_shutdown.py)、[CLI 进程](../tests/e2e/test_m1_cli_process.py)：在途写入、最终落盘和重启恢复。
+
+检查范围与改动相称，真实模型冒烟与离线测试分别报告；没有实际连接时不宣称真实模型已验证。注释、docstring 和提交使用中文，提交以动词开头、小步交付；README.md、AGENTS.md 修改须先经用户确认，变更叙述集中在 docs/CHAGELOG.md。

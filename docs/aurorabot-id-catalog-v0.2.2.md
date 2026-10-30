@@ -1,15 +1,19 @@
 # AuroraBot 公共 ID 目录 v0.2.2
 
 版本：v0.2.2  
-日期：2026-10-29  
-对应主文档：`aurorabot-design-v0.2.2.md`。  
-范围：沿用 v0.2.1 的全部公共 ID 与 kind，同步 v0.2.2 的统一登记、按需接口描述、接收方兼容判断和 client ctx 访问。覆盖十个包和应用。目录是规划基线，不表示对象已经实现、连接或启用，也不表示接口字段已经冻结。
+设计版本日期：2026-10-29；实现对齐：2026-10-30，代码基线 `4eb4d6e`。
+
+对应主文档：[设计文档](aurorabot-design-v0.2.2.md)。
+
+范围：保留十个包和应用的规划身份，补充当前组件与命令定义。模型条目逐项注明状态；bot 第 6.0 节已实现，第 6.1–6.5 节仍为规划；API、client、界面和静态站点条目仍为规划。目录中的存在不代表对象已连接、启用或接口字段冻结。
 
 ## 1. 使用规则
 
 - 格式为 `<namespace>:<domain>/<local_path>`，跨组件引用使用完整 ID，kind 显式说明对象类型。
 - 一个 ID 在同一环境、同一登记作用域中对应一个公开定义；具体实例和业务数据使用必要的实例、会话、运行、agent 标识区分，不建立内部命名空间访问隔离。
 - Python core 维护统一的 `Id → RegistryEntry` 内存表。登记项指向定义，状态值、事件实例和具体服务实例不与定义身份混为一项。
+- `component` 表示组件类或局部执行函数的定义。bot 通过 component_entries 显式声明其 `/execute` 插头和可选 `/children` 插槽；core 不从路径推断 kind 或运行时父子关系。
+- bot 的 definition_id、instance_id、run_id、execution_id 分别表示定义、实例、业务运行和单次调用。`definition_id.instance_id` 只是展示引用，不是新的公共 ID；实例默认 UUID。
 - 注册表可以是总表上的分类视图及接入逻辑。存在于总表不意味着接收方存在、连接成功或对象已执行；前端和静态资源在各自环境管理。
 - `register_to` 表示接收方；`slot` 表示插槽目标；`operation` 表示一条调用绑定。组件实例连接另行表达，不由 ID 路径、同名或表格顺序推导。
 - 插头与插槽通常各自描述接口，由插槽方判断兼容性。schema 可选；少量特殊连接可依双方约定和运行时行为，不要求新增正式契约 ID。
@@ -17,7 +21,7 @@
 - 公共覆盖、实现选择和处理器替换由显式装配表达，不依赖加载顺序。
 - client 实现统一 ctx 接口及既有 ctx 操作 ID 入口，不创建同义动作 ID；插件在进程内访问 ctx，TUI/Panel 通过 client 访问同一后端。
 - 界面不承担后端插件装配；既有 send/cancel operation 和 conversation 端点不是本版规定的界面必经入口。消息提交与取消如何关联执行，另行讨论。
-- 本目录不要求所有私有函数或局部组件登记公共 ID，也不要求各阶段一次性实现全部规划。
+- 参与 bot 执行连接的局部组件也应显式登记；普通私有辅助函数无需登记，不要求各阶段一次性实现全部规划。
 
 ## 2. 命名空间总表
 
@@ -38,7 +42,7 @@
 
 ### 3.1 注册目标
 
-以下是逻辑注册表，可以基于 core 统一内存表实现分类索引与专属接入规则，不要求重复保存所有对象。宿主直接引导建立总表、注册表目录和所需基础定义，随后登记其他注册表。
+以下 core 逻辑注册表已实现，基于统一内存表提供分类索引与专属接入规则。宿主直接引导建立总表、注册表目录和所需基础定义，随后登记其他注册表；跨包注册目标是否存在取决于该包实现与启用情况。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
@@ -72,6 +76,8 @@ resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，
 
 ### 3.2 操作、生命周期与基础契约
 
+当前 ctx 六个操作、三个生命周期插槽与 ctx/changed 事件已实现；hook/failed 事件和本表四个 schema ID 仍为规划。实际 ctx 与插件声明通过 Python 类型表达，不以规划 schema 已登记为前提。
+
 | ID | kind | 用途 |
 | --- | --- | --- |
 | `org.aurora.core:operations/ctx/get` | `operation` | 读取 ctx |
@@ -96,15 +102,24 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 
 `ctx_access` 沿用历史规划 ID，仅描述访问动作、目标与业务定位，不表示内部授权。保留 ID 不表示旧授权字段继续适用，也不要求所有 ctx 动作共享这一份结构。
 
-set 更新方式、list 内容、订阅句柄等在实现对应原语时明确并记录当前所需行为，本版不提前冻结。数据描述可以使用 Python 类型、签名或 schema；不批量为每种请求／响应新增公共 ID。目录、存储服务及流程控制插件继续按实际需要确定；局部控制组件可先内部装配，供外部引用时再登记公共 ID。
+当前 ctx 的 set 整项替换、读写深复制；list 返回已赋值地址并排序。成功 set 均通知，订阅不回放历史，可显式取消；缺失 get 抛 KeyError，缺失 delete 返回 False。core 的 StorageService 提供目录与存储，bot 控制组件见第 6.0 节。数据描述可使用 Python 类型、签名或 schema，不批量新增局部请求／响应 ID。
 
 ## 4. aurora_cli
+
+本节定义均已实现。命令包自动发现，外部插件显式选择；id/list 只展示启动装配前的总表，不创建 ctx 或启动服务。
 
 | ID | kind | 用途或映射 |
 | --- | --- | --- |
 | `org.aurora.cli:registries/commands` | `registry` | 接收内置及第三方命令 |
 | `org.aurora.cli:schemas/command` | `schema` | 参数、帮助信息、执行目标 |
 | `org.aurora.cli:commands/help` | `command` | 展示命令帮助 |
+| `org.aurora.cli:commands/about` | `command` | 展示工作区与环境信息 |
+| `org.aurora.cli:commands/check` | `command` | 运行工作区检查 |
+| `org.aurora.cli:commands/donk/show` | `command` | 展示 Python 工作区版本 |
+| `org.aurora.cli:commands/donk/major` | `command` | 升级主版本 |
+| `org.aurora.cli:commands/donk/minor` | `command` | 升级次版本 |
+| `org.aurora.cli:commands/donk/patch` | `command` | 升级修订版本 |
+| `org.aurora.cli:commands/id/list` | `command` | 按完整 ID 展示启动装配前的登记总表 |
 | `org.aurora.cli:commands/ctx/get` | `command` | 调用 `org.aurora.core:operations/ctx/get` |
 | `org.aurora.cli:commands/ctx/set` | `command` | 调用 `org.aurora.core:operations/ctx/set` |
 | `org.aurora.cli:commands/ctx/delete` | `command` | 调用 `org.aurora.core:operations/ctx/delete` |
@@ -117,23 +132,54 @@ set 更新方式、list 内容、订阅句柄等在实现对应原语时明确�
 
 ## 5. aurora_model_adapter
 
-| ID | kind | 用途 |
-| --- | --- | --- |
-| `org.aurora.model_adapter:registries/adapters` | `registry` | 接收模型适配器工厂 |
-| `org.aurora.model_adapter:services/model_client` | `service` | 上层消费的统一 ModelClient 契约 |
-| `org.aurora.model_adapter:adapters/litellm` | `adapter` | 基于 LiteLLM 创建 ModelClient |
-| `org.aurora.model_adapter:schemas/model_request` | `schema` | 统一模型请求 |
-| `org.aurora.model_adapter:schemas/model_response` | `schema` | 统一模型响应 |
-| `org.aurora.model_adapter:schemas/model_chunk` | `schema` | 统一流式响应片段 |
-| `org.aurora.model_adapter:schemas/model_capabilities` | `schema` | 流式、工具调用等能力声明 |
-| `org.aurora.model_adapter:state/config` | `state_key` | 适配器选择与连接配置 |
-| `org.aurora.model_adapter:state/bindings` | `state_key` | 逻辑模型角色与服务实例的绑定信息；具体托管形式待讨论 |
+| ID | kind | 状态 | 用途 |
+| --- | --- | --- | --- |
+| `org.aurora.model_adapter:registries/adapters` | `registry` | 已实现 | 接收模型适配器工厂 |
+| `org.aurora.model_adapter:services/model_client` | `service` | 已实现 | 上层消费的统一 ModelClient 协议 |
+| `org.aurora.model_adapter:adapters/litellm` | `adapter` | 规划 | 基于 LiteLLM 创建 ModelClient |
+| `org.aurora.model_adapter:schemas/model_request` | `schema` | 已实现 | 统一模型请求 |
+| `org.aurora.model_adapter:schemas/model_response` | `schema` | 已实现 | 统一模型响应 |
+| `org.aurora.model_adapter:schemas/model_chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
+| `org.aurora.model_adapter:schemas/model_capabilities` | `schema` | 已实现 | streaming、tool_calls 能力声明 |
+| `org.aurora.model_adapter:state/config` | `state_key` | 规划 | 适配器选择与连接配置 |
+| `org.aurora.model_adapter:state/bindings` | `state_key` | 规划 | 逻辑模型角色与服务实例的可恢复绑定描述 |
 
-具体适配器由 adapters 注册表接收。bot 使用 ModelClient，不直接引用 LiteLLM。工厂接口可通过 Python 类型和签名描述，配置结构按需要使用 schema，不强制新增独立工厂 schema ID。
+插件入口为 `aurora_model_adapter`，登记上述六项已实现定义；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。ModelFactory 已有异步协议，但工厂加载、默认绑定和 LiteLLM 适配尚未实现。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
 
-ctx 内部跨命名空间共享。需要恢复的数据落盘，实际服务和连接不直接序列化落盘；绑定保存何种引用以及运行时对象如何托管继续讨论。client 只获取准备提供给界面的数据，凭证不随通用 ctx 接口自动导出；本版不建立完整状态分类或秘密管理系统。
+模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 默认完整 JSON 快照，运行时对象由装配持有，凭证不写入 ctx；可恢复绑定格式仍待确定。
 
 ## 6. aurora_bot
+
+### 6.0 当前组件与执行端口（已实现）
+
+`aurora_bot.control` 登记 Controller 基类、四类控制组件及其端口和控制状态，共十六项；`aurora_bot.model` 登记 ModelCall 及执行端口，共两项。两者均支持同名 entry point 显式启用。
+
+| ID | kind | 用途 |
+| --- | --- | --- |
+| `org.aurora.bot:handlers/control` | `component` | Controller 基类，不独立执行 |
+| `org.aurora.bot:handlers/control/execute` | `hook_handler` | Controller 基类执行入口 |
+| `org.aurora.bot:handlers/control/children` | `hook_slot` | Controller 基类子组件插槽 |
+| `org.aurora.bot:handlers/control/serial` | `component` | Serial 串行执行器 |
+| `org.aurora.bot:handlers/control/serial/execute` | `hook_handler` | Serial 执行插头 |
+| `org.aurora.bot:handlers/control/serial/children` | `hook_slot` | Serial 子组件插槽 |
+| `org.aurora.bot:handlers/control/branch` | `component` | Branch 分支选择器 |
+| `org.aurora.bot:handlers/control/branch/execute` | `hook_handler` | Branch 执行插头 |
+| `org.aurora.bot:handlers/control/branch/children` | `hook_slot` | Branch 候选子组件插槽 |
+| `org.aurora.bot:handlers/control/while` | `component` | While 条件循环器 |
+| `org.aurora.bot:handlers/control/while/execute` | `hook_handler` | While 执行插头 |
+| `org.aurora.bot:handlers/control/while/children` | `hook_slot` | While 唯一循环体插槽 |
+| `org.aurora.bot:handlers/control/parallel` | `component` | Parallel 并行执行器 |
+| `org.aurora.bot:handlers/control/parallel/execute` | `hook_handler` | Parallel 执行插头 |
+| `org.aurora.bot:handlers/control/parallel/children` | `hook_slot` | Parallel 子组件插槽 |
+| `org.aurora.bot:state/control` | `state_key` | 按定义、实例、运行和调用定位的在途状态，终态通知后删除 |
+| `org.aurora.bot:handlers/model_call` | `component` | ModelCall 模型调用组件 |
+| `org.aurora.bot:handlers/model_call/execute` | `hook_handler` | ModelCall 执行插头 |
+
+component 直接登记到总表；执行插头、插槽与状态分别登记到 core 的 hook_handlers、hook_slots、state_keys。执行插头的 interface 引用自身组件 definition_id，实例连接校验实际端口归属；不存在供所有组件共用的通用执行端口。
+
+业务数据通过握手约定的 ctx 地址交换，执行只传递 ExecutionRequest。ModelCall 输出由装配指定状态地址，不新增固定的模型输出 state_key。它只完成一次模型调用，与第 6.3 节规划的 ReAct call_model 处理器关系待装配明确。
+
+**第 6.1–6.5 节均为规划，尚未实现。** 模型层已有 ToolCall 数据类型不表示 bot 工具注册表、工具执行器或对话运行已存在。
 
 ### 6.1 装配、对话与提示词
 
@@ -319,6 +365,8 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 
 ## 13. 关键引用关系
 
+下表包含规划关系，是否已实现以各包条目的状态为准；当前 bot 组件的真实登记关系见第 6.0 节。
+
 | 声明方 | 关系 | 目标 |
 | --- | --- | --- |
 | 各 Python 逻辑注册表 | 目录登记 | `org.aurora.core:registries/registries`；自举按第 3.1 节处理 |
@@ -356,18 +404,18 @@ kind: adapter
 register_to: org.aurora.model_adapter:registries/adapters
 ```
 
-示例只表达登记与连接关系，按实际需要补充提供者、加载入口和接口描述；schema 并非所有特殊连接的前置条件。双方描述不同仍可由接收方判断兼容，必要时告警。排序字段方向未定，示例不提供暗示规范的优先级数值。内部 ctx 共享，所有状态修改仍经显式接口。
+示例只表达规划中的登记与连接关系，不是可直接运行的完整插件。按需补充提供者、加载入口和接口描述；schema 并非特殊连接的前置条件。接收方判断兼容，bot 在双方均提供 schema 且描述不同时于接收时告警。当前 priority 从小到大，同值保持连接顺序，before/after 未实现。内部 ctx 共享，所有状态修改仍经显式接口。
 
 ## 15. 目录维护
 
 - 新公共定义确定命名空间、kind、实际用途及登记环境；接口描述按需要维护，不强制独立 schema ID。
 - 用途、输入输出或连接变化时同步文档和实际维护的接口；名称保留不等于字段或行为已经冻结。
-- 内部局部组件可直接装配，确需外部引用时再登记公共 ID。
+- 当前 bot 执行组件通过 component_entries 显式登记定义和端口，再建立实例连接；普通私有辅助函数无需登记。
 - client 对同一 ctx 动作沿用现有身份，不为语言或传输差异创建同义操作。
 - 兼容与迁移围绕实际稳定的公共边界处理，不强制所有局部连接建立版本体系。
 - `aurora_playground` 正式纳入包设计后再补充，本版不预占公共 ID。
 
-## 16. v0.2.2 修订说明
+## 16. v0.2.2 原始修订记录（2026-10-29）
 
 - 沿用 v0.2.1 全部公共 ID 与 kind，不新增、删除或重命名定义。
 - 同步 core 统一哈希表、登记项与逻辑注册表关系，并补充自举和跨包目录登记说明。

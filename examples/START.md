@@ -107,7 +107,7 @@ uv run python examples/model_call/main.py --data-dir build/model-call-demo --tex
 结束原因: stop
 ```
 
-`ModelCall` 从 ctx 读取请求，在同一个输出地址累计文本和完整工具请求；执行插头只接收运行身份。响应流由调用组件关闭，客户端由宿主停止阶段关闭。每次示例退出只保留最新输出，不保存输入或片段历史。
+`ModelCall` 从 ctx 读取请求，在同一个输出地址累计文本和完整工具请求；执行插头只接收运行与调用身份。响应流由调用组件关闭，客户端由宿主停止阶段关闭。每次示例退出只保留最新输出，不保存输入或片段历史。completed 表示这次模型请求完成；模型可因 stop、tool_calls、length 或 content_filter 结束，后续业务行为由装配决定。
 
 显式使用完整响应接口，或观察部分文本后的失败：
 
@@ -119,6 +119,35 @@ uv run python examples/model_call/main.py --data-dir build/model-call-demo --fai
 `--fail` 在流式输出“假模型收到：你好”后以退出码 `1` 结束；快照中的同一条输出保留文本并标记 `failed`。完整响应接口在成功返回之前不会提供部分文本。
 
 观察取消时可以使用 `--delay 2`，收到第一段文本后按一次 `Ctrl+C`；已收到的文本仍保存在快照中，状态为 `cancelled`，退出码为 `130`。`--delay 0` 可快速运行。此示例使用假模型，不调用真实服务，也不执行工具。
+
+## 阅读与改装组件装配
+
+控制和模型示例中的组件定义、实例与执行身份分别管理：
+
+| 名称 | 示例中的含义 |
+| --- | --- |
+| definition_id | 组件类或局部执行函数的定义；例如 Serial.definition_id 为 `org.aurora.bot:handlers/control/serial` |
+| instance_id | 同一定义下的具体实例；示例显式命名 root、body 等，省略则生成 UUID |
+| run_id | 每次启动的业务运行身份，父子调用共享 |
+| execution_id | 每次调用独立生成，循环再次调用同一实例时也会变化 |
+| reference | `definition_id.instance_id` 展示引用，不用它创建 Id |
+
+可从 `assemble()` 中的以下调用顺序阅读；这些片段需要示例中已经创建的 ctx、hooks、registry、client 与状态定义，不是独立脚本：
+
+1. `component_entries(definition_id, execute, execute, provider=...)` 为局部业务组件生成定义和执行插头登记项，装配负责登记。
+2. `ExecutionPlug(definition_id, execute, instance_id="worker", states=...)` 包装业务函数，提供约定的 ctx 地址。
+3. `ExecutionSlot(Serial.definition_id, hooks, instance_id="root")` 创建根串行组件的插槽；`Serial(ctx, slot)` 和 `slot.connect(plug)` 完成实例装配。
+4. `ModelCall(ctx, client, instance_id="model", request_state=..., output_state=...)` 使用同一套身份与执行协议，向串行组件接入其 `.plug`。
+
+各组件通过自己的 `/execute` 端口连接，有子组件的控制器暴露自己的 `/children` 端口。`StateBinding` 仅在显式 location 上加入 run_id，不自动加入 definition_id 或 instance_id；多实例是否共享业务地址由装配决定。共享 ModelCall 输出地址时须串行调用，传入同一客户端也不代表它支持任意并发。
+
+查看当前内置插件的定义目录：
+
+```powershell
+uv run aurora --plugin aurora_bot.control --plugin aurora_bot.model --plugin aurora_model_adapter id list
+```
+
+该命令只登记所选插件并列出 ID、kind 和 provider，不启动示例或模型服务，不需要数据目录。局部示例组件在示例装配中登记，不在这份启动前目录里。完整已实现/规划状态见 [公共 ID 目录](../docs/aurorabot-id-catalog-v0.2.2.md)。
 
 ## 数据与常用操作
 
