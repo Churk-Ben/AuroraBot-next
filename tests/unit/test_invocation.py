@@ -11,6 +11,13 @@ from aurora_core.registry import RegistryEntry
 OPERATION = Id("dev.example:operations/run")
 
 
+def test_business_keywords_do_not_collide_with_invocation_routing():
+    registry = bootstrap()
+    registry.register(RegistryEntry(OPERATION, "operation", lambda **values: values, "example"))
+    values = {"target": "service", "registry": "business", "identity": "item"}
+    assert asyncio.run(invoke_operation(registry, OPERATION, **values)) == values
+
+
 def test_sync_and_async_results_and_keyword_arguments():
     registry = bootstrap()
     registry.register(RegistryEntry(OPERATION, "operation", lambda value, *, extra: value + extra, "example"))
