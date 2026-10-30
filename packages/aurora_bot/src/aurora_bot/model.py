@@ -2,8 +2,11 @@
 
 import asyncio
 from typing import Literal, NotRequired, TypedDict, cast
+from uuid import uuid4
 
 from aurora_core.ctx import Context
+from aurora_core.discovery import Plugin
+from aurora_core.ids import Id
 from aurora_model_adapter import (
     FinishReason,
     ModelClient,
@@ -13,7 +16,7 @@ from aurora_model_adapter import (
     require_capabilities,
 )
 
-from .control import ExecutionPlug, ExecutionRequest, StateBinding
+from .control import ExecutionPlug, ExecutionRequest, StateBinding, component_entries
 
 
 class ModelCallState(TypedDict):
@@ -35,17 +38,21 @@ class ModelCall:
     completed 表示推理请求正常结束，业务是否完成仍须结合 finish_reason 判断。
     """
 
+    definition_id = Id("org.aurora.bot:handlers/model_call")
+
     def __init__(
         self,
-        instance_id: str,
         ctx: Context,
         client: ModelClient,
         *,
+        instance_id: str | None = None,
         request_state: StateBinding,
         output_state: StateBinding,
         streaming: bool = True,
     ) -> None:
-        self.instance_id = instance_id
+        self.instance_id = uuid4().hex if instance_id is None else instance_id
+        if not isinstance(self.instance_id, str) or not self.instance_id:
+            raise ValueError("组件实例标识必须为非空字符串")
         self.ctx = ctx
         self.client = client
         self.request_state = request_state
@@ -54,7 +61,12 @@ class ModelCall:
 
     @property
     def plug(self) -> ExecutionPlug:
-        return ExecutionPlug(self.instance_id, self.execute, {"input": self.request_state, "output": self.output_state})
+        return ExecutionPlug(
+            self.definition_id,
+            self.execute,
+            {"input": self.request_state, "output": self.output_state},
+            instance_id=self.instance_id,
+        )
 
     async def execute(self, execution: ExecutionRequest) -> None:
         buffer = ResponseBuffer()
@@ -101,3 +113,11 @@ class ModelCall:
             raise
         else:
             write("completed")
+
+
+def plugin() -> Plugin:
+    """声明模型调用组件及执行入口；客户端与实例由装配创建。"""
+    return Plugin(
+        "aurora_bot.model",
+        component_entries(ModelCall.definition_id, ModelCall, ModelCall.execute, provider="aurora_bot"),
+    )

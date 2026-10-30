@@ -2,6 +2,12 @@
 
 ## 2026-10-30
 
+- 控制组件采用统一层级定义：org.aurora.bot:handlers/control 及其 serial、branch、while、parallel 子路径登记为 component，各定义的 /execute 为执行插头，/children 为子组件插槽。component 登记项指向组件类或局部执行函数，提供者由装配显式声明；component_entries 负责生成本插件约定的端口声明，core 仍按完整 ID 与显式 kind 寻址。
+- ExecutionPlug 与 ExecutionSlot 显式携带 definition_id，连接使用双方实际端口 ID，并校验执行插头的定义归属；控制器须匹配自身的插槽定义。同一插槽内的子实例标识唯一，避免分支选择歧义。组件定义、执行入口和插槽共用路径层级，不从路径推导运行时父子关系。
+- 实例标识默认使用 UUID，可显式指定非空字符串；展示引用采用 definition_id.instance_id，内部保留独立字段，不将复合展示字符串交给 Id 解析。组件多次取得插头保留同一个实例身份，每次子调用继续使用独立 execution_id。控制状态按定义、实例、运行和调用定位，终态后清理；运行期实例不会因恢复快照而自动重建。
+- ModelCall 的组件身份为 org.aurora.bot:handlers/model_call，执行入口为其 /execute；aurora_bot.model 插件可通过显式清单或同名 entry point 启用。示例显式登记局部业务组件与提供者，通过 ctx 地址握手交换数据，并使用各组件自己的执行入口。
+- 装配使用 ExecutionSlot(Serial.definition_id, hooks, instance_id="root") 与 ExecutionPlug(definition_id, execute, instance_id="worker")，省略 instance_id 时自动分配身份；ModelCall(ctx, client, ...) 采用相同规则。本轮完整 aurora check 通过 256 项 Python 测试、9 项工具链测试及格式/lint/类型检查；安装后的 CLI 能通过两个 bot entry point 展示组件与端口目录。
+
 - bot 的 ModelCall 组件通过连接约定的 ctx 地址读取 ModelRequest，在单一输出位置更新文本、完整工具请求、结束原因和调用状态。取消或失败保留已收到的文本并标记 cancelled/failed，错误继续传播；只关闭单次响应流，ModelClient 由创建它的宿主关闭。同一输出地址须串行调用，业务数据保留策略由装配负责。
 - examples/model_call/main.py 提供准备输入、假模型推理和结果读取的串行装配，支持流式/完整响应、模拟失败和 Ctrl+C；退出后快照只保留最近一次输出。模型数据使用 Python TypedDict 表达普通 JSON，地址内容可按局部约定或 StateKey 校验器约定；不新增全局契约匹配机制、模型片段历史或 controller 调用历史。
 

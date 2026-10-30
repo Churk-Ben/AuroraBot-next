@@ -10,6 +10,7 @@ dependencies = [
 
 [project.entry-points."aurorabot.plugins"]
 "aurora_bot.control" = "aurora_bot.control:plugin"
+"aurora_bot.model" = "aurora_bot.model:plugin"
 
 [build-system]
 requires = ["hatchling"]

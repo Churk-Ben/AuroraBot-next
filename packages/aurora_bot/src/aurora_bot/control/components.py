@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 
 from aurora_core.ctx import Context
+from aurora_core.ids import Id
 
 from .execution import CONTROL_STATE, ExecutionLink, ExecutionPlug, ExecutionRequest, ExecutionSlot
 
@@ -15,16 +16,23 @@ class Controller:
     终态通过 ctx.subscribe 观察，随后删除本次状态；调用等待决定完成，不保留调用历史。
     """
 
+    definition_id = Id("org.aurora.bot:handlers/control")
+
     def __init__(self, ctx: Context, slot: ExecutionSlot) -> None:
+        if slot.definition_id != self.definition_id:
+            raise ValueError(f"组件与插槽定义不符：{self.definition_id} / {slot.definition_id}")
         self.ctx = ctx
         self.slot = slot
 
     @property
     def plug(self) -> ExecutionPlug:
-        return ExecutionPlug(self.slot.instance_id, self.execute, self.slot.states, self.slot.schema)
+        return ExecutionPlug(
+            self.definition_id, self.execute, self.slot.states, self.slot.schema, instance_id=self.slot.instance_id
+        )
 
     def _location(self, request: ExecutionRequest) -> dict[str, str]:
         return {
+            "definition_id": str(self.definition_id),
             "instance_id": self.slot.instance_id,
             "run_id": request.run_id,
             "execution_id": request.execution_id,
@@ -66,6 +74,8 @@ class Controller:
 class Serial(Controller):
     """按连接顺序等待子组件，失败或取消立即终止后续调用。"""
 
+    definition_id = Id("org.aurora.bot:handlers/control/serial")
+
     async def _run(self, request: ExecutionRequest) -> None:
         for link in self.slot.links():
             await self._invoke(link, request)
@@ -76,6 +86,8 @@ class Branch(Controller):
 
     选择结果仅为控制信息。返回未连接实例时明确失败，不默默回退。
     """
+
+    definition_id = Id("org.aurora.bot:handlers/control/branch")
 
     def __init__(self, ctx: Context, slot: ExecutionSlot, select: Callable[[ExecutionRequest], str | None]) -> None:
         super().__init__(ctx, slot)
@@ -102,6 +114,8 @@ class While(Controller):
 
     每次迭代完成后让出事件循环以接收取消。达到上限且仍需继续时抛出异常。
     """
+
+    definition_id = Id("org.aurora.bot:handlers/control/while")
 
     def __init__(
         self,
@@ -138,6 +152,8 @@ class Parallel(Controller):
     异常保留最先传播到父调用的异常；并行分支的业务结果各自保存在 ctx。
     并发指宿主事件循环中的异步工作，不将同步代码移到线程。
     """
+
+    definition_id = Id("org.aurora.bot:handlers/control/parallel")
 
     def __init__(self, ctx: Context, slot: ExecutionSlot, *, concurrency: int) -> None:
         super().__init__(ctx, slot)

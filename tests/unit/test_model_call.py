@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from aurora_bot.control import CONTROL_STATE, ExecutionRequest, ExecutionSlot, Serial, StateBinding, plugin
 from aurora_bot.model import ModelCall
+from aurora_bot.model import plugin as model_plugin
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import register_plugins
@@ -22,7 +23,7 @@ OUTPUT = Id("dev.model:state/output")
 @pytest.fixture
 def runtime():
     registry = bootstrap()
-    register_plugins(registry, (plugin(),))
+    register_plugins(registry, (plugin(), model_plugin()))
     for key in (INPUT, OUTPUT):
         registry.register(RegistryEntry(key, "state_key", StateKey(), "model_test"))
     ctx = Context(registry)
@@ -36,13 +37,26 @@ def assemble(ctx, hooks, client, *, streaming=True):
     input_state = StateBinding(INPUT)
     output_state = StateBinding(OUTPUT, (("instance_id", "model"),))
     component = ModelCall(
-        "model", ctx, client, request_state=input_state, output_state=output_state, streaming=streaming
+        ctx, client, instance_id="model", request_state=input_state, output_state=output_state, streaming=streaming
     )
-    slot = ExecutionSlot("root", hooks)
+    slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
     link = slot.connect(component.plug)
+    assert link.connection.handler == Id("org.aurora.bot:handlers/model_call/execute")
+    assert component.plug.reference == "org.aurora.bot:handlers/model_call.model"
     request = ExecutionRequest("run")
     link.plug.states["input"].set(ctx, request, {"messages": [{"role": "user", "content": "输入"}]})
     return Serial(ctx, slot), request, output_state
+
+
+def test_model_instances_generate_stable_independent_ids(runtime):
+    ctx, _ = runtime
+    client = FakeModel(lambda _: FakeReply(("回答",)))
+    first = ModelCall(ctx, client, request_state=StateBinding(INPUT), output_state=StateBinding(OUTPUT))
+    second = ModelCall(ctx, client, request_state=StateBinding(INPUT), output_state=StateBinding(OUTPUT))
+    assert first.instance_id != second.instance_id
+    assert first.plug.instance_id == first.plug.instance_id == first.instance_id
+    assert first.plug.definition_id == second.plug.definition_id == ModelCall.definition_id
+    asyncio.run(client.aclose())
 
 
 def test_stream_updates_one_state_and_does_not_close_shared_client(runtime):

@@ -13,6 +13,7 @@ from aurora_bot.control import (
     Serial,
     StateBinding,
     While,
+    component_entries,
     plugin,
 )
 from aurora_core.bootstrap import bootstrap
@@ -26,6 +27,12 @@ from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
 
 DATA = Id("dev.control:state/value")
+
+
+def make_plug(registry, name, execute, states=None, schema=None):
+    definition = Id(f"dev.control_test:handlers/{name}")
+    registry.register_many(component_entries(definition, execute, execute, provider="control_test"))
+    return ExecutionPlug(definition, execute, states or {}, schema, instance_id=name)
 
 
 def environment(root):
@@ -45,12 +52,12 @@ def environment(root):
         storage=storage,
         timeout=0.05,
     )
-    return ctx, hooks, lifecycle
+    return ctx, hooks, lifecycle, registry
 
 
 def test_composed_control_flow_restores_business_results_without_control_history(tmp_path):
     async def scenario():
-        ctx, hooks, host = environment(tmp_path)
+        ctx, hooks, host, registry = environment(tmp_path)
         count = StateBinding(DATA, (("instance_id", "count"),))
         result = StateBinding(DATA, (("instance_id", "result"),))
 
@@ -66,21 +73,21 @@ def test_composed_control_flow_restores_business_results_without_control_history
             await asyncio.sleep(0)
             StateBinding(DATA, (("instance_id", "right"),)).set(ctx, request, "right")
 
-        parallel_slot = ExecutionSlot("parallel", hooks)
-        parallel_slot.connect(ExecutionPlug("left", left))
-        parallel_slot.connect(ExecutionPlug("right", right))
+        parallel_slot = ExecutionSlot(Parallel.definition_id, hooks, instance_id="parallel")
+        parallel_slot.connect(make_plug(registry, "left", left))
+        parallel_slot.connect(make_plug(registry, "right", right))
         parallel = Parallel(ctx, parallel_slot, concurrency=2)
 
-        branch_slot = ExecutionSlot("branch", hooks)
+        branch_slot = ExecutionSlot(Branch.definition_id, hooks, instance_id="branch")
         branch_slot.connect(parallel.plug)
         branch = Branch(ctx, branch_slot, lambda request: "parallel" if count.get(ctx, request) == 2 else None)
 
-        body_slot = ExecutionSlot("body", hooks)
-        body_slot.connect(ExecutionPlug("count", increment, {"count": count}))
+        body_slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="body")
+        body_slot.connect(make_plug(registry, "count", increment, {"count": count}))
         body_slot.connect(branch.plug)
         body = Serial(ctx, body_slot)
 
-        loop_slot = ExecutionSlot("loop", hooks)
+        loop_slot = ExecutionSlot(While.definition_id, hooks, instance_id="loop")
         loop_slot.connect(body.plug)
         loop = While(ctx, loop_slot, lambda request: count.get(ctx, request) != 2, max_iterations=2)
 
@@ -88,9 +95,9 @@ def test_composed_control_flow_restores_business_results_without_control_history
             values = [StateBinding(DATA, (("instance_id", name),)).get(ctx, request) for name in ("left", "right")]
             result.set(ctx, request, values)
 
-        root_slot = ExecutionSlot("root", hooks)
+        root_slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
         root_slot.connect(loop.plug)
-        root_slot.connect(ExecutionPlug("result", finish, {"result": result}))
+        root_slot.connect(make_plug(registry, "result", finish, {"result": result}))
         request = ExecutionRequest("composed")
         await host.start(configure=lambda: count.set(ctx, request, 0))
         await host.run(Serial(ctx, root_slot).execute, request)
@@ -98,7 +105,7 @@ def test_composed_control_flow_restores_business_results_without_control_history
         assert ctx.list(key=CONTROL_STATE) == ()
         await host.stop()
 
-        restored, _, restarted = environment(tmp_path)
+        restored, _, restarted, _ = environment(tmp_path)
         await restarted.start()
         assert result.get(restored, request) == ["left", "right"]
         assert restored.list(key=CONTROL_STATE) == ()
@@ -109,7 +116,7 @@ def test_composed_control_flow_restores_business_results_without_control_history
 
 def test_host_stop_cancels_parallel_work_and_persists_last_writes(tmp_path):
     async def scenario():
-        ctx, hooks, host = environment(tmp_path)
+        ctx, hooks, host, registry = environment(tmp_path)
         entered = asyncio.Event()
         active = 0
 
@@ -126,9 +133,9 @@ def test_host_stop_cancels_parallel_work_and_persists_last_writes(tmp_path):
                     StateBinding(DATA, (("instance_id", name),)).set(ctx, request, "cleaned")
                     active -= 1
 
-            return ExecutionPlug(name, execute)
+            return make_plug(registry, name, execute)
 
-        slot = ExecutionSlot("root", hooks)
+        slot = ExecutionSlot(Parallel.definition_id, hooks, instance_id="root")
         slot.connect(worker("first"))
         slot.connect(worker("second"))
         request = ExecutionRequest("cancelled")
@@ -140,7 +147,7 @@ def test_host_stop_cancels_parallel_work_and_persists_last_writes(tmp_path):
             await task
         assert active == 0
 
-        restored, _, restarted = environment(tmp_path)
+        restored, _, restarted, _ = environment(tmp_path)
         await restarted.start()
         for name in ("first", "second"):
             assert StateBinding(DATA, (("instance_id", name),)).get(restored, request) == "cleaned"

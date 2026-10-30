@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import math
 import sys
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,9 +15,11 @@ from aurora_bot.control import (
     ExecutionSlot,
     Serial,
     StateBinding,
+    component_entries,
     plugin,
 )
 from aurora_bot.model import ModelCall
+from aurora_bot.model import plugin as model_plugin
 from aurora_core import Id, entry_from, hook_handler
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateChange, StateKey
@@ -24,13 +27,26 @@ from aurora_core.discovery import register_plugins
 from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
-from aurora_core.registry import RegistryEntry
+from aurora_core.registry import DefinitionRegistry, RegistryEntry
 from aurora_core.storage import StorageService
 from aurora_model_adapter import ModelError, ModelRequest
 from aurora_model_adapter.fake import FakeModel, FakeReply
 
 INPUT = Id("dev.example.model:state/input")
 OUTPUT = Id("dev.example.model:state/output")
+
+
+def make_plug(
+    registry: DefinitionRegistry,
+    definition_id: Id,
+    execute: Callable[[ExecutionRequest], Awaitable[None]],
+    states: Mapping[str, StateBinding] | None = None,
+    *,
+    instance_id: str,
+) -> ExecutionPlug:
+    """由示例装配显式登记局部业务组件，再绑定具体执行实例。"""
+    registry.register_many(component_entries(definition_id, execute, execute, provider="dev.example.model"))
+    return ExecutionPlug(definition_id, execute, states or {}, instance_id=instance_id)
 
 
 def observe(change: StateChange) -> None:
@@ -47,7 +63,7 @@ def observe(change: StateChange) -> None:
 
 async def run(data_dir: Path, text: str, delay: float, fail: bool, streaming: bool) -> None:
     registry = bootstrap()
-    register_plugins(registry, (plugin(),))
+    register_plugins(registry, (plugin(), model_plugin()))
     install_lifecycle_slots(registry)
     for key in (INPUT, OUTPUT):
         registry.register(RegistryEntry(key, "state_key", StateKey(), "model_call_example"))
@@ -63,8 +79,10 @@ async def run(data_dir: Path, text: str, delay: float, fail: bool, streaming: bo
         return FakeReply((*parts, "。"))
 
     client = FakeModel(respond, delay=delay)
-    model = ModelCall("model", ctx, client, request_state=input_state, output_state=output_state, streaming=streaming)
-    slot = ExecutionSlot("root", hooks)
+    model = ModelCall(
+        ctx, client, instance_id="model", request_state=input_state, output_state=output_state, streaming=streaming
+    )
+    slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
 
     async def prepare(request: ExecutionRequest) -> None:
         input_state.set(ctx, request, {"messages": [{"role": "user", "content": text}]})
@@ -74,9 +92,17 @@ async def run(data_dir: Path, text: str, delay: float, fail: bool, streaming: bo
         assert isinstance(value, dict)
         print(f"结束原因: {value['finish_reason']}", flush=True)
 
-    slot.connect(ExecutionPlug("prepare", prepare, {"output": input_state}))
+    slot.connect(
+        make_plug(
+            registry, Id("dev.example.model:handlers/prepare"), prepare, {"output": input_state}, instance_id="prepare"
+        )
+    )
     slot.connect(model.plug)
-    slot.connect(ExecutionPlug("finish", finish, {"input": output_state}))
+    slot.connect(
+        make_plug(
+            registry, Id("dev.example.model:handlers/finish"), finish, {"input": output_state}, instance_id="finish"
+        )
+    )
     root = Serial(ctx, slot)
 
     @hook_handler("dev.example.model:handlers/close", slot=STOP)

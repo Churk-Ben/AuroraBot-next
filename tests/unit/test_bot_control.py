@@ -14,6 +14,7 @@ from aurora_bot.control import (
     Serial,
     StateBinding,
     While,
+    component_entries,
     plugin,
 )
 from aurora_core.bootstrap import bootstrap
@@ -24,6 +25,12 @@ from aurora_core.ids import Id
 from aurora_core.registry import RegistryEntry
 
 DATA = Id("dev.example:state/component")
+
+
+def make_plug(registry, name, execute, states=None, schema=None):
+    definition = Id(f"dev.control_test:handlers/{name}")
+    registry.register_many(component_entries(definition, execute, execute, provider="control_test"))
+    return ExecutionPlug(definition, execute, states or {}, schema, instance_id=name)
 
 
 @pytest.fixture
@@ -42,10 +49,15 @@ def binding(instance):
     return StateBinding(DATA, (("instance_id", instance),))
 
 
-def status(ctx, instance, request):
+def status(ctx, instance, request, definition=Serial.definition_id):
     return ctx.get(
         CONTROL_STATE,
-        location={"instance_id": instance, "run_id": request.run_id, "execution_id": request.execution_id},
+        location={
+            "definition_id": str(definition),
+            "instance_id": instance,
+            "run_id": request.run_id,
+            "execution_id": request.execution_id,
+        },
     )
 
 
@@ -63,7 +75,7 @@ def capture_terminals(ctx):
 
 
 def test_handshake_exchanges_addresses_without_executing_and_accepts_compatible_schema(runtime, caplog):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
     source, output = binding("source"), binding("output")
     request = ExecutionRequest("first")
     called = []
@@ -79,20 +91,21 @@ def test_handshake_exchanges_addresses_without_executing_and_accepts_compatible_
         return None if plug.schema["format"] == "text" else "只接收文本"
 
     slot = ExecutionSlot(
-        "root",
+        Serial.definition_id,
         hooks,
+        instance_id="root",
         states={"input": source},
         schema={"format": "text"},
         accept=accept,
     )
-    plug = ExecutionPlug("consumer", consume, {"output": output}, {"format": "text", "extra": True})
+    plug = make_plug(registry, "consumer", consume, {"output": output}, {"format": "text", "extra": True})
     link = slot.connect(plug)
     assert not called and ctx.list() == ()
     assert "兼容" in caplog.text
     assert link.plug.states["output"] == output
     assert link.slot_schema == {"format": "text"}
     with pytest.raises(ValueError, match="只接收文本"):
-        slot.connect(ExecutionPlug("rejected", consume, schema={"format": "binary"}))
+        slot.connect(make_plug(registry, "rejected", consume, schema={"format": "binary"}))
     source.set(ctx, request, "内容仅存于 ctx")
     assert asyncio.run(slot.invoke(link, request)) is None
     assert output.get(ctx, request) == "内容仅存于 ctx"
@@ -100,8 +113,8 @@ def test_handshake_exchanges_addresses_without_executing_and_accepts_compatible_
 
 
 def test_serial_order_waits_and_does_not_forward_results(runtime):
-    _, ctx, hooks = runtime
-    slot = ExecutionSlot("root", hooks)
+    registry, ctx, hooks = runtime
+    slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
     source, result = binding("source"), binding("result")
     requests = []
 
@@ -114,8 +127,8 @@ def test_serial_order_waits_and_does_not_forward_results(runtime):
         result.set(ctx, request, source.get(ctx, request))
         requests.append(request)
 
-    slot.connect(ExecutionPlug("consume", consume), priority=2)
-    slot.connect(ExecutionPlug("produce", produce, {"output": source}), priority=1)
+    slot.connect(make_plug(registry, "consume", consume), priority=2)
+    slot.connect(make_plug(registry, "produce", produce, {"output": source}), priority=1)
     controller = Serial(ctx, slot)
     request = ExecutionRequest("run")
     changes = []
@@ -130,9 +143,9 @@ def test_serial_order_waits_and_does_not_forward_results(runtime):
 
 
 def test_serial_failure_does_not_start_next_child(runtime):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
     terminals = capture_terminals(ctx)
-    slot = ExecutionSlot("root", hooks)
+    slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
     called = []
 
     async def fail(request):
@@ -141,8 +154,8 @@ def test_serial_failure_does_not_start_next_child(runtime):
     async def later(request):
         called.append(request)
 
-    slot.connect(ExecutionPlug("fail", fail))
-    slot.connect(ExecutionPlug("later", later))
+    slot.connect(make_plug(registry, "fail", fail))
+    slot.connect(make_plug(registry, "later", later))
     request = ExecutionRequest("run")
     with pytest.raises(ValueError, match="业务失败"):
         asyncio.run(Serial(ctx, slot).execute(request))
@@ -153,8 +166,8 @@ def test_serial_failure_does_not_start_next_child(runtime):
 
 @pytest.mark.parametrize("selected", ["left", "right", None, "missing"])
 def test_branch_uses_ctx_selection(runtime, selected):
-    _, ctx, hooks = runtime
-    slot = ExecutionSlot("branch", hooks)
+    registry, ctx, hooks = runtime
+    slot = ExecutionSlot(Branch.definition_id, hooks, instance_id="branch")
     selection = binding("selection")
     called = []
 
@@ -164,8 +177,8 @@ def test_branch_uses_ctx_selection(runtime, selected):
     async def right(request):
         called.append("right")
 
-    slot.connect(ExecutionPlug("left", left))
-    slot.connect(ExecutionPlug("right", right))
+    slot.connect(make_plug(registry, "left", left))
+    slot.connect(make_plug(registry, "right", right))
 
     def select(request):
         value = selection.get(ctx, request)
@@ -185,7 +198,7 @@ def test_branch_uses_ctx_selection(runtime, selected):
 
 
 def test_nested_loop_reads_updated_ctx_and_assigns_fresh_invocations(runtime):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
     terminals = capture_terminals(ctx)
     count = binding("increment")
     calls = []
@@ -201,9 +214,9 @@ def test_nested_loop_reads_updated_ctx_and_assigns_fresh_invocations(runtime):
         assert isinstance(value, int)
         return value < 3
 
-    serial_slot = ExecutionSlot("body", hooks)
-    serial_slot.connect(ExecutionPlug("increment", increment, {"count": count}))
-    loop_slot = ExecutionSlot("loop", hooks)
+    serial_slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="body")
+    serial_slot.connect(make_plug(registry, "increment", increment, {"count": count}))
+    loop_slot = ExecutionSlot(While.definition_id, hooks, instance_id="loop")
     loop_slot.connect(Serial(ctx, serial_slot).plug)
     loop = While(ctx, loop_slot, condition, max_iterations=3)
     first, second = ExecutionRequest("first"), ExecutionRequest("second")
@@ -219,15 +232,15 @@ def test_nested_loop_reads_updated_ctx_and_assigns_fresh_invocations(runtime):
 
 
 def test_loop_limit_fails_and_immediate_body_can_be_cancelled(runtime):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
     terminals = capture_terminals(ctx)
-    slot = ExecutionSlot("loop", hooks)
+    slot = ExecutionSlot(While.definition_id, hooks, instance_id="loop")
     calls = []
 
     async def step(request):
         calls.append(request)
 
-    slot.connect(ExecutionPlug("step", step))
+    slot.connect(make_plug(registry, "step", step))
     loop = While(ctx, slot, lambda request: True, max_iterations=2)
     request = ExecutionRequest("limit")
     with pytest.raises(LoopLimitExceeded):
@@ -250,10 +263,10 @@ def test_loop_limit_fails_and_immediate_body_can_be_cancelled(runtime):
 
 
 def test_parallel_bounds_concurrency_and_keeps_results_in_ctx(runtime):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
 
     async def scenario():
-        slot = ExecutionSlot("parallel", hooks)
+        slot = ExecutionSlot(Parallel.definition_id, hooks, instance_id="parallel")
         release = asyncio.Event()
         two_started = asyncio.Event()
         active = 0
@@ -272,7 +285,7 @@ def test_parallel_bounds_concurrency_and_keeps_results_in_ctx(runtime):
                 finally:
                     active -= 1
 
-            return ExecutionPlug(name, execute)
+            return make_plug(registry, name, execute)
 
         for name in ("a", "b", "c"):
             slot.connect(worker(name))
@@ -290,7 +303,7 @@ def test_parallel_bounds_concurrency_and_keeps_results_in_ctx(runtime):
 
 @pytest.mark.parametrize("outcome", ["failure", "parent_cancel", "child_cancel"])
 def test_parallel_waits_for_sibling_cleanup_before_terminal_state(runtime, outcome):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
     terminals = capture_terminals(ctx)
 
     async def scenario():
@@ -304,7 +317,7 @@ def test_parallel_waits_for_sibling_cleanup_before_terminal_state(runtime, outco
                 await asyncio.Event().wait()
             finally:
                 await asyncio.sleep(0)
-                assert status(ctx, "parallel", request)["status"] == "running"
+                assert status(ctx, "parallel", request, Parallel.definition_id)["status"] == "running"
                 cleaned.append(True)
 
         async def trigger(execution):
@@ -315,9 +328,9 @@ def test_parallel_waits_for_sibling_cleanup_before_terminal_state(runtime, outco
                 raise asyncio.CancelledError
             await asyncio.Event().wait()
 
-        slot = ExecutionSlot("parallel", hooks)
-        slot.connect(ExecutionPlug("sibling", sibling))
-        slot.connect(ExecutionPlug("trigger", trigger))
+        slot = ExecutionSlot(Parallel.definition_id, hooks, instance_id="parallel")
+        slot.connect(make_plug(registry, "sibling", sibling))
+        slot.connect(make_plug(registry, "trigger", trigger))
         task = asyncio.create_task(Parallel(ctx, slot, concurrency=2).execute(request))
         await asyncio.wait_for(entered.wait(), 1)
         if outcome == "parent_cancel":
@@ -335,13 +348,13 @@ def test_parallel_waits_for_sibling_cleanup_before_terminal_state(runtime, outco
 
 
 def test_disconnected_child_is_not_executed(runtime):
-    _, ctx, hooks = runtime
-    slot = ExecutionSlot("root", hooks)
+    registry, ctx, hooks = runtime
+    slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
 
     async def removed(request):
         pytest.fail("断开后不应执行")
 
-    link = slot.connect(ExecutionPlug("removed", removed))
+    link = slot.connect(make_plug(registry, "removed", removed))
     hooks.disconnect(link.connection)
     asyncio.run(Serial(ctx, slot).execute(ExecutionRequest("run")))
 
@@ -349,15 +362,14 @@ def test_disconnected_child_is_not_executed(runtime):
 @pytest.mark.parametrize("limit", [0, -1, 1.5, True])
 def test_control_limits_require_positive_integers(runtime, limit):
     _, ctx, hooks = runtime
-    slot = ExecutionSlot("root", hooks)
     with pytest.raises(ValueError, match="正整数"):
-        While(ctx, slot, lambda request: True, max_iterations=limit)
+        While(ctx, ExecutionSlot(While.definition_id, hooks), lambda request: True, max_iterations=limit)
     with pytest.raises(ValueError, match="正整数"):
-        Parallel(ctx, slot, concurrency=limit)
+        Parallel(ctx, ExecutionSlot(Parallel.definition_id, hooks), concurrency=limit)
 
 
 def test_loop_keeps_only_active_control_state(runtime):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
     calls = 0
     peak = 0
 
@@ -369,9 +381,9 @@ def test_loop_keeps_only_active_control_state(runtime):
         for address in addresses:
             assert "children" not in ctx.get(address.key, location=dict(address.location))
 
-    body_slot = ExecutionSlot("body", hooks)
-    body_slot.connect(ExecutionPlug("step", step))
-    loop_slot = ExecutionSlot("loop", hooks)
+    body_slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="body")
+    body_slot.connect(make_plug(registry, "step", step))
+    loop_slot = ExecutionSlot(While.definition_id, hooks, instance_id="loop")
     loop_slot.connect(Serial(ctx, body_slot).plug)
     loop = While(ctx, loop_slot, lambda request: calls < 100, max_iterations=100)
     asyncio.run(loop.execute(ExecutionRequest("run")))
@@ -380,7 +392,7 @@ def test_loop_keeps_only_active_control_state(runtime):
 
 
 def test_finishing_one_call_does_not_remove_other_active_call(runtime):
-    _, ctx, hooks = runtime
+    registry, ctx, hooks = runtime
 
     async def scenario():
         entered = {name: asyncio.Event() for name in ("first", "second")}
@@ -390,8 +402,8 @@ def test_finishing_one_call_does_not_remove_other_active_call(runtime):
             entered[request.run_id].set()
             await release[request.run_id].wait()
 
-        slot = ExecutionSlot("root", hooks)
-        slot.connect(ExecutionPlug("wait", wait))
+        slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
+        slot.connect(make_plug(registry, "wait", wait))
         root = Serial(ctx, slot)
         first, second = ExecutionRequest("first"), ExecutionRequest("second")
         first_task = asyncio.create_task(root.execute(first))

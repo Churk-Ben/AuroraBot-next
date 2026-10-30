@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,6 +19,7 @@ from aurora_bot.control import (
     Serial,
     StateBinding,
     While,
+    component_entries,
     plugin,
 )
 from aurora_core import Id
@@ -28,10 +29,23 @@ from aurora_core.discovery import register_plugins
 from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import Lifecycle, LifecycleComponent, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
-from aurora_core.registry import RegistryEntry
+from aurora_core.registry import DefinitionRegistry, RegistryEntry
 from aurora_core.storage import StorageService
 
 VALUE = Id("dev.example.control:state/value")
+
+
+def make_plug(
+    registry: DefinitionRegistry,
+    definition_id: Id,
+    execute: Callable[[ExecutionRequest], Awaitable[None]],
+    states: Mapping[str, StateBinding] | None = None,
+    *,
+    instance_id: str,
+) -> ExecutionPlug:
+    """由示例装配显式登记局部业务组件，再绑定具体执行实例。"""
+    registry.register_many(component_entries(definition_id, execute, execute, provider="dev.example.control"))
+    return ExecutionPlug(definition_id, execute, states or {}, instance_id=instance_id)
 
 
 def state(instance_id: str) -> StateBinding:
@@ -44,10 +58,10 @@ def number(ctx: Context, source: StateBinding, request: ExecutionRequest) -> int
     return value
 
 
-def assemble(ctx: Context, hooks: HookConnections, steps: int, delay: float) -> Serial:
+def assemble(registry: DefinitionRegistry, ctx: Context, hooks: HookConnections, steps: int, delay: float) -> Serial:
     """装配交换地址；各执行函数只接收身份，自行读写 ctx，不返回业务结果。"""
     counter = state("counter")
-    root_slot = ExecutionSlot("root", hooks)
+    root_slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
 
     async def initialize(request: ExecutionRequest) -> None:
         counter.set(ctx, request, 0)
@@ -56,12 +70,20 @@ def assemble(ctx: Context, hooks: HookConnections, steps: int, delay: float) -> 
         await asyncio.sleep(delay)
         counter.set(ctx, request, number(ctx, counter, request) + 1)
 
-    root_slot.connect(ExecutionPlug("initialize", initialize))
-    body_slot = ExecutionSlot("body", hooks)
-    counter_link = body_slot.connect(ExecutionPlug("counter", increment, {"value": counter}))
+    root_slot.connect(
+        make_plug(registry, Id("dev.example.control:handlers/initialize"), initialize, instance_id="initialize")
+    )
+    body_slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="body")
+    counter_link = body_slot.connect(
+        make_plug(
+            registry, Id("dev.example.control:handlers/counter"), increment, {"value": counter}, instance_id="counter"
+        )
+    )
 
     # 插槽从生产方握手结果取得地址，再向消费方提供同一位置。
-    branch_slot = ExecutionSlot("parity", hooks, states={"input": counter_link.plug.states["value"]})
+    branch_slot = ExecutionSlot(
+        Branch.definition_id, hooks, instance_id="parity", states={"input": counter_link.plug.states["value"]}
+    )
 
     def connect_marker(name: str, label: str) -> None:
         output = state(name)
@@ -70,19 +92,25 @@ def assemble(ctx: Context, hooks: HookConnections, steps: int, delay: float) -> 
             value = number(ctx, link.slot_states["input"], request)
             output.set(ctx, request, {"number": value, "label": label})
 
-        link = branch_slot.connect(ExecutionPlug(name, execute, {"output": output}))
+        link = branch_slot.connect(
+            make_plug(
+                registry, Id(f"dev.example.control:handlers/{name}"), execute, {"output": output}, instance_id=name
+            )
+        )
 
     connect_marker("odd", "奇数分支")
     connect_marker("even", "偶数分支")
     branch = Branch(ctx, branch_slot, lambda request: "even" if number(ctx, counter, request) % 2 == 0 else "odd")
     body_slot.connect(branch.plug)
 
-    loop_slot = ExecutionSlot("loop", hooks)
+    loop_slot = ExecutionSlot(While.definition_id, hooks, instance_id="loop")
     loop_slot.connect(Serial(ctx, body_slot).plug)
     loop = While(ctx, loop_slot, lambda request: number(ctx, counter, request) < steps, max_iterations=steps)
     root_slot.connect(loop.plug)
 
-    parallel_slot = ExecutionSlot("parallel", hooks, states={"input": counter_link.plug.states["value"]})
+    parallel_slot = ExecutionSlot(
+        Parallel.definition_id, hooks, instance_id="parallel", states={"input": counter_link.plug.states["value"]}
+    )
 
     def connect_calculation(name: str, calculate: Callable[[int], int], wait: float) -> ExecutionLink:
         output = state(name)
@@ -97,7 +125,11 @@ def assemble(ctx: Context, hooks: HookConnections, steps: int, delay: float) -> 
                 output.set(ctx, request, {"status": "cancelled"})
                 raise
 
-        link = parallel_slot.connect(ExecutionPlug(name, execute, {"output": output}))
+        link = parallel_slot.connect(
+            make_plug(
+                registry, Id(f"dev.example.control:handlers/{name}"), execute, {"output": output}, instance_id=name
+            )
+        )
         return link
 
     calculations = (
@@ -114,7 +146,15 @@ def assemble(ctx: Context, hooks: HookConnections, steps: int, delay: float) -> 
             result[link.plug.instance_id] = output["value"]
         state("summary").set(ctx, request, result)
 
-    root_slot.connect(ExecutionPlug("summary", summarize, {"output": state("summary")}))
+    root_slot.connect(
+        make_plug(
+            registry,
+            Id("dev.example.control:handlers/summary"),
+            summarize,
+            {"output": state("summary")},
+            instance_id="summary",
+        )
+    )
     return Serial(ctx, root_slot)
 
 
@@ -140,7 +180,7 @@ async def run(data_dir: Path, steps: int, delay: float) -> None:
     install_lifecycle_slots(registry)
     ctx = Context(registry)
     hooks = HookConnections(registry)
-    root = assemble(ctx, hooks, steps, delay)
+    root = assemble(registry, ctx, hooks, steps, delay)
     storage = StorageService(data_dir)
     host = Lifecycle(
         ctx,

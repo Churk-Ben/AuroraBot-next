@@ -6,13 +6,65 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 from aurora_core.ctx import Context, StateAddress
-from aurora_core.hooks import HookConnection, HookConnections
+from aurora_core.hooks import HookConnection, HookConnections, HookSlot
 from aurora_core.ids import Id
+from aurora_core.registry import RegistryEntry
 
-CHILDREN = Id("org.aurora.bot:control/children")
-EXECUTE = Id("org.aurora.bot:handlers/control/execute")
 CONTROL_STATE = Id("org.aurora.bot:state/control")
 _logger = logging.getLogger(__name__)
+
+
+def component_entries(
+    definition_id: Id,
+    component: object,
+    execute: Callable[..., object],
+    *,
+    provider: str,
+    children: bool = False,
+) -> tuple[RegistryEntry, ...]:
+    """显式声明组件及其端口；本插件约定端口位于组件路径下。
+
+    component 类型描述可实例化组件或局部执行函数，不参与通用调用分派。
+    execute 的 interface 引用组件定义，供插槽核对执行插头的归属。
+    """
+    entries = (
+        RegistryEntry(definition_id, "component", component, provider),
+        RegistryEntry(
+            Id(f"{definition_id}/execute"),
+            "hook_handler",
+            execute,
+            provider,
+            register_to=Id("org.aurora.core:registries/hook_handlers"),
+            interface=definition_id,
+        ),
+    )
+    if children:
+        entries += (
+            RegistryEntry(
+                Id(f"{definition_id}/children"),
+                "hook_slot",
+                HookSlot(_accept_execution),
+                provider,
+                register_to=Id("org.aurora.core:registries/hook_slots"),
+            ),
+        )
+    return entries
+
+
+def _accept_execution(entry: RegistryEntry) -> str | None:
+    plug = entry.target
+    if not isinstance(plug, ExecutionPlug):
+        return "需要绑定执行插头实例"
+    if entry.interface != plug.definition_id or entry.id != plug.execute_id:
+        return "执行插头与登记的组件定义不符"
+    return None
+
+
+def _check_identity(definition_id: Id, instance_id: str) -> None:
+    if not isinstance(definition_id, Id):
+        raise TypeError("组件定义身份必须为 Id")
+    if not isinstance(instance_id, str) or not instance_id:
+        raise ValueError("组件实例标识必须为非空字符串")
 
 
 @dataclass(frozen=True)
@@ -52,12 +104,25 @@ class StateBinding:
 
 @dataclass(frozen=True)
 class ExecutionPlug:
-    """实例执行插头；states/schema 用于连接，调用只接收身份并等待完成。"""
+    """实例执行插头；定义显式指定，实例默认生成 UUID，调用只传递执行身份。"""
 
-    instance_id: str
+    definition_id: Id
     execute: Callable[[ExecutionRequest], Awaitable[None]]
     states: Mapping[str, StateBinding] = field(default_factory=dict)
     schema: object | None = None
+    instance_id: str = field(default_factory=lambda: uuid4().hex, kw_only=True)
+
+    def __post_init__(self) -> None:
+        _check_identity(self.definition_id, self.instance_id)
+
+    @property
+    def execute_id(self) -> Id:
+        return Id(f"{self.definition_id}/execute")
+
+    @property
+    def reference(self) -> str:
+        """用于展示的实例引用；定义与实例仍以独立字段参与寻址。"""
+        return f"{self.definition_id}.{self.instance_id}"
 
     async def __call__(self, request: ExecutionRequest) -> None:
         await self.execute(request)
@@ -82,27 +147,40 @@ class ExecutionSlot:
 
     def __init__(
         self,
-        instance_id: str,
+        definition_id: Id,
         hooks: HookConnections,
         *,
+        instance_id: str | None = None,
         states: Mapping[str, StateBinding] | None = None,
         schema: object | None = None,
         accept: Callable[[ExecutionPlug], str | None] | None = None,
     ) -> None:
-        self.instance_id = instance_id
+        self.definition_id = definition_id
+        self.instance_id = uuid4().hex if instance_id is None else instance_id
+        _check_identity(self.definition_id, self.instance_id)
         self.hooks = hooks
         self.states = dict(states or {})
         self.schema = schema
         self.accept = accept
         self._links: dict[HookConnection, ExecutionLink] = {}
 
+    @property
+    def children_id(self) -> Id:
+        return Id(f"{self.definition_id}/children")
+
+    @property
+    def reference(self) -> str:
+        return f"{self.definition_id}.{self.instance_id}"
+
     def connect(self, plug: ExecutionPlug, *, priority: int = 0) -> ExecutionLink:
         """校验后建立 core 实例连接，不执行组件、不读写业务状态。"""
+        if any(link.plug.instance_id == plug.instance_id for link in self.links()):
+            raise ValueError(f"子组件实例标识重复：{plug.instance_id}")
         if self.accept is not None and (reason := self.accept(plug)) is not None:
             raise ValueError(f"插槽 {self.instance_id} 拒绝 {plug.instance_id}：{reason}")
         connection = self.hooks.connect(
-            CHILDREN,
-            EXECUTE,
+            self.children_id,
+            plug.execute_id,
             slot_instance=self.instance_id,
             handler_instance=plug.instance_id,
             target=plug,
@@ -116,7 +194,7 @@ class ExecutionSlot:
 
     def links(self) -> tuple[ExecutionLink, ...]:
         """以 core 的显式连接顺序获取当前子组件，断开的连接不参与执行。"""
-        return tuple(self._links[item] for item in self.hooks.for_slot(CHILDREN, self.instance_id))
+        return tuple(self._links[item] for item in self.hooks.for_slot(self.children_id, self.instance_id))
 
     async def invoke(self, link: ExecutionLink, request: ExecutionRequest) -> None:
         await self.hooks.invoke(link.connection, request)
