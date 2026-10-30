@@ -2,6 +2,8 @@
 
 ## 2026-10-30
 
+- id/list（亦可写作 id list）按完整 ID 排序展示当前定义总表的 ID、kind 与 provider，包含 core 自举、CLI 内置定义及已启用插件声明。命令身份为 org.aurora.cli:commands/id/list，通过命令包自动发现；无需数据目录，不构造 ctx 或启动装配，因此不包含 prepare/start 阶段动态登记的定义。
+
 - 命令可通过 passthrough 的非空帮助文本显式启用参数透传。无自身参数的命令原样接收全部参数，包括 --help；有自身参数的命令只将首个 -- 及后续内容交给执行器，其前参数继续严格解析。执行器或 operation 接收名为 passthrough 的 list[str]，保留顺序、空字符串、含空格参数及分隔符，由命令决定下游转发方式，不拼接 shell 字符串。
 - 未声明透传的命令仍拒绝未知参数；透传命令禁止再声明同名 passthrough 参数。check 仅提供既有初筛选项，不启用透传；定位失败项时使用对应工具的精准命令。
 - 顶层命令和参数作为整体保留原始 argv，避免消耗叶子命令的 --。core 单次调用包装器的路由参数使用仅限位置参数，允许业务参数使用 target、registry、identity 等名称。
