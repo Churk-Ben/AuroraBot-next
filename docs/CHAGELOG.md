@@ -17,6 +17,11 @@
 
 ### 实现与验证记录
 
+- aurora_bot.assembly 提供 org.aurora.bot:assemblies/default 同步宿主入口及 DefaultAssembly。装配入口只建立生命周期连接；宿主恢复 ctx 并预配置后，prepare 创建独立模型客户端、工具实例及默认 ReAct 连接。start 只开放显式 activate，调用方通过 Lifecycle.run 跟踪根调用，不由启动或普通 ctx 写入隐式触发推理。
+- 默认单 bot 配置位于 org.aurora.bot:state/config，必填 instance_id/model_role；tools 选择公开工具 ID、实例身份及 config，max_iterations/tool_timeout/streaming/system_prompt 默认分别为 8/30/true/空串。模型角色引用 aurora_model_adapter 的配置与绑定状态；配置变更在下次宿主启动生效，CLI 的 --config 仍只写 CLI 自身状态，不隐式转写 bot 配置。凭证解析器默认读取指定环境变量，也可由进程内装配注入，解析出的密钥不进入 ctx。
+- bot 实例状态分别使用 state/agents（inbox/progress）、state/messages（ReActContext）、state/run（最近运行）与 state/react_work（按 run_id 定位的中间值）；全部在恢复前登记，按稳定 instance_id 分开。恢复出的 running 状态标为 failed/InterruptedRun，不自动创建任务；未完成工具轮次保留到后续显式激活接纳。默认装配清理已消费 inbox 和中间值，保留上下文、消费位置、最近模型输出及 pending 所需工具批次，不裁剪其他实例的数据。
+- 关闭按停止接收激活、宿主收束在途调用、逆序关闭工具、关闭模型、最终落盘执行。部分工具创建失败会关闭已创建工具及模型；关闭失败保留资源供宿主重试，已关闭工具不重复关闭。16 项配置测试和 7 项宿主集成测试验证配置拒绝、角色解析、运行期凭证、独立客户端、启动顺序、无自动激活、工具往返、恢复、取消、部分失败、关闭重试与 CLI 宿主入口。
+
 - 模型适配插件登记 state/config 与 state/bindings：前者按名称保存 adapter/model 和可选 base_url/credential，后者将逻辑角色映射到配置名称。credential 只保存运行期凭证引用；api_key 与未知字段拒绝写入。resolve_model 只解析 adapters 注册表中的工厂，不从配置导入模块、不缓存客户端；同一定义可以创建独立实例。
 - ToolSpec 可显式提供异步 ToolFactory。工厂接收 ctx、宿主 storage、分配的 instance_id、input/output 地址及工具 JSON 配置，返回 ToolInstance(plug, aclose)。工厂返回前的失败或取消由工厂释放部分资源；成功返回后的资源由装配负责关闭。工具沿用装配分配的身份和工作地址，共享 storage 仍由宿主关闭。
 
