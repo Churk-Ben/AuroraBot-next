@@ -17,6 +17,11 @@
 
 ### 实现与验证记录
 
+- 工具失败策略：未知工具、参数错误、工具执行异常和超时均作为结构化观察交回 bot，由模型决定后续行动；取消继续传播并等待清理。基础执行器不自动重试动作，扩展处理器故障和装配错误仍明确失败。
+- aurora_bot.tools 提供 tools 注册表、ToolSpec 和 ToolExecutor。ToolSpec 将模型可见的名称、描述及参数 schema 关联到组件定义，装配显式连接工具实例；模型只看到已连接工具，同一执行器拒绝重复模型名称。工具以 ExecutionPlug 接入，通过 input 读取完整 ToolCall，在 output 写入 JSON 结果；临时工作地址由执行器清理，持久业务数据另存。
+- 工具参数使用 jsonschema 的 Draft 2020-12 校验与本地 referencing Registry，不获取外部 schema；format 仅为注释。批次按 turn_id 关联推理，调用 id 在批次内唯一；按顺序执行并逐个保存结果，before_call 可通过 ToolRejected 拒绝动作，after_call 观察已保存结果。超时覆盖前置处理和工具执行，以及后置处理；同步阻塞和忽略取消的插件不承诺强制抢占。
+- 工具批次保留 completed/failed/cancelled 状态与逐项结果；批次 completed 表示处理结束，各项仍可为失败。取消保留已完成结果、标记当前取消及后续未执行项，不消费旧输出。14 项工具测试覆盖连接、参数、结果隔离、拒绝、失败、超时、取消、临时值清理和本地 schema 引用；Ruff 与 Python 类型检查通过。
+
 - aurora_bot.react 插件提供 ReActAgent component、/execute 插头与六个 react 阶段插槽。调用通过显式连接执行，保持同一激活的 run_id，各阶段子调用生成独立 execution_id。prepare/infer 必须连接；infer 经 decision 地址明确选择 act、continue 或 finish；act 要求 act/observe 连接，finish 可无处理器、无对外输出。组件不持有后台任务，不订阅 world；宿主通过 Lifecycle.run 管理根调用。
 - inbox、progress、runtime 使用实例级地址；引导包含跨激活严格递增的 sequence、唯一 id 和 payload。prepare 读取 batch 快照并将其纳入可保留的上下文，成功后推进消费位置；失败不确认该批输入，处理器按引导 id 避免重试重复。新输入在下一次 prepare 接纳，finish 开始后的输入保留为 pending，由调度所有者在返回后复查。batch/decision 按运行定位并在收尾时删除，runtime 保留最近激活的 completed/cancelled/failed 状态；其他上下文、模型输出和输入裁剪由装配负责。
 - 同一 ReActAgent 实例的重入执行明确拒绝，不改动在途运行；取消传播并等待当前处理器收尾。循环上限、缺少阶段、无效决策与异常输入明确失败；error 处理器失败时同时保留执行和错误处理异常。既有 ModelCall 可直接连接 infer 插槽，由后续阶段处理器将模型结果解释为控制决定。
