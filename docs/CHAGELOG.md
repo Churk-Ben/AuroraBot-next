@@ -2,6 +2,13 @@
 
 ## 2026-10-30
 
+- M1.8 微内核集成验收完成，M1「微内核可用」达到出口条件；下一里程碑为 M2「最小 bot」。验收使用真实组件、JSON 快照、SQLite 存储和 CLI 进程，故障注入仅位于测试夹具。
+- tests/e2e/test_m1_shutdown.py 在磁盘 I/O 阻塞时接收 20 个并发调用，并启动关闭：拒绝新工作、等待全部在途写入、执行组件最后写入、保存最新完整快照、关闭存储、关闭 ctx。测试记录实际顺序，检查连续 22 次状态通知，重开后验证全部业务地址与结构化数据。
+- tests/e2e/test_m1_cli_process.py 通过已安装入口元数据发现测试插件，在真实 CLI 进程中运行 ctx/watch 并触发 SIGINT；变化按序输出，停止阶段最后写入，进程返回 130，下一进程读取到最终值。组件停止失败和最终落盘失败均返回 1；落盘故障保留上一份正式快照。
+- M1 关闭异常覆盖同时包含部分启动清理、禁用可选停止处理器、在途取消、落盘失败保留内存与重试、损坏快照保护；既有生命周期与持久化测试和本轮整体场景共同验证这些边界。
+- 本次 aurora-core wheel 在仅安装该包的独立虚拟环境中执行计数器两次，输出 2 和 5；确认 CLI、bot、模型适配和 API 均不可导入，验证 core 外应用无需业务包即可恢复状态。
+- M1.8 验收包含 196 项 Python 测试、9 项工具链测试、Pyright basic 及格式/lint/TypeScript/工作区入口检查。ctx 并发语义仍为同一宿主线程内的显式操作；数据目录由单宿主独占，CLI watch 观察当前进程，快照不承诺异常断电时零数据丢失。
+
 - aurora -v/--version 输出已安装 aurora-cli 发行包的版本并立即退出，不发现插件、不创建运行期宿主或存储；版本来源为发行包元数据。
 
 - commands/ 的直接子包通过无参数 plugin() 工厂返回 core Plugin，CLI 按包名排序自动发现并统一登记；下划线开头的内部包不参与发现。包入口仅声明元数据和函数引用，文件、连接及任务在执行或生命周期阶段创建。发现范围为内置命令包，外部 entry point 仍需 --plugin 显式启用。
@@ -20,13 +27,16 @@ def execute(context: CommandContext, name: str) -> int:
 
 
 def plugin():
-    return command_plugin(__name__, {
-        "hello": {
-            "help": "打招呼",
-            "arguments": [{"name": "name"}],
-            "executor": execute,
-        }
-    })
+    return command_plugin(
+        __name__,
+        {
+            "hello": {
+                "help": "打招呼",
+                "arguments": [{"name": "name"}],
+                "executor": execute,
+            }
+        },
+    )
 ```
 
 - 验收通过完整 aurora check：190 项 Python 测试、9 项工具链测试，Pyright basic 无错误。覆盖命令包独立新增与移除、外部入口显式启用、同步/异步执行器、自定义退出码、运行期状态恢复、重复 ID 和无效绑定拒绝；安装后的 CLI wheel 在独立环境中完成命令发现与 ctx 调用。
