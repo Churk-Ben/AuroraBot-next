@@ -115,7 +115,8 @@ class Lifecycle:
             if phase == STOP:
                 self._finished_handlers.add(connection)
 
-    async def start(self) -> None:
+    async def start(self, *, configure: Callable[[], object] | None = None) -> None:
+        """恢复状态后应用宿主配置，再 prepare/start；配置失败沿启动失败路径收尾。"""
         if self._state != "new":
             raise RuntimeError("生命周期只允许启动一次")
         self._loop = asyncio.get_running_loop()
@@ -124,6 +125,9 @@ class Lifecycle:
             if self._persistence is not None:
                 await self._persistence.start()
                 self._persistence_started = True
+            if configure is not None:
+                async with asyncio.timeout(self._timeout):
+                    await invoke_callable(configure)
             for component in self._components:
                 self._attempted.add(component.instance_id)
                 await self._phase(PREPARE, component)

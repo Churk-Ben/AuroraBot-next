@@ -308,3 +308,22 @@ def test_stop_handler_timeout_preserves_dependencies_for_retry():
         assert stopped == [True]
 
     asyncio.run(scenario())
+
+
+def test_configuration_failure_does_not_prepare_components():
+    async def scenario():
+        registry, ctx, hooks, lifecycle = environment([LifecycleComponent("app")])
+        calls = []
+        handler(registry, hooks, PREPARE, "app", lambda: calls.append("prepare"))
+
+        def configure():
+            raise ValueError("配置不合法")
+
+        with pytest.raises(ValueError, match="配置不合法"):
+            await lifecycle.start(configure=configure)
+        assert calls == []
+        assert lifecycle.state == "stopped"
+        with pytest.raises(RuntimeError, match="关闭"):
+            ctx.list()
+
+    asyncio.run(scenario())
