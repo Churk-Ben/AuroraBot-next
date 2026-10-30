@@ -19,6 +19,8 @@ async def run_cli(
     argv: list[str] | None = None, *, plugins: Iterable[Plugin] = (), output: TextIO | None = None
 ) -> int:
     output = sys.stdout if output is None else output
+    if output is None:
+        raise RuntimeError("标准输出不可用，请显式提供 output 文本流")
     parser = root_parser()
     options = parser.parse_args(argv)
     registry = bootstrap()
