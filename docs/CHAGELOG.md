@@ -2,6 +2,8 @@
 
 ## 2026-10-30
 
+- about 与 help 的表格使用 Rich 内置 box.SIMPLE，隐藏外框、保留表头分隔线，不设置隔行变暗。
+
 - about 与 help 直接使用 Rich Table、Text 和 Console，表格展示无需项目级封装；插件帮助内容按字面量渲染。
 
 - CLI 表格采用 Rich Table 原生默认边框、表头和行间样式；banner 使用原生标题，单元格保持字面量文本，重定向输出与文本渲染沿用 Rich 的终端处理。

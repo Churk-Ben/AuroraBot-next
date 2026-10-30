@@ -8,6 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TextIO
 
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -54,7 +55,7 @@ def execute(root: Path, output: TextIO) -> int:
         )
     )
     print(f"{LOGO}\n\n{ABOUT}\n", file=output)
-    table = Table("项目", "内容")
+    table = Table("项目", "内容", box=box.SIMPLE, show_edge=False)
     for label, value in rows:
         table.add_row(Text(label), Text(value))
     Console(file=output).print(table)
