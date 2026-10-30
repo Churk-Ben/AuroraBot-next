@@ -48,6 +48,7 @@ def root_parser() -> argparse.ArgumentParser:
         allow_abbrev=False, prog="aurora", description="AuroraBot 当前进程宿主与命令入口", add_help=False
     )
     parser.add_argument("-h", "--help", action="store_true", dest="show_help", help="查看命令帮助")
+    parser.add_argument("-v", "--version", action="store_true", help="查看已安装的 CLI 版本并退出")
     parser.add_argument("-r", "--root", type=Path, default=Path.cwd(), help="命令使用的项目根目录")
     parser.add_argument("--debug", action="store_true", help="显示完整异常信息")
     parser.add_argument("-d", "--data-dir", type=Path, help="宿主独占的数据目录；执行命令时必填")

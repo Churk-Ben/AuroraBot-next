@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 import tomllib
+from importlib.metadata import version
 from io import StringIO
 
 import pytest
@@ -15,6 +16,14 @@ from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import RegistryEntry
 
 CONFIG = "org.aurora.cli:state/config"
+
+
+@pytest.mark.parametrize("flag", ["-v", "--version"])
+def test_version_exits_without_loading_plugins_or_creating_storage(tmp_path, flag):
+    result = invoke("--plugin", "missing-version-test-plugin", "--data-dir", tmp_path / "data", flag)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == f"aurora {version('aurora-cli')}"
+    assert not (tmp_path / "data").exists()
 
 
 def invoke(*args):

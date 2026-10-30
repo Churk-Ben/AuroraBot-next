@@ -2,6 +2,7 @@
 
 import sys
 from collections.abc import Iterable
+from importlib.metadata import version
 from typing import TextIO
 
 from aurora_core.admission import AdmissionStatus, inspect_admissions
@@ -25,6 +26,9 @@ async def run_cli(
         raise RuntimeError("标准输出不可用，请显式提供 output 文本流")
     parser = root_parser()
     options = parser.parse_args(argv)
+    if options.version:
+        print(f"aurora {version('aurora-cli')}", file=output)
+        return 0
     registry = bootstrap()
     install_commands(registry)
     install_lifecycle_slots(registry)
