@@ -1,6 +1,6 @@
 """Python 客户端的 ctx 请求与显式订阅生命周期。"""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Self
@@ -78,11 +78,11 @@ class CtxClient:
             return body["result"]
 
     @asynccontextmanager
-    async def watch(self, **filters: object) -> AsyncIterator[AsyncIterator[dict]]:
+    async def watch(self, **filters: object) -> AsyncGenerator[AsyncIterator[dict], None]:
         """收到 ready 后交付事件迭代器；仅包含订阅后的变化，revision 属于宿主当前 ctx。"""
-        async with self._connection().ws_connect(
-            self.url + WATCH_PATH, heartbeat=30, timeout=ClientWSTimeout(ws_receive=None, ws_close=2)
-        ) as ws:
+        # aiohttp 的 attrs 动态构造签名无法被 basedpyright 完整识别。
+        timeout = ClientWSTimeout(ws_receive=None, ws_close=2)  # pyright: ignore[reportCallIssue]
+        async with self._connection().ws_connect(self.url + WATCH_PATH, heartbeat=30, timeout=timeout) as ws:
             await ws.send_json(filters)
             body = _check_error(await ws.receive_json(timeout=10, loads=decode_json))
             if body.get("type") != "ready":

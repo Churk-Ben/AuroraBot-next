@@ -2,12 +2,13 @@
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager, suppress
 from functools import partial
+from typing import cast
 
 from aiohttp import WSMsgType, web
-from aurora_core.ctx import StateChange, StateKey
+from aurora_core.ctx import StateAddress, StateChange, StateKey
 from aurora_core.ids import Id
 from aurora_core.invocation import invoke_operation
 from aurora_core.json_data import decode_json, encode_json
@@ -91,7 +92,8 @@ def create_application(registry: DefinitionRegistry, *, keys: Iterable[Id], queu
         values = _filters(decode_json(await request.text()), allowed, action=action)
         result = await invoke_operation(registry, HTTP_ACTIONS[action][1], **values)
         if action == "list":
-            result = [address_data(address) for address in result if address.key in allowed]
+            addresses = cast(tuple[StateAddress, ...], result)
+            result = [address_data(address) for address in addresses if address.key in allowed]
         return web.Response(text=encode_json({"result": result}), content_type="application/json")
 
     async def watch(request: web.Request) -> web.WebSocketResponse:
@@ -137,7 +139,7 @@ def create_application(registry: DefinitionRegistry, *, keys: Iterable[Id], queu
             async with asyncio.timeout(10):
                 data = await ws.receive_json(loads=decode_json)
             values = _filters(data, allowed, action="watch")
-            handle = await invoke_operation(registry, SUBSCRIBE, notify, **values)
+            handle = cast(str, await invoke_operation(registry, SUBSCRIBE, notify, **values))
             await ws.send_json({"type": "ready"})
             tasks = [asyncio.create_task(send()), asyncio.create_task(receive())]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -175,7 +177,7 @@ def create_application(registry: DefinitionRegistry, *, keys: Iterable[Id], queu
 @asynccontextmanager
 async def serve(
     registry: DefinitionRegistry, *, keys: Iterable[Id], port: int = 10270, queue_limit: int = 256
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     """在宿主循环监听 IPv4 回环地址，退出时先关闭连接与订阅。"""
     if not 0 <= port <= 65535:
         raise ValueError("端口须在 0 至 65535 之间")
