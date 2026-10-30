@@ -1,5 +1,5 @@
 {
-  "python.languageServer": "Default",
+  "python.languageServer": "None",
   "workbench.browser.openLocalhostLinks": false,
   "explorer.fileNesting.enabled": true,
   "explorer.fileNesting.expand": false,
