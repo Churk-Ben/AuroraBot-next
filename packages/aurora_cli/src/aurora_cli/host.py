@@ -3,34 +3,30 @@
 import inspect
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TextIO
+from typing import cast
 
 from aurora_core.ctx import install_context
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
-from aurora_core.invocation import invoke_operation
 from aurora_core.lifecycle import Lifecycle, LifecycleComponent
 from aurora_core.persistence import ContextPersistence
-from aurora_core.registry import DefinitionRegistry
 from aurora_core.storage import StorageService
 
-from .commands.ctx import render_result
-from .commands.ctx.watch import watch
-from .commands.run import wait_until_cancelled
-from .declarations import CONFIG, RUN, WATCH, Command
+from .declarations import CONFIG, Command, CommandContext
+from .execution import execute_command
 
 
 async def execute(
-    registry: DefinitionRegistry,
+    context: CommandContext,
     command: Command,
     values: dict[str, object],
     *,
     data_dir: Path,
     assembly: Id | None,
     config: object,
-    output: TextIO,
-) -> None:
+) -> int:
     """工厂同步接收 registry/ctx/hooks/storage，在 prepare/start 内初始化资源。"""
+    registry = context.registry
     ctx = install_context(registry)
     lifecycle: Lifecycle | None = None
     try:
@@ -66,15 +62,7 @@ async def execute(
 
         await lifecycle.start(configure=configure)
         try:
-            if command.id == RUN:
-                await lifecycle.run(wait_until_cancelled)
-            elif command.id == WATCH:
-                await lifecycle.run(watch, registry, output, **values)
-            else:
-                if command.operation is None:
-                    raise ValueError("命令没有执行目标")
-                result = await lifecycle.run(invoke_operation, registry, command.operation, **values)
-                render_result(output, command.id.local_path if command.id.namespace == "org.aurora.cli" else "", result)
+            return cast(int, await lifecycle.run(execute_command, command, context, values))
         finally:
             await lifecycle.stop()
     finally:

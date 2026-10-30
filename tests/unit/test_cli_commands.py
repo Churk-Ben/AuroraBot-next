@@ -44,6 +44,10 @@ def test_plain_command_description_converts_arguments():
     [
         "opaque",
         {"help": "缺少操作"},
+        {"help": "执行器不可调用", "executor": 1},
+        {"help": "重复绑定", "operation": "dev.test:operations/echo", "executor": lambda context: None},
+        {"help": "运行需求错误", "operation": "dev.test:operations/echo", "runtime": False},
+        {"help": "装配参数缺失", "executor": lambda context: None, "runtime": True, "assembly_argument": "missing"},
         {"help": "错误 ID", "operation": "invalid"},
         {"help": "额外字段", "operation": "dev.test:operations/echo", "unknown": True},
         {"help": "重复参数", "operation": "dev.test:operations/echo", "arguments": [{"name": "x"}, {"name": "x"}]},

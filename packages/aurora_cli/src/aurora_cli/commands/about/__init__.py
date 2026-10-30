@@ -13,6 +13,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from ...declarations import CommandContext, command_plugin
+
 DEFINITIONS = {"about": {"help": "了解 AuroraBot 与当前运行环境"}}
 LOGO = """\
                               ▄          ▄
@@ -64,3 +66,11 @@ def execute(root: Path, output: TextIO) -> int:
         table.add_row(Text(label), Text(value))
     Console(file=output).print(table)
     return 0
+
+
+def dispatch(context: CommandContext) -> int:
+    return execute(context.root, context.output)
+
+
+def plugin():
+    return command_plugin(__name__, {"about": {**DEFINITIONS["about"], "executor": dispatch}})

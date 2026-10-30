@@ -1,25 +1,20 @@
 """命令声明接收与 argv 转换；业务执行目标由公共操作 ID 引用。"""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, TextIO
 
+from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
-from aurora_core.registry import RegistryEntry
+from aurora_core.registry import DefinitionRegistry, RegistryEntry
 
 COMMANDS = Id("org.aurora.cli:registries/commands")
 CONFIG = Id("org.aurora.cli:state/config")
-HELP = Id("org.aurora.cli:commands/help")
-WATCH = Id("org.aurora.cli:commands/ctx/watch")
-RUN = Id("org.aurora.cli:commands/run")
 
 
 ARGUMENT_TYPES = frozenset({"string", "integer", "json", "id", "location", "flag"})
-LOCAL_COMMANDS = frozenset(
-    Id(f"org.aurora.cli:commands/{name}")
-    for name in ("help", "ctx/watch", "run", "about", "check", "donk/show", "donk/major", "donk/minor", "donk/patch")
-)
 
 
 @dataclass(frozen=True)
@@ -30,17 +25,53 @@ class Command:
     help: str
     operation: Id | None
     arguments: tuple[dict[str, Any], ...]
+    executor: Callable[..., object] | None = None
+    runtime: bool = True
+    assembly_argument: str | None = None
+
+
+@dataclass(frozen=True)
+class CommandContext:
+    """命令执行依赖；registry 在运行期已绑定 core 状态操作。"""
+
+    root: Path
+    output: TextIO
+    registry: DefinitionRegistry
+    commands: tuple[Command, ...]
+
+
+def command_plugin(
+    provider: str, definitions: Mapping[str, Mapping[str, object]], *, namespace: str = "org.aurora.cli"
+) -> Plugin:
+    """为自包含命令包生成 core 插件清单，路径相对于 commands 域。"""
+    return Plugin(
+        provider,
+        tuple(
+            RegistryEntry(Id(f"{namespace}:commands/{name}"), "command", dict(spec), provider, register_to=COMMANDS)
+            for name, spec in definitions.items()
+        ),
+    )
 
 
 def read_command(entry: RegistryEntry) -> Command:
     if entry.kind != "command" or not isinstance(entry.target, Mapping):
         raise TypeError("命令必须使用 command kind 和映射描述")
     spec = entry.target
-    if set(spec) - {"help", "operation", "arguments"} or not isinstance(spec.get("help"), str):
-        raise ValueError("命令描述须包含 help，仅支持 help、operation、arguments")
+    if set(spec) - {"help", "operation", "arguments", "executor", "runtime", "assembly_argument"} or not isinstance(
+        spec.get("help"), str
+    ):
+        raise ValueError("命令描述缺少 help 或包含不支持的字段")
     operation = Id(spec["operation"]) if "operation" in spec else None
-    if operation is None and entry.id not in LOCAL_COMMANDS:
-        raise ValueError("扩展命令必须声明 operation 完整 ID")
+    executor = spec.get("executor")
+    if executor is not None and not callable(executor):
+        raise TypeError("executor 必须为可调用对象")
+    if (operation is None) == (executor is None):
+        raise ValueError("命令必须且只能声明 operation 或 executor")
+    runtime = spec.get("runtime", operation is not None)
+    if type(runtime) is not bool:
+        raise TypeError("runtime 必须为布尔值")
+    if operation is not None and not runtime:
+        raise ValueError("operation 命令需要运行期宿主")
     arguments = spec.get("arguments", [])
     if not isinstance(arguments, (list, tuple)):
         raise TypeError("命令 arguments 必须为列表或元组")
@@ -66,7 +97,14 @@ def read_command(entry: RegistryEntry) -> Command:
             raise ValueError("可选参数须使用 option=true")
         if argument.get("type") == "flag" and not argument.get("option", False):
             raise ValueError("flag 类型仅支持命名选项")
-    return Command(entry.id, spec["help"], operation, tuple(deepcopy(arguments)))
+    assembly_argument = spec.get("assembly_argument")
+    if assembly_argument is not None and (
+        not runtime
+        or not isinstance(assembly_argument, str)
+        or not any(item["name"] == assembly_argument and item.get("type") == "id" for item in arguments)
+    ):
+        raise ValueError("assembly_argument 须引用运行期命令的 id 类型参数")
+    return Command(entry.id, spec["help"], operation, tuple(deepcopy(arguments)), executor, runtime, assembly_argument)
 
 
 class CommandReceiver:

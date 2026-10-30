@@ -3,11 +3,13 @@
 import re
 import shutil
 import tomllib
+from functools import partial
 from pathlib import Path
 from typing import Any, TextIO
 
 import tomlkit
 
+from ...declarations import CommandContext, command_plugin
 from ...utils.process import run_process
 
 DEFINITIONS = {
@@ -103,3 +105,14 @@ def execute(action: str, root: Path, output: TextIO) -> int:
         raise
     print(f"Python 工作区版本已更新为：{updated}", file=output)
     return 0
+
+
+def dispatch(action: str, context: CommandContext) -> int:
+    return execute(action, context.root, context.output)
+
+
+def plugin():
+    return command_plugin(
+        __name__,
+        {name: {**spec, "executor": partial(dispatch, name.split("/")[1])} for name, spec in DEFINITIONS.items()},
+    )

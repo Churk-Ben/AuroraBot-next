@@ -3,7 +3,11 @@
 from typing import TextIO
 
 from aurora_core.ctx import StateAddress
+from aurora_core.ids import Id
+from aurora_core.invocation import invoke_operation
 from aurora_core.json_data import encode_json
+
+from ...declarations import CommandContext, command_plugin
 
 KEY = {"name": "key", "type": "id"}
 WHERE = {"name": "location", "type": "location", "option": True}
@@ -33,3 +37,22 @@ def render_result(output: TextIO, name: str, result: object) -> None:
             raise TypeError("ctx/list 必须返回状态地址元组")
         result = [address_data(item) for item in result]
     write_json(output, result)
+
+
+async def list_states(context: CommandContext, **filters: object) -> None:
+    result = await invoke_operation(context.registry, Id("org.aurora.core:operations/ctx/list"), **filters)
+    render_result(context.output, "ctx/list", result)
+
+
+async def watch_states(context: CommandContext, **filters: object) -> None:
+    from .watch import watch
+
+    await watch(context.registry, context.output, **filters)
+
+
+def plugin():
+    definitions = {name: dict(spec) for name, spec in DEFINITIONS.items()}
+    definitions["ctx/list"].pop("operation")
+    definitions["ctx/list"].update(executor=list_states, runtime=True)
+    definitions["ctx/watch"].update(executor=watch_states, runtime=True)
+    return command_plugin(__name__, definitions)

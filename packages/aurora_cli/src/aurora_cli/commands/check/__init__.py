@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import TextIO
 
+from ...declarations import CommandContext, command_plugin
 from ...utils.process import run_process
 
 FLAGS = ("lint", "test", "coverage", "fix", "unsafe_fixes", "check")
@@ -19,3 +20,11 @@ def execute(root: Path, output: TextIO, **options: object) -> int:
         raise ValueError("项目根目录缺少 scripts/check.ts 或 package.json，请指定 --root")
     flags = [f"--{name.replace('_', '-')}" for name in FLAGS if options.get(name)]
     return run_process(["pnpm", "run", "check", *flags], root=root, output=output)
+
+
+def dispatch(context: CommandContext, **options: object) -> int:
+    return execute(context.root, context.output, **options)
+
+
+def plugin():
+    return command_plugin(__name__, {"check": {**DEFINITIONS["check"], "executor": dispatch}})

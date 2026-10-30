@@ -1,20 +1,12 @@
-"""显示当前接收的命令及其完整身份。"""
+"""帮助命令的声明与执行入口。"""
 
-from collections.abc import Iterable
-from typing import TextIO
-
-from rich import box
-from rich.console import Console
-from rich.table import Table
-from rich.text import Text
-
-from ...declarations import Command
-
-DEFINITIONS = {"help": {"help": "列出当前可用命令"}}
+from ...declarations import CommandContext, command_plugin
+from ...presentation import show_commands as execute
 
 
-def execute(commands: Iterable[Command], output: TextIO) -> None:
-    table = Table("命令 ID", "用途", box=box.SIMPLE, show_edge=False)
-    for item in commands:
-        table.add_row(Text(str(item.id)), Text(item.help))
-    Console(file=output).print(table)
+def dispatch(context: CommandContext) -> None:
+    execute(context.commands, context.output)
+
+
+def plugin():
+    return command_plugin(__name__, {"help": {"help": "列出当前可用命令", "executor": dispatch}})

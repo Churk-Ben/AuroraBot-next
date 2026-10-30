@@ -10,9 +10,11 @@ from aurora_core.discovery import Plugin, load_plugins, register_plugins
 from aurora_core.lifecycle import install_lifecycle_slots
 
 from . import host
-from .commands import about, check, donk, help, install_commands
-from .declarations import COMMANDS, HELP, RUN, read_command
+from .commands import discover_commands, install_commands
+from .declarations import COMMANDS, CommandContext, read_command
+from .execution import execute_command
 from .parsing import command_parser, root_parser
+from .presentation import show_commands
 
 
 async def run_cli(
@@ -26,16 +28,17 @@ async def run_cli(
     registry = bootstrap()
     install_commands(registry)
     install_lifecycle_slots(registry)
-    register_plugins(registry, load_plugins(explicit=plugins, enabled=options.plugin))
+    register_plugins(registry, load_plugins(explicit=(*discover_commands(), *plugins), enabled=options.plugin))
     accepted = {
         admission.source
         for admission in inspect_admissions(registry)
         if admission.target == COMMANDS and admission.status == AdmissionStatus.ACCEPTED
     }
     commands = {entry.id: read_command(entry) for entry in registry.view(register_to=COMMANDS) if entry.id in accepted}
-    if options.show_help:
-        print(parser.format_help(), file=output)
-        help.execute(commands.values(), output)
+    if options.show_help or options.command is None:
+        if options.show_help:
+            print(parser.format_help(), file=output)
+        show_commands(commands.values(), output)
         return 0
     name, arguments = options.command, options.arguments
     while ":" not in name:
@@ -47,7 +50,7 @@ async def run_cli(
         if not group:
             break
         if not arguments or arguments[0] in ("--help", "-h"):
-            help.execute(group, output)
+            show_commands(group, output)
             return 0
         name, arguments = f"{name}/{arguments[0]}", arguments[1:]
     try:
@@ -56,27 +59,20 @@ async def run_cli(
     except (ValueError, KeyError) as error:
         parser.error(f"命令不可用：{name}（{error}）")
     values = vars(command_parser(command).parse_args(arguments))
-    if command.id == HELP:
-        help.execute(commands.values(), output)
-        return 0
-    local = command.id.local_path if command.id.namespace == "org.aurora.cli" else ""
-    if local in ("about", "check") or local.startswith("donk/"):
+    context = CommandContext(options.root.resolve(), output, registry, tuple(commands.values()))
+    if not command.runtime:
         if options.config is not None or options.assembly is not None:
             parser.error("--config 和 --assembly 仅适用于运行期宿主命令")
-        root = options.root.resolve()
-        if local == "about":
-            return about.execute(root, output)
-        if local == "check":
-            return check.execute(root, output, **values)
-        return donk.execute(local.split("/")[1], root, output)
+        return await execute_command(command, context, values)
     if options.data_dir is None:
         parser.error("执行宿主命令必须指定 --data-dir")
     assembly = options.assembly
-    if command.id == RUN:
-        if assembly is not None:
-            parser.error("run 的装配参数与 --assembly 不能同时使用")
-        assembly = values["assembly"]
-    await host.execute(
-        registry, command, values, data_dir=options.data_dir, assembly=assembly, config=options.config, output=output
+    if command.assembly_argument is not None:
+        selected = values.pop(command.assembly_argument, None)
+        if selected is not None:
+            if assembly is not None:
+                parser.error("命令的装配参数与 --assembly 不能同时使用")
+            assembly = selected
+    return await host.execute(
+        context, command, values, data_dir=options.data_dir, assembly=assembly, config=options.config
     )
-    return 0
