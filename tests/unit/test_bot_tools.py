@@ -203,6 +203,24 @@ def test_duplicate_call_ids_reject_entire_batch(runtime):
     assert calls == []
 
 
+def test_after_hook_failure_keeps_completed_side_effect_and_stops_batch(runtime):
+    registry, ctx, _ = runtime
+    executor, calls, _, _ = assemble(runtime)
+
+    async def broken(request):
+        raise RuntimeError("观察扩展失败")
+
+    identity = Id("dev.tools:handlers/broken_after")
+    registry.register_many(component_entries(identity, broken, broken, provider="test"))
+    executor.after.connect(ExecutionPlug(identity, broken))
+    request = submit(executor, ctx, [call("one"), call("two")])
+    with pytest.raises(RuntimeError, match="观察扩展失败"):
+        asyncio.run(executor.execute(request))
+    result = state(executor, ctx, request)
+    assert result["status"] == "failed" and len(calls) == 1
+    assert result["results"] == [{"call_id": "one", "name": "add", "status": "completed", "value": 5}]
+
+
 def test_duplicate_names_and_mismatched_components_are_rejected(runtime):
     _, _, _ = runtime
     executor, _, _, _ = assemble(runtime)

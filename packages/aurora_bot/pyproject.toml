@@ -15,6 +15,7 @@ dependencies = [
 "aurora_bot.model" = "aurora_bot.model:plugin"
 "aurora_bot.react" = "aurora_bot.react:plugin"
 "aurora_bot.tools" = "aurora_bot.tools:plugin"
+"aurora_bot.react_defaults" = "aurora_bot.react_defaults:plugin"
 
 [build-system]
 requires = ["hatchling"]
