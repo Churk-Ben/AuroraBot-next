@@ -115,7 +115,7 @@ M1.8 验收时完整检查通过：196 项 Python 测试、9 项工具链测试�
 - [真实 CLI 进程测试](../tests/e2e/test_m1_cli_process.py)：watch、SIGINT、最后写入、下一进程恢复；停止和落盘故障均非零退出。
 - [生命周期与持久化集成测试](../tests/e2e/test_lifecycle_persistence.py)：可选处理器禁用、落盘失败重试、损坏快照保护。
 - [命令扩展集成测试](../tests/e2e/test_cli_extensions.py)：命令包新增/移除、外部入口显式启用、运行期执行器与状态恢复。
-- [独立计数器](../examples/core_counter.py)：仅安装本次 core wheel 的环境中，两次执行输出 2 和 5；CLI、bot、API、模型适配包均不可导入。
+- [独立计数器](../examples/core_counter/main.py)：仅安装本次 core wheel 的环境中，两次执行输出 2 和 5；CLI、bot、API、模型适配包均不可导入。
 
 M1.8 后还有调用参数、透传和 ID 列表提交；196 是该里程碑的历史验收数字，不是对当前测试总数的新声明。本次交接整理未重跑全套测试。
 
