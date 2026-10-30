@@ -17,6 +17,8 @@
 
 ### 实现与验证记录
 
+- bot 的 InstanceStateBinding 使用装配显式指定的固定地址，跨 run_id 共享实例状态；StateBinding 继续按 run_id 定位单次运行数据。ExecutionSlot 可通过 slot_id 指定具名阶段端口，execution_slot_entry 声明接收 ExecutionPlug 的插槽；握手、组件身份校验和调用语义沿用现有执行接口。
+
 - 项目服务端口使用 10270–10279 段；本机 ctx API 默认监听 127.0.0.1:10270，serve 的 --port 可显式覆盖。`uv run aurora -d build/ctx-demo serve` 启动常驻宿主，Ctrl+C 关闭连接、取消订阅并完成状态落盘；可在 serve 前通过 --plugin、--assembly 和 --config 选择业务装配及初始配置。
 - CLI 通过 `--connect http://127.0.0.1:10270` 执行 ctx get/list/set/delete/watch，连接模式不构造本地 ctx 或存储，不接受 --data-dir、--plugin、--assembly、--config。默认开放 org.aurora.cli:state/config 的全部业务地址；serve 的 --keys 接收完整状态 ID 的 JSON 数组，显式替换开放列表。该切片服务本机 CLI，拒绝浏览器 Origin 与非本机 Host；浏览器接入、远程部署认证及 TS client 尚待实现。
 - HTTP 使用 POST /ctx/get、/ctx/list、/ctx/set、/ctx/delete，参数为 key、location 与 set 的 value，成功响应为 result 信封；错误使用稳定 code/message，不回传校验器内部信息。WS /ctx/watch 接收 key/location 筛选对象，ready 确认订阅后发送保留 org.aurora.core:events/ctx/changed 身份的事件；revision 属于当前宿主 ctx，不承诺连续编号或历史补发。关闭连接即取消订阅，断线显式失败；每连接队列上限 256，溢出报告 slow_consumer 并关闭，重连后需重新读取状态。

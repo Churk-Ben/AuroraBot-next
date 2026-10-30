@@ -39,16 +39,19 @@ def component_entries(
         ),
     )
     if children:
-        entries += (
-            RegistryEntry(
-                Id(f"{definition_id}/children"),
-                "hook_slot",
-                HookSlot(_accept_execution),
-                provider,
-                register_to=Id("org.aurora.core:registries/hook_slots"),
-            ),
-        )
+        entries += (execution_slot_entry(Id(f"{definition_id}/children"), provider=provider),)
     return entries
+
+
+def execution_slot_entry(slot_id: Id, *, provider: str) -> RegistryEntry:
+    """声明接收 ExecutionPlug 的具名插槽；实例归属与调用顺序由装配指定。"""
+    return RegistryEntry(
+        slot_id,
+        "hook_slot",
+        HookSlot(_accept_execution),
+        provider,
+        register_to=Id("org.aurora.core:registries/hook_slots"),
+    )
 
 
 def _accept_execution(entry: RegistryEntry) -> str | None:
@@ -103,6 +106,17 @@ class StateBinding:
 
 
 @dataclass(frozen=True)
+class InstanceStateBinding(StateBinding):
+    """跨激活保留的固定地址；装配通过 location 显式指定 agent 等实例身份。
+
+    与 StateBinding 使用相同的读写接口，地址不追加 run_id；传入的执行身份不改变地址。
+    """
+
+    def address(self, request: ExecutionRequest) -> StateAddress:
+        return StateAddress(self.key, tuple(sorted(dict(self.location).items())))
+
+
+@dataclass(frozen=True)
 class ExecutionPlug:
     """实例执行插头；定义显式指定，实例默认生成 UUID，调用只传递执行身份。"""
 
@@ -141,6 +155,7 @@ class ExecutionLink:
 class ExecutionSlot:
     """实例插槽自行判断兼容；没有 schema 时允许依赖双方的代码约定。
 
+    slot_id 可指定组件的具名阶段端口；省略时使用组件定义下的 /children。
     accept 返回拒绝原因或 None。schema 是接收方解释的描述，不提供全局比较算法；
     未提供 accept 表示接收遵循 ExecutionPlug 调用约定的连接。
     """
@@ -154,6 +169,7 @@ class ExecutionSlot:
         states: Mapping[str, StateBinding] | None = None,
         schema: object | None = None,
         accept: Callable[[ExecutionPlug], str | None] | None = None,
+        slot_id: Id | None = None,
     ) -> None:
         self.definition_id = definition_id
         self.instance_id = uuid4().hex if instance_id is None else instance_id
@@ -162,11 +178,12 @@ class ExecutionSlot:
         self.states = dict(states or {})
         self.schema = schema
         self.accept = accept
+        self.slot_id = Id(f"{definition_id}/children") if slot_id is None else slot_id
         self._links: dict[HookConnection, ExecutionLink] = {}
 
     @property
     def children_id(self) -> Id:
-        return Id(f"{self.definition_id}/children")
+        return self.slot_id
 
     @property
     def reference(self) -> str:

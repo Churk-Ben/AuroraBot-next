@@ -12,8 +12,10 @@ from .execution import (
     ExecutionPlug,
     ExecutionRequest,
     ExecutionSlot,
+    InstanceStateBinding,
     StateBinding,
     component_entries,
+    execution_slot_entry,
 )
 
 
@@ -48,11 +50,13 @@ __all__ = [
     "ExecutionPlug",
     "ExecutionRequest",
     "ExecutionSlot",
+    "InstanceStateBinding",
     "LoopLimitExceeded",
     "Parallel",
     "Serial",
     "StateBinding",
     "While",
     "component_entries",
+    "execution_slot_entry",
     "plugin",
 ]
