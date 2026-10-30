@@ -2,6 +2,8 @@
 
 ## 2026-10-30
 
+- CLI 表格采用 Rich Table 原生默认边框、表头和行间样式；banner 使用原生标题，单元格保持字面量文本，重定向输出与文本渲染沿用 Rich 的终端处理。
+
 - CLI 按职责组织为 main（进程入口）、commander（发现和分派）、parsing（参数转换）、declarations（声明接收）、host（运行期装配）与 commands/<name>（命令行为）。内置命令显式汇总，业务操作继续引用 core 公共 ID；旧项目仅提供目录组织和用户可见效果参考。
 - help、ctx 和 donk 命令组在未选叶子命令时展示本级帮助；顶层 --help 包含已接收的扩展命令。帮助与项目工具命令不创建 ctx 或存储，长选项要求完整名称。常见错误输出简洁提示，--debug 显示完整异常。
 - about 展示项目标志、介绍、系统与 Python 信息、项目/安装版本、可获得的 Git 提交及链接。--root 指定项目根目录，默认为当前目录；about、donk 和 check 不要求 --data-dir。
