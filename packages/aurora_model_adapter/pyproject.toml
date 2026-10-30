@@ -5,6 +5,9 @@ description = "AuroraBot model protocols and adapters"
 requires-python = ">=3.12"
 dependencies = ["aurora-core>=0.1.0"]
 
+[project.entry-points."aurorabot.plugins"]
+aurora_model_adapter = "aurora_model_adapter.plugin:plugin"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

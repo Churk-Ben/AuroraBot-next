@@ -1,1 +1,51 @@
-"""AuroraBot model protocols and adapters package."""
+"""统一模型数据、调用协议及响应收集工具。"""
+
+from .models import (
+    FinishChunk,
+    FinishReason,
+    JsonValue,
+    Message,
+    ModelCapabilities,
+    ModelChunk,
+    ModelConfig,
+    ModelRequest,
+    ModelResponse,
+    TextDelta,
+    ToolCall,
+    ToolCallChunk,
+    ToolDefinition,
+)
+from .protocols import (
+    ModelClient,
+    ModelError,
+    ModelFactory,
+    ModelProtocolError,
+    ResponseBuffer,
+    UnsupportedCapability,
+    collect_response,
+    require_capabilities,
+)
+
+__all__ = [
+    "FinishChunk",
+    "FinishReason",
+    "JsonValue",
+    "Message",
+    "ModelCapabilities",
+    "ModelChunk",
+    "ModelClient",
+    "ModelConfig",
+    "ModelError",
+    "ModelFactory",
+    "ModelProtocolError",
+    "ModelRequest",
+    "ModelResponse",
+    "ResponseBuffer",
+    "TextDelta",
+    "ToolCall",
+    "ToolCallChunk",
+    "ToolDefinition",
+    "UnsupportedCapability",
+    "collect_response",
+    "require_capabilities",
+]

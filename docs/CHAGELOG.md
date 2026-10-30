@@ -2,6 +2,10 @@
 
 ## 2026-10-30
 
+- model_adapter 提供普通 JSON 数据形式的消息、工具定义、完整工具请求、模型请求/响应与流式片段，以及 ModelClient/ModelFactory 协议。complete 返回完整响应；stream 通过 async with 消费文本增量、完整工具请求及唯一结束片段，缺失结束片段明确失败。结束原因区分 stop、tool_calls、length 和 content_filter，不将响应结束等同于业务完成。
+- 调用方拥有单次响应流，提前结束、失败、超时或取消均通过上下文收尾；宿主在全部调用结束后关闭 ModelClient。能力不足明确拒绝，不自动降级；配置描述与运行期 api_key 分开，公共数据不包含 SDK 类型。FakeModel 以可配置响应脚本离线验证上述边界，工厂可创建相互独立的实例。
+- aurora_model_adapter 插件沿用目录中的 adapters 注册表、model_client 服务及四个模型 schema 身份，可由显式清单或同名 entry point 启用；此切片不包含真实供应商适配、默认绑定恢复或对话提交机制。
+
 - Controller 的 ctx 状态仅覆盖在途调用；完成、失败或取消时通知唯一终态，随后删除本次地址，不累计子调用历史。清理按实例、运行和执行身份精确定位，其他在途调用不受影响；需要历史的订阅者自行收集。业务数据的保留策略由应用负责，core 仍保存完整 ctx 快照。
 - control_flow 示例恢复时清理没有在途任务对应的控制状态，收尾时清理中间值和历史结果，仅保存最近一次运行的 completed/result、cancelled 或 failed 记录。循环 100 次的单元用例验证在途控制状态数量有界，连续启动与真实 SIGINT 用例验证最终快照只有一条运行结果。
 
