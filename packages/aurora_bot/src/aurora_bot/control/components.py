@@ -9,10 +9,10 @@ from .execution import CONTROL_STATE, ExecutionLink, ExecutionPlug, ExecutionReq
 
 
 class Controller:
-    """可嵌套的控制组件；调用记录按实例、运行和执行身份独立保存。
+    """可嵌套的控制组件；在途状态按实例、运行和执行身份独立保存。
 
     组件不持有后台任务；宿主应通过 Lifecycle.run 等待根调用，关闭时等待或取消。
-    状态变更通过 ctx.subscribe 观察，不用业务事件推断某次调用是否结束。
+    终态通过 ctx.subscribe 观察，随后删除本次状态；调用等待决定完成，不保留调用历史。
     """
 
     def __init__(self, ctx: Context, slot: ExecutionSlot) -> None:
@@ -37,10 +37,10 @@ class Controller:
         self.ctx.set(CONTROL_STATE, {**record, **changes}, location=location)
 
     async def execute(self, request: ExecutionRequest) -> None:
-        """每个新请求记录 running 与终态；业务异常与取消继续传播给调用方。"""
+        """发布 running 与终态后清理本次状态；异常与取消继续传播给调用方。"""
         self.ctx.set(
             CONTROL_STATE,
-            {"status": "running", "parent_execution_id": request.parent_execution_id, "children": []},
+            {"status": "running", "parent_execution_id": request.parent_execution_id},
             location=self._location(request),
         )
         try:
@@ -53,16 +53,11 @@ class Controller:
             raise
         else:
             self._update(request, status="completed")
+        finally:
+            self.ctx.delete(CONTROL_STATE, location=self._location(request))
 
     async def _invoke(self, link: ExecutionLink, request: ExecutionRequest) -> None:
-        child = request.child()
-        record = self.ctx.get(CONTROL_STATE, location=self._location(request))
-        assert isinstance(record, dict)
-        self._update(
-            request,
-            children=[*record["children"], {"instance_id": link.plug.instance_id, "execution_id": child.execution_id}],
-        )
-        await self.slot.invoke(link, child)
+        await self.slot.invoke(link, request.child())
 
     async def _run(self, request: ExecutionRequest) -> None:
         raise NotImplementedError

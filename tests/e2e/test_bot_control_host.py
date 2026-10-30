@@ -48,7 +48,7 @@ def environment(root):
     return ctx, hooks, lifecycle
 
 
-def test_composed_control_flow_restores_results_and_execution_records(tmp_path):
+def test_composed_control_flow_restores_business_results_without_control_history(tmp_path):
     async def scenario():
         ctx, hooks, host = environment(tmp_path)
         count = StateBinding(DATA, (("instance_id", "count"),))
@@ -95,17 +95,13 @@ def test_composed_control_flow_restores_results_and_execution_records(tmp_path):
         await host.start(configure=lambda: count.set(ctx, request, 0))
         await host.run(Serial(ctx, root_slot).execute, request)
         assert result.get(ctx, request) == ["left", "right"]
-        addresses = ctx.list(key=CONTROL_STATE)
-        assert len(addresses) == 7
+        assert ctx.list(key=CONTROL_STATE) == ()
         await host.stop()
 
         restored, _, restarted = environment(tmp_path)
         await restarted.start()
         assert result.get(restored, request) == ["left", "right"]
-        assert restored.list(key=CONTROL_STATE) == addresses
-        for address in addresses:
-            record = restored.get(address.key, location=dict(address.location))
-            assert isinstance(record, dict) and record["status"] == "completed"
+        assert restored.list(key=CONTROL_STATE) == ()
         await restarted.stop()
 
     asyncio.run(scenario())
@@ -148,11 +144,7 @@ def test_host_stop_cancels_parallel_work_and_persists_last_writes(tmp_path):
         await restarted.start()
         for name in ("first", "second"):
             assert StateBinding(DATA, (("instance_id", name),)).get(restored, request) == "cleaned"
-        record = restored.get(
-            CONTROL_STATE,
-            location={"instance_id": "root", "run_id": request.run_id, "execution_id": request.execution_id},
-        )
-        assert isinstance(record, dict) and record["status"] == "cancelled"
+        assert restored.list(key=CONTROL_STATE) == ()
         await restarted.stop()
 
     asyncio.run(scenario())

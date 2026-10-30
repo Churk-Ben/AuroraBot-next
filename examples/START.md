@@ -72,7 +72,15 @@ Serial root
 uv run python examples/control_flow/main.py --data-dir build/control-flow-demo --steps 4 --delay 0.5
 ```
 
-这次结果是 `{"count": 4, "double": 8, "square": 16}`。`--steps` 必须为正整数；`--delay` 是非负秒数，设为 `0` 可以快速执行。每次启动创建新的运行 ID，计数从 0 开始；已有运行的数据随快照恢复并保留，程序不续跑历史调用。
+这次结果是 `{"count": 4, "double": 8, "square": 16}`。`--steps` 必须为正整数；`--delay` 是非负秒数，设为 `0` 可以快速执行。每次启动创建新的运行 ID，计数从 0 开始。示例收尾时只保留最近一次运行的一条结果，中间值和历史结果由示例清理，程序不续跑历史调用。
+
+最终快照中这条记录的 `value` 为：
+
+```json
+{"status": "completed", "result": {"count": 4, "double": 8, "square": 16}}
+```
+
+controller 在 ctx 中只保留在途状态，每次调用先通知终态、再删除本次状态，不累计调用树。运行期间的自动快照可能包含在途状态，正常收尾后会清理；示例启动时也会清理恢复出的控制状态。业务数据保留多久由应用决定，此示例选择只保留最新结果。
 
 想观察取消，可以把每步等待调长，然后在终端按一次 `Ctrl+C`：
 
@@ -80,7 +88,7 @@ uv run python examples/control_flow/main.py --data-dir build/control-flow-demo -
 uv run python examples/control_flow/main.py --data-dir build/control-flow-demo --steps 20 --delay 2
 ```
 
-正在执行的控制调用会记录 `cancelled`；并行计算已启动时也会完成取消清理。宿主最终保存状态，程序以退出码 `130` 结束。
+正在执行的控制调用会通知 `cancelled` 并清理本次控制状态；并行计算已启动时也会完成取消清理。最终快照保留一条 `{"status": "cancelled"}` 结果，程序以退出码 `130` 结束。执行失败时同样只保留一条 `{"status": "failed"}`，异常继续报告给终端。
 
 阅读源码时，可先看 `assemble()`：业务执行函数包装成 `ExecutionPlug`，通过 `ExecutionSlot.connect()` 建立连接。握手结果中的 `plug.states` 和 `slot_states` 提供 ctx 地址；调用时仅传递运行和执行身份，业务数据由组件自行读写 ctx。`observe()` 订阅 ctx 变化以展示过程，`run()` 负责宿主生命周期与落盘。示例使用局部代码约定，没有独立 schema。
 

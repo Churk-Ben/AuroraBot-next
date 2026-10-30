@@ -120,6 +120,8 @@ def assemble(ctx: Context, hooks: HookConnections, steps: int, delay: float) -> 
 
 def observe(change: StateChange) -> None:
     """观察真实 ctx 通知；控制组件只显示状态转移，业务组件显示写入值。"""
+    if change.action != "set":
+        return
     instance = dict(change.address.location)["instance_id"]
     if change.address.key == CONTROL_STATE:
         value = change.value
@@ -148,15 +150,35 @@ async def run(data_dir: Path, steps: int, delay: float) -> None:
         storage=storage,
     )
     request = ExecutionRequest(uuid4().hex)
-    await host.start()
+
+    def configure() -> None:
+        # 此示例独占宿主；恢复时没有在途调用，控制状态无需恢复执行。
+        for address in ctx.list(key=CONTROL_STATE):
+            ctx.delete(address.key, location=dict(address.location))
+
+    await host.start(configure=configure)
     subscription = ctx.subscribe(observe)
+    outcome: dict[str, object] = {"status": "failed"}
     try:
         print(f"运行 ID: {request.run_id}", flush=True)
         await host.run(root.execute, request)
-        print(f"结果: {json.dumps(state('summary').get(ctx, request), ensure_ascii=False)}", flush=True)
+        result = state("summary").get(ctx, request)
+        outcome = {"status": "completed", "result": result}
+        print(f"结果: {json.dumps(result, ensure_ascii=False)}", flush=True)
+    except asyncio.CancelledError:
+        outcome = {"status": "cancelled"}
+        raise
     finally:
         ctx.unsubscribe(subscription)
-        await host.stop()
+        try:
+            # 示例只保留最近一次运行的结果；业务插件自行决定自己的保留策略。
+            latest = state("run")
+            latest.set(ctx, request, outcome)
+            for address in ctx.list(key=VALUE):
+                if address != latest.address(request):
+                    ctx.delete(address.key, location=dict(address.location))
+        finally:
+            await host.stop()
     print(f"快照: {data_dir / 'framework' / 'ctx.json'}")
 
 

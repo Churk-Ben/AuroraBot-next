@@ -49,6 +49,19 @@ def status(ctx, instance, request):
     )
 
 
+def capture_terminals(ctx):
+    """测试订阅者按需收集终态，控制组件自身不保存历史。"""
+    records = {}
+
+    def observe(change):
+        if change.action == "set" and change.value["status"] != "running":
+            location = dict(change.address.location)
+            records[(location["instance_id"], location["execution_id"])] = change.value
+
+    ctx.subscribe(observe, key=CONTROL_STATE)
+    return records
+
+
 def test_handshake_exchanges_addresses_without_executing_and_accepts_compatible_schema(runtime, caplog):
     _, ctx, hooks = runtime
     source, output = binding("source"), binding("output")
@@ -111,12 +124,14 @@ def test_serial_order_waits_and_does_not_forward_results(runtime):
     assert result.get(ctx, request) == 7
     assert len({item.execution_id for item in requests}) == 2
     assert all(item.parent_execution_id == request.execution_id for item in requests)
-    assert [item["instance_id"] for item in status(ctx, "root", request)["children"]] == ["produce", "consume"]
-    assert [change.value["status"] for change in changes if change.value["status"] != "running"] == ["completed"]
+    assert ctx.list(key=CONTROL_STATE) == ()
+    assert [change.value["status"] for change in changes if change.action == "set"] == ["running", "completed"]
+    assert changes[-1].action == "delete"
 
 
 def test_serial_failure_does_not_start_next_child(runtime):
     _, ctx, hooks = runtime
+    terminals = capture_terminals(ctx)
     slot = ExecutionSlot("root", hooks)
     called = []
 
@@ -132,7 +147,8 @@ def test_serial_failure_does_not_start_next_child(runtime):
     with pytest.raises(ValueError, match="业务失败"):
         asyncio.run(Serial(ctx, slot).execute(request))
     assert not called
-    assert status(ctx, "root", request)["status"] == "failed"
+    assert terminals[("root", request.execution_id)]["status"] == "failed"
+    assert ctx.list(key=CONTROL_STATE) == ()
 
 
 @pytest.mark.parametrize("selected", ["left", "right", None, "missing"])
@@ -170,6 +186,7 @@ def test_branch_uses_ctx_selection(runtime, selected):
 
 def test_nested_loop_reads_updated_ctx_and_assigns_fresh_invocations(runtime):
     _, ctx, hooks = runtime
+    terminals = capture_terminals(ctx)
     count = binding("increment")
     calls = []
 
@@ -196,13 +213,14 @@ def test_nested_loop_reads_updated_ctx_and_assigns_fresh_invocations(runtime):
     asyncio.run(loop.execute(second))
     assert count.get(ctx, first) == count.get(ctx, second) == 3
     assert len({request.execution_id for request in calls}) == 3
-    assert status(ctx, "loop", first)["iterations"] == 3
-    assert status(ctx, "loop", second)["iterations"] == 0
-    assert len(ctx.list(key=CONTROL_STATE)) == 5
+    assert terminals[("loop", first.execution_id)]["iterations"] == 3
+    assert terminals[("loop", second.execution_id)]["iterations"] == 0
+    assert ctx.list(key=CONTROL_STATE) == ()
 
 
 def test_loop_limit_fails_and_immediate_body_can_be_cancelled(runtime):
     _, ctx, hooks = runtime
+    terminals = capture_terminals(ctx)
     slot = ExecutionSlot("loop", hooks)
     calls = []
 
@@ -215,7 +233,8 @@ def test_loop_limit_fails_and_immediate_body_can_be_cancelled(runtime):
     with pytest.raises(LoopLimitExceeded):
         asyncio.run(loop.execute(request))
     assert len(calls) == 2
-    assert status(ctx, "loop", request)["status"] == "failed"
+    assert terminals[("loop", request.execution_id)]["status"] == "failed"
+    assert ctx.list(key=CONTROL_STATE) == ()
 
     async def cancel():
         request = ExecutionRequest("cancel")
@@ -224,7 +243,8 @@ def test_loop_limit_fails_and_immediate_body_can_be_cancelled(runtime):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert status(ctx, "loop", request)["status"] == "cancelled"
+        assert terminals[("loop", request.execution_id)]["status"] == "cancelled"
+        assert ctx.list(key=CONTROL_STATE) == ()
 
     asyncio.run(cancel())
 
@@ -271,6 +291,7 @@ def test_parallel_bounds_concurrency_and_keeps_results_in_ctx(runtime):
 @pytest.mark.parametrize("outcome", ["failure", "parent_cancel", "child_cancel"])
 def test_parallel_waits_for_sibling_cleanup_before_terminal_state(runtime, outcome):
     _, ctx, hooks = runtime
+    terminals = capture_terminals(ctx)
 
     async def scenario():
         entered = asyncio.Event()
@@ -304,7 +325,10 @@ def test_parallel_waits_for_sibling_cleanup_before_terminal_state(runtime, outco
         with pytest.raises(ValueError if outcome == "failure" else asyncio.CancelledError):
             await asyncio.wait_for(task, 1)
         assert cleaned == [True]
-        assert status(ctx, "parallel", request)["status"] == ("failed" if outcome == "failure" else "cancelled")
+        assert terminals[("parallel", request.execution_id)]["status"] == (
+            "failed" if outcome == "failure" else "cancelled"
+        )
+        assert ctx.list(key=CONTROL_STATE) == ()
         assert not [item for item in asyncio.all_tasks() if item is not asyncio.current_task()]
 
     asyncio.run(scenario())
@@ -330,3 +354,56 @@ def test_control_limits_require_positive_integers(runtime, limit):
         While(ctx, slot, lambda request: True, max_iterations=limit)
     with pytest.raises(ValueError, match="正整数"):
         Parallel(ctx, slot, concurrency=limit)
+
+
+def test_loop_keeps_only_active_control_state(runtime):
+    _, ctx, hooks = runtime
+    calls = 0
+    peak = 0
+
+    async def step(request):
+        nonlocal calls, peak
+        calls += 1
+        addresses = ctx.list(key=CONTROL_STATE)
+        peak = max(peak, len(addresses))
+        for address in addresses:
+            assert "children" not in ctx.get(address.key, location=dict(address.location))
+
+    body_slot = ExecutionSlot("body", hooks)
+    body_slot.connect(ExecutionPlug("step", step))
+    loop_slot = ExecutionSlot("loop", hooks)
+    loop_slot.connect(Serial(ctx, body_slot).plug)
+    loop = While(ctx, loop_slot, lambda request: calls < 100, max_iterations=100)
+    asyncio.run(loop.execute(ExecutionRequest("run")))
+    assert calls == 100 and peak == 2
+    assert ctx.list(key=CONTROL_STATE) == ()
+
+
+def test_finishing_one_call_does_not_remove_other_active_call(runtime):
+    _, ctx, hooks = runtime
+
+    async def scenario():
+        entered = {name: asyncio.Event() for name in ("first", "second")}
+        release = {name: asyncio.Event() for name in entered}
+
+        async def wait(request):
+            entered[request.run_id].set()
+            await release[request.run_id].wait()
+
+        slot = ExecutionSlot("root", hooks)
+        slot.connect(ExecutionPlug("wait", wait))
+        root = Serial(ctx, slot)
+        first, second = ExecutionRequest("first"), ExecutionRequest("second")
+        first_task = asyncio.create_task(root.execute(first))
+        second_task = asyncio.create_task(root.execute(second))
+        await asyncio.wait_for(asyncio.gather(*(event.wait() for event in entered.values())), 1)
+        assert len(ctx.list(key=CONTROL_STATE)) == 2
+        release["first"].set()
+        await first_task
+        assert len(ctx.list(key=CONTROL_STATE)) == 1
+        assert status(ctx, "root", second)["status"] == "running"
+        release["second"].set()
+        await second_task
+        assert ctx.list(key=CONTROL_STATE) == ()
+
+    asyncio.run(scenario())
