@@ -51,13 +51,26 @@ def test_ctx_commands_recover_across_processes(tmp_path):
     assert "KeyError" in missing.stderr
 
 
-@pytest.mark.parametrize("debug", [False, True])
-def test_cli_errors_keep_tracebacks_in_file_and_stdout_clean(tmp_path, debug):
-    result = invoke(*(["--debug"] if debug else []), "--data-dir", tmp_path, "ctx/get", CONFIG)
+@pytest.mark.parametrize(
+    ("options", "tracebacks", "visible"),
+    [
+        ([], False, True),
+        (["--level", "debug"], True, True),
+        (["-l", "DEBUG"], True, True),
+        (["--level", "INFO"], False, True),
+        (["-l", "warning"], False, True),
+        (["--level", "ERROR"], False, True),
+        (["-l", "critical"], False, False),
+    ],
+)
+def test_cli_errors_keep_tracebacks_in_file_and_stdout_clean(tmp_path, options, tracebacks, visible):
+    result = invoke(*options, "--data-dir", tmp_path, "ctx/get", CONFIG)
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "KeyError" in result.stderr
-    assert ("Traceback" in result.stderr) is debug
+    assert ("KeyError" in result.stderr) is visible
+    assert ("Traceback" in result.stderr) is tracebacks
+    if not visible:
+        assert result.stderr == ""
     content = (tmp_path / "logs" / "aurora.log").read_text(encoding="utf-8")
     assert "Traceback (most recent call last)" in content
     assert "KeyError" in content
@@ -74,6 +87,8 @@ def test_help_and_bad_arguments_do_not_create_storage(tmp_path):
         ["ctx/set", CONFIG, "NaN"],
         ["ctx/get", CONFIG, "--location", '{"scope":1}'],
         ["--config", "[]", "ctx/list"],
+        ["--level", "trace", "ctx/list"],
+        ["-l"],
     ):
         result = invoke("--data-dir", tmp_path / "unused", *args)
         assert result.returncode == 2

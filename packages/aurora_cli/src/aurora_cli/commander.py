@@ -33,8 +33,9 @@ async def run_cli(
     if options.version:
         print(f"aurora {version('aurora-cli')}", file=output)
         return 0
-    console_level = logging.DEBUG if options.debug else logging.INFO
-    configure_logging(console_level=console_level, console_tracebacks=options.debug)
+    console_level = logging.getLevelNamesMapping()[options.level]
+    console_tracebacks = console_level == logging.DEBUG
+    configure_logging(console_level=console_level, console_tracebacks=console_tracebacks)
     registry = bootstrap()
     install_commands(registry)
     install_lifecycle_slots(registry)
@@ -86,7 +87,7 @@ async def run_cli(
     configure_logging(
         log_dir=options.data_dir.resolve() / "logs",
         console_level=console_level,
-        console_tracebacks=options.debug,
+        console_tracebacks=console_tracebacks,
     )
     return await host.execute(
         context, command, values, data_dir=options.data_dir, assembly=assembly, config=options.config

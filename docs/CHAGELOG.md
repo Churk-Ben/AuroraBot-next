@@ -3,7 +3,7 @@
 ## 2026-10-30
 
 - aurora_logging 提供显式 configure_logging 入口：root logger 统一接收业务包的标准库日志，RichHandler 输出至 stderr，UTF-8 文件按大小轮转。默认文件级别为 DEBUG、终端级别为 INFO，每个文件 10 MiB，保留 5 份备份；重复配置关闭并替换本包处理器，保留外部处理器，导入包不创建文件或配置日志。日志目录由单进程独占。
-- CLI 在插件发现前配置终端日志，在宿主命令参数验证通过后写入 data_dir/logs/aurora.log，覆盖装配工厂和 prepare/start/stop。--debug 启用终端 DEBUG 与完整异常展示；文件始终保留完整异常栈。帮助、版本及参数错误不创建数据目录，插件发现期间仅输出终端日志。core、bot 与模型适配包直接使用标准库 logging，无需依赖 aurora_logging。
+- CLI 在插件发现前配置终端日志，在宿主命令参数验证通过后写入 data_dir/logs/aurora.log，覆盖装配工厂和 prepare/start/stop。--level/-l 设置终端日志等级，支持 DEBUG、INFO、WARNING、ERROR、CRITICAL，忽略大小写，默认 INFO；DEBUG 显示完整异常栈，文件始终以独立的 DEBUG 级别保留完整异常栈。帮助、版本及参数错误不创建数据目录，插件发现期间仅输出终端日志。core、bot 与模型适配包直接使用标准库 logging，无需依赖 aurora_logging。
 - 日志传播、独立级别、中文与异常落盘、轮转保留、重复配置、配置失败、CLI 输出及生命周期日志验证通过；全量 269 项 Python 测试、Ruff 检查与格式检查、Pyright 类型检查通过。
 
 - 计划、M2 交接、设计文档、公共 ID 目录与示例指南以 4eb4d6e 为实现基线：M0/M1/M2.1 完成，控制与模型组件可用，默认装配、真实适配、对话运行和 ReAct 工具循环仍待实现。文档列出组件定义、实例与调用身份、ctx 数据握手、临时状态清理、模型流与客户端关闭责任，以及当前插件入口和启动命令；公共 ID 目录逐段区分已实现定义与规划入口。
@@ -88,7 +88,7 @@ def plugin():
 - CLI 表格采用 Rich Table 原生默认边框、表头和行间样式；banner 使用原生标题，单元格保持字面量文本，重定向输出与文本渲染沿用 Rich 的终端处理。
 
 - CLI 按职责组织为 main（进程入口）、commander（发现和分派）、parsing（参数转换）、declarations（声明接收）、host（运行期装配）与 commands/<name>（命令行为）。内置命令显式汇总，业务操作继续引用 core 公共 ID；旧项目仅提供目录组织和用户可见效果参考。
-- help、ctx 和 donk 命令组在未选叶子命令时展示本级帮助；顶层 --help 包含已接收的扩展命令。帮助与项目工具命令不创建 ctx 或存储，长选项要求完整名称。常见错误输出简洁提示，--debug 显示完整异常。
+- help、ctx 和 donk 命令组在未选叶子命令时展示本级帮助；顶层 --help 包含已接收的扩展命令。帮助与项目工具命令不创建 ctx 或存储，长选项要求完整名称。常见错误输出简洁提示，--level DEBUG 显示完整异常。
 - about 展示项目标志、介绍、系统与 Python 信息、项目/安装版本、可获得的 Git 提交及链接。--root 指定项目根目录，默认为当前目录；about、donk 和 check 不要求 --data-dir。
 - utils.table 使用 Rich 提供中文、多行单元格、边框和终端宽度处理；单元格内容按字面量显示。print_table 面向终端，render_table 返回无 ANSI 控制码的文本，banner 位于表头之上。ctx 的结果及 watch 事件继续输出 JSON。
 - donk show 列出根包与全部 Python 工作区成员版本；major/minor/patch 暂按统一版本策略更新这些包的 project.version、内部 >=/== 版本约束，并执行 uv lock。版本不一致、非正式三段版本及不支持的内部约束拒绝升级；文件编辑保留 TOML 注释，写入或锁文件更新失败恢复原始项目文件与 uv.lock。该策略封装于 donk 命令，后续拆分子仓库时可独立调整。
