@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import sys
 
 from .commander import run_cli
 
@@ -13,8 +12,6 @@ def main() -> int:
     except KeyboardInterrupt:
         return 130
     except Exception as error:
-        if "--debug" in sys.argv[1:]:
-            logging.getLogger(__name__).exception("CLI 执行失败")
-        else:
-            print(f"错误（{type(error).__name__}）：{error}", file=sys.stderr)
+        # 终端简略模式需要在消息中保留异常类型和详情。
+        logging.getLogger(__name__).exception("错误（%s）：%s", type(error).__name__, error)  # noqa: TRY401
         return 1

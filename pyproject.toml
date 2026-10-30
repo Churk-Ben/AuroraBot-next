@@ -16,7 +16,7 @@ packages = []
 dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.9"]
 
 [tool.coverage.run]
-source = ["aurora_core", "aurora_cli", "aurora_bot", "aurora_api", "aurora_model_adapter"]
+source = ["aurora_core", "aurora_cli", "aurora_bot", "aurora_api", "aurora_model_adapter", "aurora_logging"]
 
 [tool.coverage.report]
 fail_under = 20
@@ -38,6 +38,7 @@ extraPaths = [
     "packages/aurora_bot/src",
     "packages/aurora_cli/src",
     "packages/aurora_api/src",
+    "packages/aurora_logging/src",
 ]
 
 [tool.uv.workspace]
@@ -47,6 +48,7 @@ members = [
     "packages/aurora_bot",
     "packages/aurora_cli",
     "packages/aurora_api",
+    "packages/aurora_logging",
 ]
 
 [tool.uv.sources]
@@ -55,6 +57,7 @@ aurora-model-adapter = { workspace = true }
 aurora-bot = { workspace = true }
 aurora-cli = { workspace = true }
 aurora-api = { workspace = true }
+aurora-logging = { workspace = true }
 
 [tool.ruff]
 line-length = 120

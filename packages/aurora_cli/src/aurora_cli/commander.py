@@ -1,5 +1,6 @@
 """发现命令、选择入口，并分派至项目工具或运行期宿主。"""
 
+import logging
 import sys
 from collections.abc import Iterable
 from importlib.metadata import version
@@ -9,6 +10,7 @@ from aurora_core.admission import AdmissionStatus, inspect_admissions
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import Plugin, load_plugins, register_plugins
 from aurora_core.lifecycle import install_lifecycle_slots
+from aurora_logging import configure_logging
 
 from . import host
 from .commands import discover_commands, install_commands
@@ -31,6 +33,8 @@ async def run_cli(
     if options.version:
         print(f"aurora {version('aurora-cli')}", file=output)
         return 0
+    console_level = logging.DEBUG if options.debug else logging.INFO
+    configure_logging(console_level=console_level, console_tracebacks=options.debug)
     registry = bootstrap()
     install_commands(registry)
     install_lifecycle_slots(registry)
@@ -79,6 +83,11 @@ async def run_cli(
             if assembly is not None:
                 parser.error("命令的装配参数与 --assembly 不能同时使用")
             assembly = selected
+    configure_logging(
+        log_dir=options.data_dir.resolve() / "logs",
+        console_level=console_level,
+        console_tracebacks=options.debug,
+    )
     return await host.execute(
         context, command, values, data_dir=options.data_dir, assembly=assembly, config=options.config
     )

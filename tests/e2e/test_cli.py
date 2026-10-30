@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import subprocess
 import sys
 import tomllib
@@ -48,6 +49,20 @@ def test_ctx_commands_recover_across_processes(tmp_path):
     missing = invoke("--data-dir", tmp_path, "ctx/get", CONFIG)
     assert missing.returncode == 1
     assert "KeyError" in missing.stderr
+
+
+@pytest.mark.parametrize("debug", [False, True])
+def test_cli_errors_keep_tracebacks_in_file_and_stdout_clean(tmp_path, debug):
+    result = invoke(*(["--debug"] if debug else []), "--data-dir", tmp_path, "ctx/get", CONFIG)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "KeyError" in result.stderr
+    assert ("Traceback" in result.stderr) is debug
+    content = (tmp_path / "logs" / "aurora.log").read_text(encoding="utf-8")
+    assert "Traceback (most recent call last)" in content
+    assert "KeyError" in content
+    assert "aurora_cli.main" in content
+    assert "\x1b" not in content
 
 
 def test_help_and_bad_arguments_do_not_create_storage(tmp_path):
@@ -142,16 +157,21 @@ def test_run_applies_config_before_prepare_and_flushes_stop(tmp_path):
         observations = []
 
         def factory(*, registry, ctx, hooks, storage):
+            logging.getLogger(__name__).info("装配工厂日志")
+
             @hook_handler("dev.test:handlers/prepare", slot=PREPARE)
             def prepare():
+                logging.getLogger(__name__).info("准备阶段日志")
                 observations.append(ctx.get(Id(CONFIG)))
 
             @hook_handler("dev.test:handlers/start", slot=START)
             def start():
+                logging.getLogger(__name__).info("启动阶段日志")
                 started.set()
 
             @hook_handler("dev.test:handlers/stop", slot=STOP)
             def stop():
+                logging.getLogger(__name__).info("停止阶段日志")
                 ctx.set(Id(CONFIG), {"stopped": True})
                 storage.set("dev.test", "finished", True)
 
@@ -174,6 +194,9 @@ def test_run_applies_config_before_prepare_and_flushes_stop(tmp_path):
         with pytest.raises(asyncio.CancelledError):
             await task
         assert observations == [{"new": True}]
+        content = (tmp_path / "logs" / "aurora.log").read_text(encoding="utf-8")
+        for message in ("装配工厂日志", "准备阶段日志", "启动阶段日志", "停止阶段日志"):
+            assert content.count(message) == 1
         output = StringIO()
         await run_cli(["--data-dir", str(tmp_path), "ctx/get", CONFIG], output=output)
         assert json.loads(output.getvalue()) == {"stopped": True}

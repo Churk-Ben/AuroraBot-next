@@ -5,7 +5,9 @@ from importlib import import_module, metadata
 import pytest
 
 
-@pytest.mark.parametrize("name", ["aurora_core", "aurora_model_adapter", "aurora_bot", "aurora_cli", "aurora_api"])
+@pytest.mark.parametrize(
+    "name", ["aurora_core", "aurora_model_adapter", "aurora_bot", "aurora_cli", "aurora_api", "aurora_logging"]
+)
 def test_workspace_packages_import(name):
     assert import_module(name).__name__ == name
 
