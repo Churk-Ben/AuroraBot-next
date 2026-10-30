@@ -61,20 +61,17 @@ def parse_command(command: Command, argv: list[str]) -> dict[str, Any]:
 
 
 def root_parser() -> argparse.ArgumentParser:
+    _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
     parser = argparse.ArgumentParser(
-        allow_abbrev=False, prog="aurora", description="AuroraBot 当前进程宿主与命令入口", add_help=False
+        allow_abbrev=False,
+        prog="aurora",
+        description="AuroraBot 当前进程宿主与命令入口",
+        add_help=False,
     )
     parser.add_argument("-h", "--help", action="store_true", dest="show_help", help="查看命令帮助")
     parser.add_argument("-v", "--version", action="store_true", help="查看已安装的 CLI 版本并退出")
     parser.add_argument("-r", "--root", type=Path, default=Path.cwd(), help="命令使用的项目根目录")
-    parser.add_argument(
-        "-l",
-        "--level",
-        type=str.upper,
-        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
-        default="INFO",
-        help="终端日志等级（默认 INFO，忽略大小写）；DEBUG 显示完整异常信息",
-    )
+    parser.add_argument("-l", "--level", type=str.upper, choices=_LEVELS, default="INFO", help="终端日志等级")
     parser.add_argument("-d", "--data-dir", type=Path, help="宿主独占的数据目录；执行命令时必填")
     parser.add_argument("--plugin", action="append", default=[], help="启用 aurorabot.plugins 入口，可重复")
     parser.add_argument("--namespace", default="org.aurora.cli", help="交互短名的命名空间")
