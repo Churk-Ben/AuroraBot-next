@@ -2,6 +2,17 @@
 
 ## 2026-10-30
 
+- CLI 按职责组织为 main（进程入口）、commander（发现和分派）、parsing（参数转换）、declarations（声明接收）、host（运行期装配）与 commands/<name>（命令行为）。内置命令显式汇总，业务操作继续引用 core 公共 ID；旧项目仅提供目录组织和用户可见效果参考。
+- help、ctx 和 donk 命令组在未选叶子命令时展示本级帮助；顶层 --help 包含已接收的扩展命令。帮助与项目工具命令不创建 ctx 或存储，长选项要求完整名称。常见错误输出简洁提示，--debug 显示完整异常。
+- about 展示项目标志、介绍、系统与 Python 信息、项目/安装版本、可获得的 Git 提交及链接。--root 指定项目根目录，默认为当前目录；about、donk 和 check 不要求 --data-dir。
+- utils.table 使用 Rich 提供中文、多行单元格、边框和终端宽度处理；单元格内容按字面量显示。print_table 面向终端，render_table 返回无 ANSI 控制码的文本，banner 位于表头之上。ctx 的结果及 watch 事件继续输出 JSON。
+- donk show 列出根包与全部 Python 工作区成员版本；major/minor/patch 暂按统一版本策略更新这些包的 project.version、内部 >=/== 版本约束，并执行 uv lock。版本不一致、非正式三段版本及不支持的内部约束拒绝升级；文件编辑保留 TOML 注释，写入或锁文件更新失败恢复原始项目文件与 uv.lock。该策略封装于 donk 命令，后续拆分子仓库时可独立调整。
+- check 复用 scripts/check.ts；无选项运行完整前后端检查，--lint 选择格式/lint/类型与入口检查，--test 选择 Vitest/Pytest，--coverage 为 Python 测试生成覆盖率并使用 pyproject.toml 的最低阈值。覆盖率阈值采用 20%，可在 tool.coverage.report 中调整。
+- --fix 显式启用 Ruff 修复与格式写入，前端格式交给 pnpm format；--unsafe-fixes 需同时指定 --fix，--check 在修复时保持格式预览。测试专用模式拒绝修复选项，检查过程汇总各项失败并返回非零状态。Python 子进程包装在中断时等待工具结束，再将控制权交还文件回滚流程。
+- 新增 org.aurora.cli:commands/about、commands/check 与 commands/donk/{show,major,minor,patch} 命令身份；命令参数描述支持仅用于命名选项的 flag 类型。Rich 与 TOML Kit 为 CLI 依赖，pytest-cov 为开发依赖，uv.lock 固定安装版本。
+- 使用示例：uv run aurora about；uv run aurora donk show；uv run aurora check --test --coverage。版本变更可通过 uv run aurora --root <项目根目录> donk patch 执行。版本升级验证仅操作临时工作区，当前仓库版本保持 0.1.0。
+- 本轮验收包含 182 项 Python 测试、9 项工具链测试、Pyright basic 与完整 aurora check；覆盖率命令、真实 uv.lock 版本更新、锁文件失败回滚、中文表格、项目命令无宿主副作用及原有 CLI 场景均通过。
+
 - M1.7 提供 `aurora` 与 `python -m aurora_cli` 入口。`help`、`ctx` 和 `--help` 展示帮助；状态命令支持 `ctx get/set/delete/list/watch` 或 `ctx/get` 等路径，跨命名空间命令使用完整 ID，短名上下文由 `--namespace` 指定，歧义明确报错。全局选项放在命令之前，运行期命令须显式提供 `--data-dir`。
 - CLI 命令表接收普通映射声明：`help` 描述用途，`operation` 引用完整操作 ID，`arguments` 描述参数。参数支持 `name`、`type`、`option`、`required`，类型包括 string、integer、json、id、location；位置参数必填，可选命名参数省略时保留目标函数默认值。接收方拒绝不支持的声明并告警，业务插件无需导入 CLI 类型。
 - get/set/delete/list 通过既有 core operation 执行，结果输出 JSON；set 值使用严格 JSON，拒绝重复字段及非有限数。`--location` 使用字符串键值对 JSON，list/watch 省略时不筛选位置，空对象表示全局地址。watch 输出后续变更的逐行 JSON，取消或输出失败时释放订阅。

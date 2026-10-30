@@ -5,8 +5,9 @@ from dataclasses import replace
 from io import StringIO
 
 import pytest
-from aurora_cli.commands import COMMANDS, CommandReceiver, command_parser, read_command
-from aurora_cli.main import watch
+from aurora_cli.commands.ctx.watch import watch
+from aurora_cli.declarations import COMMANDS, CommandReceiver, read_command
+from aurora_cli.parsing import command_parser
 from aurora_core import Id
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import StateKey, install_context

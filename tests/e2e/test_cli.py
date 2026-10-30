@@ -4,10 +4,11 @@ import asyncio
 import json
 import subprocess
 import sys
+import tomllib
 from io import StringIO
 
 import pytest
-from aurora_cli.main import run_cli
+from aurora_cli.commander import run_cli
 from aurora_core import Id, entry_from, hook_handler, operation
 from aurora_core.discovery import Plugin
 from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
@@ -53,6 +54,41 @@ def test_help_and_bad_arguments_do_not_create_storage(tmp_path):
         result = invoke("--data-dir", tmp_path / "unused", *args)
         assert result.returncode == 2
     assert not (tmp_path / "unused").exists()
+
+
+def test_project_commands_and_groups_do_not_require_host_storage(tmp_path):
+    for args in (["about"], ["donk"], ["donk", "--help"], ["check", "--help"]):
+        result = invoke("--root", tmp_path, *args)
+        assert result.returncode == 0, result.stderr
+        assert "\x1b" not in result.stdout
+        assert result.stdout
+    assert list(tmp_path.iterdir()) == []
+    assert invoke("check", "--li").returncode == 2
+    assert invoke("--roo", tmp_path, "about").returncode == 2
+
+
+def test_donk_updates_versions_and_real_uv_lock(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "aurorabot-ai"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n'
+        'dependencies = ["aurora-core>=0.1.0"]\n'
+        '[tool.uv.workspace]\nmembers = ["core"]\n'
+        "[tool.uv.sources]\naurora-core = { workspace = true }\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "pyproject.toml").write_text(
+        '[project]\nname = "aurora-core"\nversion = "0.1.0"\nrequires-python = ">=3.12"\n',
+        encoding="utf-8",
+    )
+    result = invoke("--root", tmp_path, "donk", "patch")
+    assert result.returncode == 0, result.stderr
+    lock = tomllib.loads((tmp_path / "uv.lock").read_text(encoding="utf-8"))
+    assert {package["name"]: package["version"] for package in lock["package"]} == {
+        "aurorabot-ai": "0.1.1",
+        "aurora-core": "0.1.1",
+    }
+    root = tomllib.loads((tmp_path / "pyproject.toml").read_text(encoding="utf-8"))
+    assert root["project"]["dependencies"] == ["aurora-core>=0.1.1"]
 
 
 def test_extension_command_uses_operation_without_cli_types(tmp_path):
