@@ -2,6 +2,12 @@
 
 ## 2026-10-30
 
+- 项目服务端口使用 10270–10279 段；本机 ctx API 默认监听 127.0.0.1:10270，serve 的 --port 可显式覆盖。`uv run aurora -d build/ctx-demo serve` 启动常驻宿主，Ctrl+C 关闭连接、取消订阅并完成状态落盘；可在 serve 前通过 --plugin、--assembly 和 --config 选择业务装配及初始配置。
+- CLI 通过 `--connect http://127.0.0.1:10270` 执行 ctx get/list/set/delete/watch，连接模式不构造本地 ctx 或存储，不接受 --data-dir、--plugin、--assembly、--config。默认开放 org.aurora.cli:state/config 的全部业务地址；serve 的 --keys 接收完整状态 ID 的 JSON 数组，显式替换开放列表。该切片服务本机 CLI，拒绝浏览器 Origin 与非本机 Host；浏览器接入、远程部署认证及 TS client 尚待实现。
+- HTTP 使用 POST /ctx/get、/ctx/list、/ctx/set、/ctx/delete，参数为 key、location 与 set 的 value，成功响应为 result 信封；错误使用稳定 code/message，不回传校验器内部信息。WS /ctx/watch 接收 key/location 筛选对象，ready 确认订阅后发送保留 org.aurora.core:events/ctx/changed 身份的事件；revision 属于当前宿主 ctx，不承诺连续编号或历史补发。关闭连接即取消订阅，断线显式失败；每连接队列上限 256，溢出报告 slow_consumer 并关闭，重连后需重新读取状态。
+- 多终端体验：先启动 serve；第二个终端执行 `uv run aurora --connect http://127.0.0.1:10270 ctx watch`；第三个终端执行 `uv run aurora --connect http://127.0.0.1:10270 ctx set org.aurora.cli:state/config '{"count":1}'`。watch 输出 JSON 变更；ctx get/list 可通过同一连接参数读取运行中宿主的状态。
+- HTTP/WS 契约与真实 CLI 进程覆盖读写、精确地址过滤、并行订阅、断线释放、队列溢出、访问拒绝、错误脱敏及 Ctrl+C 后恢复；全量 289 项 Python 测试、Ruff 检查与格式检查、Pyright 类型检查通过。
+
 - aurora_logging 提供显式 configure_logging 入口：root logger 统一接收业务包的标准库日志，RichHandler 输出至 stderr，UTF-8 文件按大小轮转。默认文件级别为 DEBUG、终端级别为 INFO，每个文件 10 MiB，保留 5 份备份；重复配置关闭并替换本包处理器，保留外部处理器，导入包不创建文件或配置日志。日志目录由单进程独占。
 - CLI 在插件发现前配置终端日志，在宿主命令参数验证通过后写入 data_dir/logs/aurora.log，覆盖装配工厂和 prepare/start/stop。--level/-l 设置终端日志等级，支持 DEBUG、INFO、WARNING、ERROR、CRITICAL，忽略大小写，默认 INFO；DEBUG 显示完整异常栈，文件始终以独立的 DEBUG 级别保留完整异常栈。帮助、版本及参数错误不创建数据目录，插件发现期间仅输出终端日志。core、bot 与模型适配包直接使用标准库 logging，无需依赖 aurora_logging。
 - 日志传播、独立级别、中文与异常落盘、轮转保留、重复配置、配置失败、CLI 输出及生命周期日志验证通过；全量 269 项 Python 测试、Ruff 检查与格式检查、Pyright 类型检查通过。

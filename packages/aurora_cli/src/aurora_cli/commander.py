@@ -36,6 +36,10 @@ async def run_cli(
     console_level = logging.getLevelNamesMapping()[options.level]
     console_tracebacks = console_level == logging.DEBUG
     configure_logging(console_level=console_level, console_tracebacks=console_tracebacks)
+    if options.connect is not None and (
+        options.data_dir is not None or options.assembly is not None or options.config is not None or options.plugin
+    ):
+        parser.error("--connect 不能与 --data-dir、--assembly、--config 或 --plugin 同时使用")
     registry = bootstrap()
     install_commands(registry)
     install_lifecycle_slots(registry)
@@ -70,6 +74,12 @@ async def run_cli(
     except (ValueError, KeyError) as error:
         parser.error(f"命令不可用：{name}（{error}）")
     values = parse_command(command, arguments)
+    if options.connect is not None:
+        from . import remote
+
+        if command.id not in remote.COMMANDS:
+            parser.error("--connect 仅支持内置 ctx get/list/set/delete/watch 命令")
+        return await remote.execute(options.connect, command.id, values, output)
     context = CommandContext(options.root.resolve(), output, registry, tuple(commands.values()))
     if not command.runtime:
         if options.config is not None or options.assembly is not None:

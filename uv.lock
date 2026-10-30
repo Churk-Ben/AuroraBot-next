@@ -221,6 +221,7 @@ name = "aurora-cli"
 version = "0.1.0"
 source = { editable = "packages/aurora_cli" }
 dependencies = [
+    { name = "aurora-api" },
     { name = "aurora-core" },
     { name = "aurora-logging" },
     { name = "rich" },
@@ -229,6 +230,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-api", editable = "packages/aurora_api" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-logging", editable = "packages/aurora_logging" },
     { name = "rich", specifier = ">=14,<15" },
