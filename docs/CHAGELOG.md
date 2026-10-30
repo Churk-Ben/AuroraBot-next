@@ -2,6 +2,9 @@
 
 ## 2026-10-30
 
+- bot 的 ModelCall 组件通过连接约定的 ctx 地址读取 ModelRequest，在单一输出位置更新文本、完整工具请求、结束原因和调用状态。取消或失败保留已收到的文本并标记 cancelled/failed，错误继续传播；只关闭单次响应流，ModelClient 由创建它的宿主关闭。同一输出地址须串行调用，业务数据保留策略由装配负责。
+- examples/model_call/main.py 提供准备输入、假模型推理和结果读取的串行装配，支持流式/完整响应、模拟失败和 Ctrl+C；退出后快照只保留最近一次输出。模型数据使用 Python TypedDict 表达普通 JSON，地址内容可按局部约定或 StateKey 校验器约定；不新增全局契约匹配机制、模型片段历史或 controller 调用历史。
+
 - model_adapter 提供普通 JSON 数据形式的消息、工具定义、完整工具请求、模型请求/响应与流式片段，以及 ModelClient/ModelFactory 协议。complete 返回完整响应；stream 通过 async with 消费文本增量、完整工具请求及唯一结束片段，缺失结束片段明确失败。结束原因区分 stop、tool_calls、length 和 content_filter，不将响应结束等同于业务完成。
 - 调用方拥有单次响应流，提前结束、失败、超时或取消均通过上下文收尾；宿主在全部调用结束后关闭 ModelClient。能力不足明确拒绝，不自动降级；配置描述与运行期 api_key 分开，公共数据不包含 SDK 类型。FakeModel 以可配置响应脚本离线验证上述边界，工厂可创建相互独立的实例。
 - aurora_model_adapter 插件沿用目录中的 adapters 注册表、model_client 服务及四个模型 schema 身份，可由显式清单或同名 entry point 启用；此切片不包含真实供应商适配、默认绑定恢复或对话提交机制。

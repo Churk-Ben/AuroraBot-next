@@ -6,12 +6,13 @@
 uv sync --all-packages
 ```
 
-这两个示例只运行 Python，无需启动前端，也无需模型密钥或联网调用服务。
+这些示例只运行 Python，无需启动前端，也无需模型密钥或联网调用服务。
 
 | 示例 | 入口 | 演示内容 |
 | --- | --- | --- |
 | 持久化计数器 | [core_counter/main.py](core_counter/main.py) | core 插件声明、实例连接、ctx 订阅、退出落盘与重启恢复 |
 | 控制组件运转 | [control_flow/main.py](control_flow/main.py) | 串行、条件循环、分支、并行、地址握手与 ctx 状态观察 |
+| 假模型调用 | [model_call/main.py](model_call/main.py) | 模型输入、流式文本、完整响应、部分输出保留和客户端关闭 |
 
 ## 持久化计数器
 
@@ -92,9 +93,36 @@ uv run python examples/control_flow/main.py --data-dir build/control-flow-demo -
 
 阅读源码时，可先看 `assemble()`：业务执行函数包装成 `ExecutionPlug`，通过 `ExecutionSlot.connect()` 建立连接。握手结果中的 `plug.states` 和 `slot_states` 提供 ctx 地址；调用时仅传递运行和执行身份，业务数据由组件自行读写 ctx。`observe()` 订阅 ctx 变化以展示过程，`run()` 负责宿主生命周期与落盘。示例使用局部代码约定，没有独立 schema。
 
+## 假模型调用
+
+```powershell
+uv run python examples/model_call/main.py --data-dir build/model-call-demo --text 你好
+```
+
+串行装配执行“准备输入 → ModelCall → 读取结果”。假模型根据输入确定性地返回三段文本，默认每段等待 0.2 秒，最终输出：
+
+```text
+假模型收到：你好。
+状态: completed
+结束原因: stop
+```
+
+`ModelCall` 从 ctx 读取请求，在同一个输出地址累计文本和完整工具请求；执行插头只接收运行身份。响应流由调用组件关闭，客户端由宿主停止阶段关闭。每次示例退出只保留最新输出，不保存输入或片段历史。
+
+显式使用完整响应接口，或观察部分文本后的失败：
+
+```powershell
+uv run python examples/model_call/main.py --data-dir build/model-call-demo --no-stream
+uv run python examples/model_call/main.py --data-dir build/model-call-demo --fail
+```
+
+`--fail` 在流式输出“假模型收到：你好”后以退出码 `1` 结束；快照中的同一条输出保留文本并标记 `failed`。完整响应接口在成功返回之前不会提供部分文本。
+
+观察取消时可以使用 `--delay 2`，收到第一段文本后按一次 `Ctrl+C`；已收到的文本仍保存在快照中，状态为 `cancelled`，退出码为 `130`。`--delay 0` 可快速运行。此示例使用假模型，不调用真实服务，也不执行工具。
+
 ## 数据与常用操作
 
-两个示例分别使用自己的数据目录，不要让它们共用目录，也不要同时启动多个进程访问同一目录。快照恢复需要对应示例的状态定义。
+各示例分别使用自己的数据目录，不要让它们共用目录，也不要同时启动多个进程访问同一目录。快照恢复需要对应示例的状态定义。
 
 - 完整状态快照位于 `<data-dir>/framework/ctx.json`，可用编辑器查看。
 - 想从空状态开始，换一个新的 `--data-dir`，例如 `build/control-flow-demo-2`。
@@ -105,4 +133,5 @@ uv run python examples/control_flow/main.py --data-dir build/control-flow-demo -
 ```powershell
 uv run python examples/core_counter/main.py --help
 uv run python examples/control_flow/main.py --help
+uv run python examples/model_call/main.py --help
 ```
