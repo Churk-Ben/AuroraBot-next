@@ -29,6 +29,8 @@ _TYPES = {"string": str, "integer": int, "json": decode_json, "id": Id, "locatio
 
 def command_parser(command: Command) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(allow_abbrev=False, prog=f"aurora {command.id}", description=command.help)
+    if command.passthrough is not None:
+        parser.epilog = f"透传参数：{command.passthrough}；自身参数后使用 -- 分隔，分隔符一并交给执行器。"
     for argument in command.arguments:
         name = argument["name"]
         option = argument.get("option", False)
@@ -41,6 +43,21 @@ def command_parser(command: Command) -> argparse.ArgumentParser:
             kwargs.update(dest=name, required=argument.get("required", False), default=argparse.SUPPRESS)
         parser.add_argument(f"--{name.replace('_', '-')}" if option else name, **kwargs)
     return parser
+
+
+def parse_command(command: Command, argv: list[str]) -> dict[str, Any]:
+    """纯透传保留全部 argv；混合命令只透传显式 -- 及其后内容。"""
+    if command.passthrough is not None and not command.arguments:
+        return {"passthrough": list(argv)}
+    own = argv
+    remaining: list[str] = []
+    if command.passthrough is not None and "--" in argv:
+        boundary = argv.index("--")
+        own, remaining = argv[:boundary], argv[boundary:]
+    values = vars(command_parser(command).parse_args(own))
+    if command.passthrough is not None:
+        values["passthrough"] = list(remaining)
+    return values
 
 
 def root_parser() -> argparse.ArgumentParser:
@@ -56,6 +73,5 @@ def root_parser() -> argparse.ArgumentParser:
     parser.add_argument("--namespace", default="org.aurora.cli", help="交互短名的命名空间")
     parser.add_argument("--assembly", type=Id, help="命令运行期间启动的装配完整 ID")
     parser.add_argument("-c", "--config", type=json_object, help="恢复后、prepare 前写入 CLI 配置状态的 JSON 对象")
-    parser.add_argument("command", nargs="?", help="完整命令 ID 或当前命名空间中的路径")
-    parser.add_argument("arguments", nargs=argparse.REMAINDER, help="命令参数；全局选项须放在命令前")
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="命令与原始参数；全局选项须放在命令前")
     return parser

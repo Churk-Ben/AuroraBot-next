@@ -26,6 +26,7 @@ def install_commands(registry: DefinitionRegistry) -> None:
                 "runtime": "是否需要运行期宿主；operation 固定为 true，executor 默认为 false",
                 "assembly_argument": "作为宿主装配选择的 id 参数名，传递后不再交给执行器",
                 "arguments": "name/type/option/required 参数列表",
+                "passthrough": "可选的非空透传帮助文本；执行器或 operation 接收原样字符串列表 passthrough",
             },
             "aurora_cli",
             register_to=Id("org.aurora.core:registries/schemas"),

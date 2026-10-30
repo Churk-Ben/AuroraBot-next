@@ -14,7 +14,7 @@ from . import host
 from .commands import discover_commands, install_commands
 from .declarations import COMMANDS, CommandContext, read_command
 from .execution import execute_command
-from .parsing import command_parser, root_parser
+from .parsing import parse_command, root_parser
 from .presentation import show_commands
 
 
@@ -26,6 +26,8 @@ async def run_cli(
         raise RuntimeError("标准输出不可用，请显式提供 output 文本流")
     parser = root_parser()
     options = parser.parse_args(argv)
+    if options.command[:1] == ["--"]:
+        options.command = options.command[1:]
     if options.version:
         print(f"aurora {version('aurora-cli')}", file=output)
         return 0
@@ -39,12 +41,12 @@ async def run_cli(
         if admission.target == COMMANDS and admission.status == AdmissionStatus.ACCEPTED
     }
     commands = {entry.id: read_command(entry) for entry in registry.view(register_to=COMMANDS) if entry.id in accepted}
-    if options.show_help or options.command is None:
+    if options.show_help or not options.command:
         if options.show_help:
             print(parser.format_help(), file=output)
         show_commands(commands.values(), output)
         return 0
-    name, arguments = options.command, options.arguments
+    name, arguments = options.command[0], options.command[1:]
     while ":" not in name:
         group = [
             item
@@ -62,7 +64,7 @@ async def run_cli(
         command = commands[entry.id]
     except (ValueError, KeyError) as error:
         parser.error(f"命令不可用：{name}（{error}）")
-    values = vars(command_parser(command).parse_args(arguments))
+    values = parse_command(command, arguments)
     context = CommandContext(options.root.resolve(), output, registry, tuple(commands.values()))
     if not command.runtime:
         if options.config is not None or options.assembly is not None:

@@ -15,7 +15,9 @@ CONFIG = Id("org.aurora.cli:state/config")
 
 
 ARGUMENT_TYPES = frozenset({"string", "integer", "json", "id", "location", "flag"})
-ALLOWED_SPEC_FIELDS = frozenset({"help", "operation", "arguments", "executor", "runtime", "assembly_argument"})
+ALLOWED_SPEC_FIELDS = frozenset(
+    {"help", "operation", "arguments", "executor", "runtime", "assembly_argument", "passthrough"}
+)
 ALLOWED_ARGUMENT_FIELDS = frozenset({"name", "type", "option", "required"})
 
 
@@ -30,6 +32,7 @@ class Command:
     executor: Callable[..., object] | None = None
     runtime: bool = True
     assembly_argument: str | None = None
+    passthrough: str | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,12 @@ def read_command(entry: RegistryEntry) -> Command:
             raise ValueError("可选参数须使用 option=true")
         if argument.get("type") == "flag" and not argument.get("option", False):
             raise ValueError("flag 类型仅支持命名选项")
+    passthrough = spec.get("passthrough")
+    if "passthrough" in spec:
+        if not isinstance(passthrough, str) or not passthrough.strip():
+            raise ValueError("passthrough 必须为非空帮助文本")
+        if "passthrough" in names:
+            raise ValueError("透传命令不能同时声明名为 passthrough 的参数")
     assembly_argument = spec.get("assembly_argument")
     if assembly_argument is not None and (
         not runtime
@@ -118,6 +127,7 @@ def read_command(entry: RegistryEntry) -> Command:
         executor,
         runtime,
         assembly_argument,
+        passthrough,
     )
 
 
