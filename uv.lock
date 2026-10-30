@@ -10,6 +10,7 @@ members = [
     "aurora-core",
     "aurora-logging",
     "aurora-model-adapter",
+    "aurora-world",
     "aurorabot-ai",
 ]
 
@@ -269,6 +270,17 @@ dependencies = [
 requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
 
 [[package]]
+name = "aurora-world"
+version = "0.1.0"
+source = { editable = "packages/aurora_world" }
+dependencies = [
+    { name = "aurora-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
+
+[[package]]
 name = "aurorabot-ai"
 version = "0.1.0"
 source = { editable = "." }
@@ -276,6 +288,7 @@ dependencies = [
     { name = "aurora-api" },
     { name = "aurora-bot" },
     { name = "aurora-cli" },
+    { name = "aurora-world" },
 ]
 
 [package.dev-dependencies]
@@ -290,6 +303,7 @@ requires-dist = [
     { name = "aurora-api", editable = "packages/aurora_api" },
     { name = "aurora-bot", editable = "packages/aurora_bot" },
     { name = "aurora-cli", editable = "packages/aurora_cli" },
+    { name = "aurora-world", editable = "packages/aurora_world" },
 ]
 
 [package.metadata.requires-dev]

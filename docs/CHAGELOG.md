@@ -17,6 +17,9 @@
 
 ### 实现与验证记录
 
+- aurora-world 初始化为 Python 3.12+、Hatchling 构建的独立工作区包，源码位于 packages/aurora_world/src/aurora_world，仅依赖 aurora-core；统一安装包包含 aurora-world，uv workspace/source、覆盖率和 Pyright 路径均接入。aurorabot.plugins 的 aurora_world entry point 返回同名插件清单，当前不登记世界状态、来源插槽或生命周期处理器，具体行为由后续功能提供。
+- 初始化验收通过 uv sync --all-packages、8 项工作区导入/安装依赖测试、Ruff 检查与格式检查、Python 类型检查及插件发现；uv build --package aurora-world 成功构建源码包与 wheel。本次未重跑完整业务测试。
+
 - examples/default_bot/main.py 通过正式 DefaultAssembly 和本地模型/工具工厂演示配置恢复。`uv run python examples/default_bot/main.py --data-dir build/default-demo` 只启动和关闭；增加 `--text "你好"` 明确写入引导并激活一次，`--activate` 使用已有输入激活，`--profile secondary` 在启动前更新并保存模型角色绑定。首次缺失的配置由示例 configure 填入，后续沿用恢复值；工厂、实例和连接每次重新创建。
 - M2.2 默认单 bot 装配与实例绑定完成本切片验收。完整 uv run aurora check 通过：363 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查；真实示例进程覆盖空闲启动、工具往返、切换模型绑定、跨进程上下文恢复及中间值清理。真实供应商连接、会话运行入口、cadence/world 与 CLI 对话不属于本切片，M2 尚未整体完成。
 

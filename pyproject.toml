@@ -3,7 +3,7 @@ name = "aurorabot-ai"
 version = "0.1.0"
 description = "AuroraBot unified installation package"
 requires-python = ">=3.12"
-dependencies = ["aurora-bot>=0.1.0", "aurora-cli>=0.1.0", "aurora-api>=0.1.0"]
+dependencies = ["aurora-bot>=0.1.0", "aurora-cli>=0.1.0", "aurora-api>=0.1.0", "aurora-world>=0.1.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -16,7 +16,7 @@ packages = []
 dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.9"]
 
 [tool.coverage.run]
-source = ["aurora_core", "aurora_cli", "aurora_bot", "aurora_api", "aurora_model_adapter", "aurora_logging"]
+source = ["aurora_core", "aurora_cli", "aurora_bot", "aurora_api", "aurora_model_adapter", "aurora_logging", "aurora_world"]
 
 [tool.coverage.report]
 fail_under = 20
@@ -39,6 +39,7 @@ extraPaths = [
     "packages/aurora_cli/src",
     "packages/aurora_api/src",
     "packages/aurora_logging/src",
+    "packages/aurora_world/src",
 ]
 
 [tool.uv.workspace]
@@ -49,6 +50,7 @@ members = [
     "packages/aurora_cli",
     "packages/aurora_api",
     "packages/aurora_logging",
+    "packages/aurora_world",
 ]
 
 [tool.uv.sources]
@@ -58,6 +60,7 @@ aurora-bot = { workspace = true }
 aurora-cli = { workspace = true }
 aurora-api = { workspace = true }
 aurora-logging = { workspace = true }
+aurora-world = { workspace = true }
 
 [tool.ruff]
 line-length = 120
