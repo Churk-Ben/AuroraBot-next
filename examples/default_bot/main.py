@@ -1,0 +1,182 @@
+"""从可恢复配置创建默认 bot；模型和工具通过显式工厂提供，无需网络或密钥。"""
+
+import argparse
+import asyncio
+import json
+from pathlib import Path
+from typing import cast
+from uuid import uuid4
+
+from aurora_bot.assembly import DefaultAssembly
+from aurora_bot.assembly import plugin as assembly_plugin
+from aurora_bot.assembly_config import CONFIG
+from aurora_bot.control import ExecutionPlug, ExecutionRequest, component_entries
+from aurora_bot.model import plugin as model_plugin
+from aurora_bot.react import Guidance
+from aurora_bot.react import plugin as react_plugin
+from aurora_bot.react_defaults import plugin as defaults_plugin
+from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
+from aurora_bot.tools import plugin as tools_plugin
+from aurora_core.bootstrap import bootstrap
+from aurora_core.ctx import Context
+from aurora_core.discovery import register_plugins
+from aurora_core.hooks import HookConnections
+from aurora_core.ids import Id
+from aurora_core.lifecycle import Lifecycle, install_lifecycle_slots
+from aurora_core.persistence import ContextPersistence
+from aurora_core.registry import RegistryEntry
+from aurora_core.storage import StorageService
+from aurora_model_adapter import ModelConfig, ModelRequest
+from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
+from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
+from aurora_model_adapter.fake import FakeModel, FakeReply
+from aurora_model_adapter.plugin import plugin as adapter_plugin
+
+ADAPTER = Id("dev.example.default:adapters/fake")
+TOOL = Id("dev.example.default:tools/echo")
+COMPONENT = Id("dev.example.default:handlers/echo")
+
+
+async def create_model(config: ModelConfig, *, api_key: str | None = None) -> FakeModel:
+    """示例工厂按模型配置创建独立客户端，不读取凭证。"""
+
+    def respond(request: ModelRequest) -> FakeReply:
+        if not request["messages"]:
+            return FakeReply()
+        latest = request["messages"][-1]
+        if latest["role"] == "user":
+            return FakeReply(
+                tool_calls=({"id": uuid4().hex, "name": "echo", "arguments": {"text": latest["content"]}},)
+            )
+        if latest["role"] == "tool":
+            result = json.loads(latest["content"])
+            return FakeReply((config.model, ":", str(result.get("value", result.get("error")))))
+        return FakeReply()
+
+    print(f"创建模型: {config.model}", flush=True)
+    return FakeModel(respond)
+
+
+async def create_tool(*, ctx, storage, instance_id, input_state, output_state, config) -> ToolInstance:
+    """实例只使用分配的工作地址；可关闭资源通过 aclose 交给装配管理。"""
+
+    async def execute(request):
+        call = input_state.get(ctx, request)
+        assert isinstance(call, dict)
+        output_state.set(ctx, request, config.get("prefix", "") + call["arguments"]["text"])
+
+    return ToolInstance(
+        ExecutionPlug(COMPONENT, execute, {"input": input_state, "output": output_state}, instance_id=instance_id)
+    )
+
+
+async def run(args: argparse.Namespace) -> None:
+    registry = bootstrap()
+    register_plugins(
+        registry,
+        (adapter_plugin(), model_plugin(), react_plugin(), tools_plugin(), defaults_plugin(), assembly_plugin()),
+    )
+    install_lifecycle_slots(registry)
+    registry.register(RegistryEntry(ADAPTER, "adapter", create_model, "default_example", register_to=ADAPTERS))
+
+    async def declared_execute(request):
+        raise RuntimeError("工具执行必须绑定工厂创建的实例")
+
+    registry.register_many(component_entries(COMPONENT, declared_execute, declared_execute, provider="default_example"))
+    registry.register(
+        RegistryEntry(
+            TOOL,
+            "tool",
+            ToolSpec(
+                COMPONENT,
+                {
+                    "name": "echo",
+                    "description": "按配置前缀回显文本",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                        "required": ["text"],
+                        "additionalProperties": False,
+                    },
+                },
+                factory=create_tool,
+            ),
+            "default_example",
+            register_to=TOOLS,
+        )
+    )
+    ctx, hooks = Context(registry), HookConnections(registry)
+    storage = StorageService(args.data_dir)
+    assembly = DefaultAssembly(registry=registry, ctx=ctx, hooks=hooks, storage=storage)
+    host = Lifecycle(
+        ctx,
+        hooks,
+        assembly.components(),
+        persistence=ContextPersistence(ctx, storage.snapshot_store()),
+        storage=storage,
+    )
+
+    def configure() -> None:
+        defaults = {
+            CONFIG: {
+                "instance_id": "main",
+                "model_role": "reasoning",
+                "tools": [{"tool": str(TOOL), "instance_id": "echo", "config": {"prefix": "回显:"}}],
+            },
+            MODEL_CONFIG: {
+                "primary": {"adapter": str(ADAPTER), "model": "模型一"},
+                "secondary": {"adapter": str(ADAPTER), "model": "模型二"},
+            },
+            BINDINGS: {"reasoning": "primary"},
+        }
+        for key, value in defaults.items():
+            try:
+                ctx.get(key)
+            except KeyError:
+                ctx.set(key, value)
+        if args.profile is not None:
+            ctx.set(BINDINGS, {"reasoning": args.profile})
+
+    await host.start(configure=configure)
+    try:
+        assert assembly.agent is not None and assembly.defaults is not None
+        print("装配已启动；尚未激活。", flush=True)
+        if args.text is not None or args.activate:
+            request = ExecutionRequest(uuid4().hex)
+            if args.text is not None:
+                try:
+                    pending = cast(list[Guidance], assembly.agent.inbox.get(ctx, request))
+                except KeyError:
+                    pending = []
+                try:
+                    progress = cast(int, assembly.agent.progress.get(ctx, request))
+                except KeyError:
+                    progress = 0
+                sequence = max([progress, *(item["sequence"] for item in pending)]) + 1
+                assembly.agent.inbox.set(
+                    ctx, request, [*pending, {"id": uuid4().hex, "sequence": sequence, "payload": args.text}]
+                )
+            await host.run(assembly.activate, request)
+            result = assembly.defaults.model.output_state.get(ctx, request)
+            assert isinstance(result, dict)
+            print(f"内部输出: {result['text']}")
+    finally:
+        await host.stop()
+    print(f"快照: {args.data_dir / 'framework' / 'ctx.json'}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="默认装配与模型绑定恢复的离线示例")
+    parser.add_argument("--data-dir", required=True, type=Path)
+    parser.add_argument("--text", help="写入一条引导，并显式执行一次激活")
+    parser.add_argument("--activate", action="store_true", help="使用已有输入显式激活")
+    parser.add_argument("--profile", choices=("primary", "secondary"), help="本次启动前更新并保存模型角色绑定")
+    try:
+        asyncio.run(run(parser.parse_args()))
+    except KeyboardInterrupt:
+        print("已取消。")
+        raise SystemExit(130) from None
+
+
+if __name__ == "__main__":
+    main()

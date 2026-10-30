@@ -17,6 +17,9 @@
 
 ### 实现与验证记录
 
+- examples/default_bot/main.py 通过正式 DefaultAssembly 和本地模型/工具工厂演示配置恢复。`uv run python examples/default_bot/main.py --data-dir build/default-demo` 只启动和关闭；增加 `--text "你好"` 明确写入引导并激活一次，`--activate` 使用已有输入激活，`--profile secondary` 在启动前更新并保存模型角色绑定。首次缺失的配置由示例 configure 填入，后续沿用恢复值；工厂、实例和连接每次重新创建。
+- M2.2 默认单 bot 装配与实例绑定完成本切片验收。完整 uv run aurora check 通过：363 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查；真实示例进程覆盖空闲启动、工具往返、切换模型绑定、跨进程上下文恢复及中间值清理。真实供应商连接、会话运行入口、cadence/world 与 CLI 对话不属于本切片，M2 尚未整体完成。
+
 - aurora_bot.assembly 提供 org.aurora.bot:assemblies/default 同步宿主入口及 DefaultAssembly。装配入口只建立生命周期连接；宿主恢复 ctx 并预配置后，prepare 创建独立模型客户端、工具实例及默认 ReAct 连接。start 只开放显式 activate，调用方通过 Lifecycle.run 跟踪根调用，不由启动或普通 ctx 写入隐式触发推理。
 - 默认单 bot 配置位于 org.aurora.bot:state/config，必填 instance_id/model_role；tools 选择公开工具 ID、实例身份及 config，max_iterations/tool_timeout/streaming/system_prompt 默认分别为 8/30/true/空串。模型角色引用 aurora_model_adapter 的配置与绑定状态；配置变更在下次宿主启动生效，CLI 的 --config 仍只写 CLI 自身状态，不隐式转写 bot 配置。凭证解析器默认读取指定环境变量，也可由进程内装配注入，解析出的密钥不进入 ctx。
 - bot 实例状态分别使用 state/agents（inbox/progress）、state/messages（ReActContext）、state/run（最近运行）与 state/react_work（按 run_id 定位的中间值）；全部在恢复前登记，按稳定 instance_id 分开。恢复出的 running 状态标为 failed/InterruptedRun，不自动创建任务；未完成工具轮次保留到后续显式激活接纳。默认装配清理已消费 inbox 和中间值，保留上下文、消费位置、最近模型输出及 pending 所需工具批次，不裁剪其他实例的数据。
