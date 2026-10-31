@@ -1,6 +1,6 @@
 """LiteLLM 文本与工具边界；SDK 对象仅在本模块内部使用。"""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from typing import Any, cast
@@ -97,8 +97,9 @@ def _payload(request: ModelRequest) -> dict[str, Any]:
             ]
         messages.append(converted)
     payload: dict[str, Any] = {"messages": messages}
-    if request.get("tools"):
-        payload["tools"] = [{"type": "function", "function": deepcopy(tool)} for tool in request["tools"]]
+    tools = request.get("tools")
+    if tools:
+        payload["tools"] = [{"type": "function", "function": deepcopy(tool)} for tool in tools]
     return payload
 
 
@@ -176,7 +177,7 @@ class LiteLLMClient:
         finally:
             self._active = False
 
-    async def _chunks(self, response: Any) -> AsyncIterator[ModelChunk]:
+    async def _chunks(self, response: Any) -> AsyncGenerator[ModelChunk, None]:
         pending: dict[int, dict[str, Any]] = {}
         reason: FinishReason | None = None
         iterator = aiter(response)
