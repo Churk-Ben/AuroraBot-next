@@ -232,7 +232,7 @@ class LiteLLMClient:
         yield {"type": "finish", "reason": reason}
 
     @asynccontextmanager
-    async def stream(self, request: ModelRequest) -> AsyncIterator[AsyncIterator[ModelChunk]]:
+    async def stream(self, request: ModelRequest) -> AsyncGenerator[AsyncIterator[ModelChunk], None]:
         self._begin(request, streaming=True)
         try:
             response = await self._request(request, streaming=True)
