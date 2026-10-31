@@ -5,6 +5,7 @@ import json
 from io import StringIO
 from typing import cast
 
+import httpx
 import pytest
 from aurora_bot.assembly import ASSEMBLY, DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
@@ -34,6 +35,94 @@ from aurora_model_adapter.plugin import plugin as adapter_plugin
 ADAPTER = Id("dev.assembly:adapters/fake")
 TOOL = Id("dev.assembly:tools/echo")
 COMPONENT = Id("dev.assembly:handlers/echo")
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypatch, streaming):
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    import openai
+
+    original = openai.AsyncOpenAI.__init__
+    transports, requests = [], []
+
+    def handle(request):
+        value = json.loads(request.content)
+        requests.append(value)
+        observed = any(message["role"] == "tool" for message in value["messages"])
+        message = {"role": "assistant", "content": "完成" if observed else None}
+        if not observed:
+            message["tool_calls"] = [
+                {"id": "echo-1", "type": "function", "function": {"name": "echo", "arguments": '{"text":"你好"}'}}
+            ]
+        reason = "stop" if observed else "tool_calls"
+        data = {
+            "id": "test",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4o-mini",
+            "choices": [{"index": 0, "message": message, "finish_reason": reason}],
+        }
+        if not streaming:
+            return httpx.Response(200, json=data)
+        if not observed:
+            message["tool_calls"][0]["index"] = 0
+        data["object"] = "chat.completion.chunk"
+        data["choices"] = [{"index": 0, "delta": message, "finish_reason": reason}]
+        return httpx.Response(
+            200,
+            content=f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    def create_transport(self, **kwargs):
+        transport = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        transports.append(transport)
+        original(self, http_client=transport, **kwargs)
+
+    monkeypatch.setattr(openai.AsyncOpenAI, "__init__", create_transport)
+
+    async def scenario():
+        host, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
+
+        def configure():
+            ctx.set(CONFIG, {**settings(), "streaming": streaming})
+            ctx.set(
+                MODEL_CONFIG,
+                {
+                    "real": {
+                        "adapter": "org.aurora.model_adapter:adapters/litellm",
+                        "model": "openai/gpt-4o-mini",
+                        "credential": "MODEL_TEST_KEY",
+                    }
+                },
+            )
+            ctx.set(BINDINGS, {"reasoning": "real"})
+
+        await host.start(configure=configure)
+        try:
+            assert requests == [] and assembly.agent is not None and assembly.defaults is not None
+            execution = ExecutionRequest("sdk-roundtrip")
+            assembly.agent.inbox.set(ctx, execution, [{"id": "guide", "sequence": 1, "payload": "回显你好"}])
+            await host.run(assembly.activate, execution)
+            messages = cast(dict, assembly.defaults.context_state.get(ctx, execution))["messages"]
+            observed = next(message for message in messages if message["role"] == "tool")
+            assert json.loads(observed["content"])["value"] == "工具:你好"
+            assert messages[-1]["content"] == "完成" and len(requests) == 2
+            assert cast(dict, assembly.agent.runtime.get(ctx, execution))["status"] == "completed"
+        finally:
+            await host.stop()
+        assert transports[0].is_closed
+        assert "runtime-secret" not in (tmp_path / "framework" / "ctx.json").read_text(encoding="utf-8")
+        restarted, other, other_ctx, _, _, _, _, _ = setup(tmp_path)
+        await restarted.start()
+        try:
+            assert len(requests) == 2 and other.defaults is not None
+            assert cast(dict, other.defaults.context_state.get(other_ctx, execution))["messages"] == messages
+        finally:
+            await restarted.stop()
+        assert len(transports) == 2 and all(transport.is_closed for transport in transports)
+
+    asyncio.run(scenario())
 
 
 def settings(*, tools=True):

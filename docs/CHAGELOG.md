@@ -1,5 +1,18 @@
 # 变更记录
 
+## 2026-10-31
+
+### M2.3：LiteLLM 适配与离线验收
+
+- 模型插件登记 `org.aurora.model_adapter:adapters/litellm` 异步工厂，默认装配通过既有模型配置、角色绑定与运行期凭证解析器创建独立实例。插件发现不加载 SDK；供应商 SDK 类型保留在适配模块内。依赖固定在 LiteLLM 1.106 系列，锁文件选择 1.106.6；启用官方 mcp 依赖组以满足该版本工具请求转换的导入依赖，不登记或运行 MCP 插件。
+- 本切片支持 `openai/` 模型与 OpenAI 兼容网关、`anthropic/` 模型。实例拥有各自的异步连接池，关闭不影响其他实例；同一实例串行调用，关闭前须收束在途调用。其他供应商明确拒绝。streaming/tool_calls 以 SDK 模型目录为准，未知或未声明的能力不隐式降级；自定义网关的模型名称也须能由该目录解析。
+- 文本逐段交付，工具按 index 汇集名称与参数，完整严格 JSON 对象通过验证后才输出 ToolCall。重复工具 ID、非法参数、缺失或无效结束片段明确失败；usage 与 SDK 尾部空片段不作为业务内容。请求中的工具描述、assistant 工具请求和 tool 结果转换为 SDK 格式，不修改调用方输入。
+- SDK 请求、读取和关闭错误转换为 ModelError，供应商超时转换为标准 TimeoutError，取消保持 CancelledError。错误摘要只包含异常类型，不复制供应商请求或凭证。响应流在正常结束、提前退出、消费方异常、取消与超时时关闭；宿主最终关闭客户端。SDK 重试与响应缓存显式禁用。
+- 离线验收使用真实 LiteLLM/OpenAI SDK 与模拟 HTTP/SSE，覆盖 OpenAI 与 Anthropic 流式响应、工具往返、能力拒绝、参数错误、取消及资源释放；正式 DefaultAssembly 分别验证流式与非流式工具循环、终态、凭证不落盘和重启恢复。
+- `examples/litellm_model/main.py` 提供显式真实连接冒烟入口：`uv run python examples/litellm_model/main.py --model openai/gpt-4o-mini --credential-env AURORA_MODEL_API_KEY`。需事先在该环境变量中提供密钥；兼容网关可附加 `--base-url`，`--text` 选择输入，`--timeout` 设置总时限。输出为统一片段及最终 JSON，不保存密钥或模型配置。
+- 真实供应商连接尚未执行；本条仅验收适配器与默认装配的离线路径，M2 整体验收仍待真实模型连接及后续运行入口切片。
+- 完整 `uv run --locked aurora check` 通过：401 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。SDK 的 Pydantic 类型加载产生 1 项 ReadOnly 限定符提示，测试无失败；真实连接示例的帮助入口验证通过。
+
 ## 2026-10-30
 
 ### 持续巡检工作台示例
