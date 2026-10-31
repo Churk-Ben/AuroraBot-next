@@ -29,6 +29,7 @@ from .assembly_config import (
 )
 from .control import ExecutionRequest, InstanceStateBinding, StateBinding
 from .model import ModelCall
+from .operations import RUN_CONTROL, RunOperations
 from .react import AgentBusyError, ReActAgent
 from .react_defaults import ReActContext, ReActDefaults
 from .runtime import BotRuntime
@@ -85,6 +86,7 @@ class DefaultAssembly:
         self._executing = False
         self._last_request: ExecutionRequest | None = None
         self.runtime = BotRuntime(self)
+        self._run_operations: RunOperations | None = None
 
     def components(self) -> tuple[LifecycleComponent, ...]:
         """返回宿主生命周期组件，连接不创建模型、工具或任务。"""
@@ -231,8 +233,14 @@ class DefaultAssembly:
 
     @hook_handler("org.aurora.bot:handlers/assembly/start_bot", slot=START)
     def start_bot(self) -> None:
-        self._accepting = True
+        assert self.config is not None
+        entry = self.registry.get(RUN_CONTROL)
+        if entry.kind != "service" or not isinstance(entry.target, RunOperations):
+            raise TypeError("run_control 必须为 RunOperations 服务")
         self.runtime.start()
+        entry.target.bind(self.config["instance_id"], self.runtime)
+        self._run_operations = entry.target
+        self._accepting = True
 
     def stop_accepting(self) -> None:
         self._accepting = False
@@ -298,6 +306,10 @@ class DefaultAssembly:
         for identity in self._instances:
             self.hooks.disconnect_instance(identity)
         self._instances.clear()
+        if self._run_operations is not None:
+            assert self.config is not None
+            self._run_operations.unbind(self.config["instance_id"], self.runtime)
+            self._run_operations = None
 
     @hook_handler("org.aurora.bot:handlers/assembly/stop_model", slot=STOP)
     async def stop_model(self) -> None:
@@ -314,11 +326,23 @@ def assemble(
 
 
 def plugin() -> Plugin:
+    operations = RunOperations()
     return Plugin(
         "aurora_bot.assembly",
         (
             RegistryEntry(
                 ASSEMBLY, "assembly", assemble, "aurora_bot", register_to=Id("org.aurora.core:registries/resources")
+            ),
+            RegistryEntry(
+                RUN_CONTROL,
+                "service",
+                operations,
+                "aurora_bot",
+                register_to=Id("org.aurora.core:registries/services"),
+            ),
+            *(
+                entry_from(getattr(operations, name), provider="aurora_bot")
+                for name in ("submit", "activate", "cancel")
             ),
             *(
                 RegistryEntry(

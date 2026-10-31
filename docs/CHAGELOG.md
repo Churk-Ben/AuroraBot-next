@@ -2,6 +2,14 @@
 
 ## 2026-10-31
 
+### bot 公共运行操作 ID
+
+- `aurora_bot.assembly` 在插件发现阶段登记三个 operation：`org.aurora.bot:operations/run/submit`、`org.aurora.bot:operations/run/activate`、`org.aurora.bot:operations/run/cancel`，统一接入 core 的 operations 注册表。CLI `id list` 可在启动装配前枚举这些定义。
+- 每次插件构建持有独立的 `org.aurora.bot:services/run_control` 运行分发服务。DefaultAssembly 启动时按 bot 配置的 instance_id 绑定 runtime，停止并完成工具清理后解除自身绑定。相同实例身份禁止覆盖；尚未启动、已解除绑定或未知实例明确报错，不隐式选择默认 bot。服务及 runtime 引用不进入 ctx。
+- 所有操作要求显式关键字 `instance_id`。submit 接收 payload 和可选 sequence，返回既有 Submission；activate 返回 RunHandle；cancel 接收 run_id，等待匹配运行的清理并返回布尔值。运行句柄是进程内对象，CLI/API 传输回执时须显式转换，登记 operation 不自动开放远程分发。
+- 调用示例：`await invoke_operation(registry, Id("org.aurora.bot:operations/run/cancel"), run_id, instance_id="main")`。提交和激活分别以对应 ID 调用；运行、等待与取消语义沿用 BotRuntime。此命名表达 bot 激活，不绑定到尚未确定的 conversation 端点。
+- 完整 `uv run --locked aurora check` 通过：423 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查；操作模块、装配和相关测试的 basedpyright 检查为 0 错误、0 警告。新增用例覆盖发现阶段枚举、按 ID 调用、实例选择、重复绑定失败清理、停止拒绝与解绑；SDK 保留 1 项 Pydantic ReadOnly 提示。
+
 ### M2.4：单 bot 的激活、引导提交与取消入口
 
 - DefaultAssembly.runtime 提供单一调度所有者 BotRuntime。宿主启动后可调用 `submit(payload, sequence=...)` 提交 JSON 引导，返回 Submission（sequence、guidance_id、run）；`activate()` 显式激活已有输入或空输入。两者同步返回，不等待推理。普通 ctx 写入和宿主启动不自动触发运行，恢复输入须显式接纳。

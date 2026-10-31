@@ -12,9 +12,11 @@ from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, RUN, WORK
 from aurora_bot.control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_bot.model import plugin as model_plugin
+from aurora_bot.operations import RUN_ACTIVATE, RUN_CANCEL, RUN_CONTROL, RUN_SUBMIT
 from aurora_bot.react import AgentBusyError
 from aurora_bot.react import plugin as react_plugin
 from aurora_bot.react_defaults import plugin as defaults_plugin
+from aurora_bot.runtime import RunHandle, Submission
 from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_bot.tools import plugin as tools_plugin
 from aurora_cli.commander import run_cli
@@ -23,6 +25,7 @@ from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin, register_plugins
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
+from aurora_core.invocation import invoke_operation
 from aurora_core.lifecycle import Lifecycle, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
@@ -825,3 +828,123 @@ def test_runtime_cancelled_close_waiter_keeps_resource_cleanup_alive(tmp_path, m
         assert events[-1] == "model.closed" and clients[0].closed
 
     asyncio.run(scenario())
+
+
+def test_public_run_operations_bind_to_started_bot_and_unbind_on_stop(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, registry, clients, _, _, _ = setup(tmp_path)
+        for identity in (RUN_SUBMIT, RUN_ACTIVATE, RUN_CANCEL):
+            entry = registry.get(identity)
+            assert entry.kind == "operation" and callable(entry.target)
+            assert entry.register_to == Id("org.aurora.core:registries/operations")
+        with pytest.raises(LookupError, match="未绑定"):
+            await invoke_operation(registry, RUN_SUBMIT, "尚未启动", instance_id="main")
+        assert clients == []
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        entered, release = gate_model(clients[0], monkeypatch)
+        try:
+            with pytest.raises(TypeError):
+                await invoke_operation(registry, RUN_ACTIVATE)
+            with pytest.raises(LookupError, match="未绑定"):
+                await invoke_operation(registry, RUN_ACTIVATE, instance_id="missing")
+            receipt = await invoke_operation(registry, RUN_SUBMIT, "公共入口", instance_id="main", sequence=1)
+            assert isinstance(receipt, Submission)
+            assert receipt.run is await invoke_operation(registry, RUN_ACTIVATE, instance_id="main")
+            with pytest.raises(ValueError, match="序号"):
+                await invoke_operation(registry, RUN_SUBMIT, "重复", instance_id="main", sequence=1)
+            await entered.wait()
+            assert await invoke_operation(registry, RUN_CANCEL, "unknown", instance_id="main") is False
+            assert not receipt.run.done
+            assert await invoke_operation(registry, RUN_CANCEL, receipt.run.run_id, instance_id="main") is True
+            assert (await receipt.run.wait()).status == "cancelled"
+            release.set()
+            run = await invoke_operation(registry, RUN_ACTIVATE, instance_id="main")
+            assert isinstance(run, RunHandle) and (await run.wait()).status == "completed"
+            assembly.stop_accepting()
+            with pytest.raises(RuntimeError, match="关闭"):
+                await invoke_operation(registry, RUN_SUBMIT, "关闭后拒绝", instance_id="main")
+        finally:
+            release.set()
+            await host.stop()
+        with pytest.raises(LookupError, match="未绑定"):
+            await invoke_operation(registry, RUN_CANCEL, "unknown", instance_id="main")
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("other_identity", ["main", "other"])
+def test_public_run_operations_route_instances_without_overwriting_owner(tmp_path, monkeypatch, other_identity):
+    async def scenario():
+        first, a, ctx_a, registry, clients_a, _, _, _ = setup(tmp_path / "a")
+        second, b, ctx_b, other_registry, clients_b, _, _, _ = setup(tmp_path / "b")
+        # 显式共享分发服务，验证多个装配的选择和重复身份的启动清理。
+        for identity in (RUN_CONTROL, RUN_SUBMIT, RUN_ACTIVATE, RUN_CANCEL):
+            other_registry.replace(registry.get(identity))
+
+        def configure_b():
+            seed(ctx_b, tools=False)
+            config = cast(dict, ctx_b.get(CONFIG))
+            ctx_b.set(CONFIG, {**config, "instance_id": other_identity})
+
+        await first.start(configure=lambda: seed(ctx_a, tools=False))
+        try:
+            if other_identity == "main":
+                with pytest.raises(ValueError, match="已经绑定"):
+                    await second.start(configure=configure_b)
+                assert clients_b[0].closed and not clients_a[0].closed
+                run = await invoke_operation(registry, RUN_ACTIVATE, instance_id="main")
+                assert isinstance(run, RunHandle) and (await run.wait()).status == "completed"
+                return
+            await second.start(configure=configure_b)
+            entered_a, release_a = gate_model(clients_a[0], monkeypatch)
+            entered_b, release_b = gate_model(clients_b[0], monkeypatch)
+            try:
+                run_a = await invoke_operation(registry, RUN_ACTIVATE, instance_id="main")
+                run_b = await invoke_operation(registry, RUN_ACTIVATE, instance_id="other")
+                assert isinstance(run_a, RunHandle) and isinstance(run_b, RunHandle)
+                assert a.runtime.current is run_a and b.runtime.current is run_b
+                await entered_a.wait()
+                await entered_b.wait()
+                assert await invoke_operation(registry, RUN_CANCEL, run_a.run_id, instance_id="other") is False
+                assert not run_a.done and not run_b.done
+                assert await invoke_operation(registry, RUN_CANCEL, run_b.run_id, instance_id="other") is True
+                assert (await run_b.wait()).status == "cancelled" and not run_a.done
+                release_a.set()
+                assert (await run_a.wait()).status == "completed"
+                await first.stop()
+                with pytest.raises(LookupError):
+                    await invoke_operation(other_registry, RUN_ACTIVATE, instance_id="main")
+                next_run = await invoke_operation(other_registry, RUN_ACTIVATE, instance_id="other")
+                assert isinstance(next_run, RunHandle) and (await next_run.wait()).status == "completed"
+            finally:
+                release_a.set()
+                release_b.set()
+                await second.stop()
+        finally:
+            await first.stop()
+
+    asyncio.run(scenario())
+
+
+def test_run_operations_are_visible_in_cli_without_starting_assembly(tmp_path, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "200")
+    output = StringIO()
+    data = tmp_path / "unused"
+    result = asyncio.run(
+        run_cli(
+            ["--data-dir", str(data), "id", "list"],
+            plugins=(
+                adapter_plugin(),
+                model_plugin(),
+                react_plugin(),
+                tools_plugin(),
+                defaults_plugin(),
+                assembly_plugin(),
+            ),
+            output=output,
+        )
+    )
+    assert result == 0
+    for identity in (RUN_SUBMIT, RUN_ACTIVATE, RUN_CANCEL):
+        assert str(identity) in output.getvalue()
+    assert not data.exists()
