@@ -42,7 +42,7 @@ COMPONENT = Id("dev.assembly:handlers/echo")
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("provider", ["openai", "deepseek"])
+@pytest.mark.parametrize("provider", ["openai", "deepseek", "compatible", "xiaomi_mimo"])
 def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypatch, streaming, provider):
     monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
     import openai
@@ -56,6 +56,11 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
         if provider == "deepseek":
             assert request.url.host == "api.deepseek.com"
             assert value["thinking"] == {"type": "disabled"}
+        if provider in ("compatible", "xiaomi_mimo"):
+            assert request.url.host == "profile.test" and request.url.path == "/v1/chat/completions"
+            assert value["model"] == ("Qwen/custom-model" if provider == "compatible" else "mimo-v2.5-pro")
+            assert request.headers["authorization"] == "Bearer runtime-secret"
+        assert value.get("stream", False) is streaming
         requests.append(value)
         observed = any(message["role"] == "tool" for message in value["messages"])
         message = {"role": "assistant", "content": "完成" if observed else None}
@@ -102,15 +107,21 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
 
         def configure():
             ctx.set(CONFIG, {**settings(), "streaming": streaming})
+            profile: dict[str, object] = {
+                "adapter": "org.aurora.model_adapter:adapters/litellm",
+                "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
+                "credential": "MODEL_TEST_KEY",
+            }
+            if provider in ("compatible", "xiaomi_mimo"):
+                profile.update(
+                    model="Qwen/custom-model" if provider == "compatible" else "mimo-v2.5-pro",
+                    provider="openai" if provider == "compatible" else provider,
+                    base_url="https://profile.test/v1",
+                    capabilities={"streaming": True, "tool_calls": True},
+                )
             ctx.set(
                 MODEL_CONFIG,
-                {
-                    "real": {
-                        "adapter": "org.aurora.model_adapter:adapters/litellm",
-                        "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
-                        "credential": "MODEL_TEST_KEY",
-                    }
-                },
+                {"real": profile},
             )
             ctx.set(BINDINGS, {"reasoning": "real"})
 
@@ -125,6 +136,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
             assert json.loads(observed["content"])["value"] == "工具:你好"
             assert messages[-1]["content"] == "完成" and len(requests) == 2
             assert cast(dict, assembly.agent.runtime.get(ctx, execution))["status"] == "completed"
+            saved_profile = ctx.get(MODEL_CONFIG)
         finally:
             await host.stop()
         assert transports[0].is_closed
@@ -133,6 +145,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
         await restarted.start()
         try:
             assert len(requests) == 2 and other.defaults is not None
+            assert other_ctx.get(MODEL_CONFIG) == saved_profile
             assert cast(dict, other.defaults.context_state.get(other_ctx, execution))["messages"] == messages
         finally:
             await restarted.stop()

@@ -104,23 +104,37 @@ def _payload(request: ModelRequest) -> dict[str, Any]:
 
 
 class LiteLLMClient:
-    """串行调用的独立实例，支持 OpenAI 兼容接口、Anthropic 与 DeepSeek。
+    """串行调用的独立实例，支持 OpenAI 兼容接口、Anthropic、DeepSeek 及 SDK JSON 供应商。
 
-    能力来自 LiteLLM 模型目录，未声明的能力明确拒绝。每次流在 async with
+    显式能力配置优先，否则查询 LiteLLM 模型目录。每次流在 async with
     退出时关闭；宿主结束全部调用后关闭实例。SDK 重试与响应缓存均不启用。
     """
 
-    def __init__(self, sdk: Any, transport: Any, config: ModelConfig, api_key: str | None, provider: str) -> None:
+    def __init__(
+        self,
+        sdk: Any,
+        transport: Any,
+        config: ModelConfig,
+        api_key: str | None,
+        provider: str,
+        model: str,
+        base_url: str | None,
+    ) -> None:
         self._sdk = sdk
         self._transport = transport
-        self._config = config
+        self._model = model
+        self._base_url = base_url
         self._api_key = api_key
         self._provider = provider
         self._active = False
         self._closed = False
-        self.capabilities = ModelCapabilities(
-            streaming=supports_native_streaming(config.model, custom_llm_provider=None),
-            tool_calls=sdk.supports_function_calling(config.model),
+        self.capabilities = (
+            config.capabilities
+            if config.capabilities is not None
+            else ModelCapabilities(
+                streaming=supports_native_streaming(model, custom_llm_provider=provider),
+                tool_calls=sdk.supports_function_calling(model, custom_llm_provider=provider),
+            )
         )
 
     def _begin(self, request: ModelRequest, *, streaming: bool) -> None:
@@ -140,14 +154,18 @@ class LiteLLMClient:
 
     async def _request(self, request: ModelRequest, *, streaming: bool) -> Any:
         payload = _payload(request)
-        base_url = self._config.base_url
+        if "tools" in payload:
+            # 实例已校验工具能力，允许工具参数通过 SDK 的模型目录检查。
+            payload["allowed_openai_params"] = ["tools"]
+        base_url = self._base_url
         if self._provider == "deepseek":
             # 当前公共消息协议不保存 reasoning_content，工具往返使用非思考模式。
             payload["thinking"] = {"type": "disabled"}
             base_url = base_url or "https://api.deepseek.com"
         try:
             return await self._sdk.acompletion(
-                model=self._config.model,
+                model=self._model,
+                custom_llm_provider=self._provider,
                 api_base=base_url,
                 api_key=self._api_key,
                 client=self._transport,
@@ -265,22 +283,27 @@ async def create(config: ModelConfig, *, api_key: str | None = None) -> LiteLLMC
     """创建自有连接池；不修改 LiteLLM 的全局客户端、密钥或回调配置。"""
     import litellm
     from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+    from litellm.llms.openai_like.json_loader import JSONProviderRegistry
     from openai import AsyncOpenAI
 
     try:
-        _, provider, _, _ = litellm.get_llm_provider(model=config.model)
-        if provider == "openai":
-            transport = AsyncOpenAI(api_key=api_key, base_url=config.base_url, max_retries=0)
+        model, provider, _, base_url = litellm.get_llm_provider(
+            model=config.model, custom_llm_provider=config.provider, api_base=config.base_url, api_key=api_key
+        )
+        if provider == "deepseek":
+            base_url = config.base_url or "https://api.deepseek.com"
+        if provider == "openai" or JSONProviderRegistry.exists(provider):
+            transport = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0)
         elif provider in ("anthropic", "deepseek"):
             transport = AsyncHTTPHandler()
         else:
-            raise UnsupportedCapability("当前 LiteLLM 工厂仅支持 openai/、anthropic/ 与 deepseek/ 模型")
+            raise UnsupportedCapability("供应商未接入实例传输；OpenAI 兼容服务可配置 provider=openai 和 base_url")
     except ModelError:
         raise
     except Exception as error:  # noqa: BLE001 - SDK 异常在适配层统一转换，不上泄供应商对象。
         raise ModelError(f"模型客户端初始化失败：{type(error).__name__}") from None
     try:
-        return LiteLLMClient(litellm, transport, config, api_key, provider)
+        return LiteLLMClient(litellm, transport, config, api_key, provider, model, base_url)
     except BaseException as error:
         await transport.close()
         if isinstance(error, Exception) and not isinstance(error, ModelError):

@@ -7,7 +7,7 @@ from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
 from aurora_core.registry import DefinitionRegistry
 
-from .models import ModelConfig
+from .models import ModelCapabilities, ModelConfig
 from .protocols import ModelFactory
 
 ADAPTERS = Id("org.aurora.model_adapter:registries/adapters")
@@ -22,6 +22,8 @@ class ModelProfile(TypedDict):
     model: str
     base_url: NotRequired[str]
     credential: NotRequired[str]
+    provider: NotRequired[str]
+    capabilities: NotRequired[dict[str, bool]]
 
 
 def validate_config(value: object) -> None:
@@ -36,10 +38,20 @@ def validate_config(value: object) -> None:
             "model",
             "base_url",
             "credential",
+            "provider",
+            "capabilities",
         }:
-            raise ValueError("模型配置仅接受 adapter、model、base_url、credential；前两项必填")
-        if any(not isinstance(item, str) or not item for item in profile.values()):
+            raise ValueError("模型配置仅接受 adapter、model、base_url、credential、provider、capabilities；前两项必填")
+        if any(not isinstance(item, str) or not item.strip() for key, item in profile.items() if key != "capabilities"):
             raise ValueError("模型配置字段必须为非空字符串")
+        if "capabilities" in profile:
+            capabilities = profile["capabilities"]
+            if (
+                not isinstance(capabilities, dict)
+                or set(capabilities) != {"streaming", "tool_calls"}
+                or any(type(item) is not bool for item in capabilities.values())
+            ):
+                raise ValueError("capabilities 必须显式声明 streaming 和 tool_calls 布尔能力")
         Id(profile["adapter"])
 
 
@@ -76,9 +88,15 @@ def resolve_model(registry: DefinitionRegistry, profiles: object, bindings: obje
     entry = registry.get(Id(profile["adapter"]))
     if entry.kind != "adapter" or entry.register_to != ADAPTERS or not callable(entry.target):
         raise TypeError("模型配置目标必须为 adapters 注册表中的可调用工厂")
+    capabilities = profile.get("capabilities")
     return ResolvedModel(
         name,
         cast(ModelFactory, entry.target),
-        ModelConfig(profile["model"], profile.get("base_url")),
+        ModelConfig(
+            profile["model"],
+            profile.get("base_url"),
+            provider=profile.get("provider"),
+            capabilities=None if capabilities is None else ModelCapabilities(**capabilities),
+        ),
         profile.get("credential"),
     )

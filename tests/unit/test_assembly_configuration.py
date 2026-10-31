@@ -48,6 +48,12 @@ def test_invalid_bot_configuration_is_rejected(change):
         {"adapter": "bad", "model": "m"},
         {"adapter": str(ADAPTER), "model": "m", "api_key": "secret"},
         {"adapter": str(ADAPTER), "model": "m", "credential": ""},
+        {"adapter": str(ADAPTER), "model": "m", "provider": " "},
+        {"adapter": str(ADAPTER), "model": "m", "provider": 1},
+        {"adapter": str(ADAPTER), "model": "m", "capabilities": None},
+        {"adapter": str(ADAPTER), "model": "m", "capabilities": {"streaming": True}},
+        {"adapter": str(ADAPTER), "model": "m", "capabilities": {"streaming": 1, "tool_calls": False}},
+        {"adapter": str(ADAPTER), "model": "m", "capabilities": {"streaming": True, "tool_calls": True, "extra": True}},
     ],
 )
 def test_model_config_validation_is_atomic(profile):
@@ -74,12 +80,21 @@ def test_model_binding_resolves_selected_profile_without_caching_clients():
 
     registry.register(RegistryEntry(ADAPTER, "adapter", factory, "test", register_to=ADAPTERS))
     profiles = {
-        "first": {"adapter": str(ADAPTER), "model": "one", "credential": "KEY"},
+        "first": {
+            "adapter": str(ADAPTER),
+            "model": "one",
+            "credential": "KEY",
+            "provider": "openai",
+            "capabilities": {"streaming": True, "tool_calls": True},
+        },
         "second": {"adapter": str(ADAPTER), "model": "two", "base_url": "http://localhost"},
     }
     first = resolve_model(registry, profiles, {"reasoning": "first"}, "reasoning")
     second = resolve_model(registry, profiles, {"reasoning": "second"}, "reasoning")
     assert calls == [] and first.credential == "KEY" and second.credential is None
+    assert first.config.provider == "openai" and second.config.provider is None
+    assert first.config.capabilities is not None and first.config.capabilities.tool_calls
+    assert second.config.capabilities is None
 
     async def scenario():
         clients = [await first.factory(first.config, api_key="runtime"), await second.factory(second.config)]

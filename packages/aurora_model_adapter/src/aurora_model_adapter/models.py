@@ -81,3 +81,15 @@ class ModelConfig:
 
     model: str
     base_url: str | None = None
+    provider: str | None = None
+    capabilities: ModelCapabilities | None = None
+
+    def __post_init__(self) -> None:
+        if self.provider is not None and (not isinstance(self.provider, str) or not self.provider.strip()):
+            raise ValueError("provider 必须为非空字符串")
+        if self.capabilities is not None and (
+            not isinstance(self.capabilities, ModelCapabilities)
+            or type(self.capabilities.streaming) is not bool
+            or type(self.capabilities.tool_calls) is not bool
+        ):
+            raise ValueError("capabilities 必须显式声明 streaming 和 tool_calls 布尔能力")

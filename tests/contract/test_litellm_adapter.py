@@ -105,6 +105,136 @@ def mock_completion(monkeypatch, sdk, value):
     return calls
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("provider,model", [("openai", "Qwen/private-deployment"), ("xiaomi_mimo", "mimo-v2.5-pro")])
+def test_explicit_provider_preserves_model_and_supports_custom_capabilities(sdk, streaming, provider, model):
+    sent = []
+    tool: ToolCall = {"id": "call_1", "name": "echo", "arguments": {"text": "验证"}}
+
+    def handle(request):
+        value = json.loads(request.content)
+        sent.append(value)
+        assert request.url.host == "profile.test" and request.url.path == "/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer isolated-key"
+        assert value["model"] == model and value["tools"][0]["function"]["name"] == "echo"
+        call = {"id": "call_1", "type": "function", "function": {"name": "echo", "arguments": '{"text":"验证"}'}}
+        if not streaming:
+            return httpx.Response(200, json=response(content="", calls=[call], reason="tool_calls"))
+        values = [
+            delta(calls=[{"index": 0, **call}]),
+            delta(reason="tool_calls"),
+        ]
+        body = (
+            "".join(
+                "data: "
+                + json.dumps({"id": "r", "created": 1, "object": "chat.completion.chunk", "model": model, **item})
+                + "\n\n"
+                for item in values
+            )
+            + "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+
+    async def scenario():
+        client = cast(
+            "LiteLLMClient",
+            await create_litellm(
+                ModelConfig(
+                    model, "https://profile.test/v1", provider=provider, capabilities=ModelCapabilities(True, True)
+                ),
+                api_key="isolated-key",
+            ),
+        )
+        await client._transport._client.aclose()
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        client._transport._client = http
+        request = {
+            "messages": [{"role": "user", "content": "调用工具"}],
+            "tools": [{"name": "echo", "description": "回显", "parameters": {"type": "object"}}],
+        }
+        try:
+            if streaming:
+                async with client.stream(cast(ModelRequest, request)) as chunks:
+                    result = await collect_response(chunks)
+            else:
+                result = await client.complete(cast(ModelRequest, request))
+            assert result["tool_calls"] == [tool] and result["finish_reason"] == "tool_calls"
+            assert len(sent) == 1
+        finally:
+            await client.aclose()
+        assert http.is_closed
+
+    asyncio.run(scenario())
+
+
+def test_profile_credentials_addresses_and_capabilities_are_isolated(sdk):
+    async def scenario():
+        clients = []
+        transports = []
+        sent = []
+        try:
+            for label, enabled in (("one", True), ("two", False)):
+                client = cast(
+                    "LiteLLMClient",
+                    await create_litellm(
+                        ModelConfig(
+                            "team/shared-name",
+                            f"https://{label}.test/v1",
+                            provider="openai",
+                            capabilities=ModelCapabilities(enabled, enabled),
+                        ),
+                        api_key=f"key-{label}",
+                    ),
+                )
+                clients.append(client)
+                await client._transport._client.aclose()
+
+                def handle(request):
+                    sent.append(
+                        (request.url.host, request.headers["authorization"], json.loads(request.content)["model"])
+                    )
+                    return httpx.Response(200, json=response())
+
+                http = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+                transports.append(http)
+                client._transport._client = http
+            assert clients[0].capabilities == ModelCapabilities(True, True)
+            assert clients[1].capabilities == ModelCapabilities(False, False)
+            assert not sdk.supports_function_calling("team/shared-name", custom_llm_provider="openai")
+            await clients[0].complete(request())
+            await clients[0].aclose()
+            assert transports[0].is_closed and not transports[1].is_closed
+            with pytest.raises(UnsupportedCapability):
+                async with clients[1].stream(request()):
+                    pytest.fail("显式禁用流式应拒绝")
+            await clients[1].complete(request())
+            assert sent == [
+                ("one.test", "Bearer key-one", "team/shared-name"),
+                ("two.test", "Bearer key-two", "team/shared-name"),
+            ]
+        finally:
+            for client in clients:
+                await client.aclose()
+        assert all(http.is_closed for http in transports)
+
+    asyncio.run(scenario())
+
+
+def test_explicit_provider_retains_catalog_defaults_and_unknown_capabilities_stay_disabled(sdk):
+    async def scenario():
+        for model, capabilities in (
+            ("gpt-4o-mini", ModelCapabilities(True, True)),
+            ("team/unknown", ModelCapabilities(False, False)),
+        ):
+            client = await create_litellm(ModelConfig(model, provider="openai"), api_key="test-only")
+            try:
+                assert client.capabilities == capabilities
+            finally:
+                await client.aclose()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("provider", ["openai", "deepseek"])
 def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk, provider):
     registry = bootstrap()
