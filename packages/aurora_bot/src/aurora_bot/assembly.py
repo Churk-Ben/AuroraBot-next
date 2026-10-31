@@ -27,6 +27,7 @@ from .assembly_config import (
     validate_config,
     validate_json,
 )
+from .cli import command_entries
 from .control import ExecutionRequest, InstanceStateBinding, StateBinding
 from .model import ModelCall
 from .operations import RUN_CONTROL, RunOperations
@@ -330,6 +331,7 @@ def plugin() -> Plugin:
     return Plugin(
         "aurora_bot.assembly",
         (
+            *command_entries(),
             RegistryEntry(
                 ASSEMBLY, "assembly", assemble, "aurora_bot", register_to=Id("org.aurora.core:registries/resources")
             ),

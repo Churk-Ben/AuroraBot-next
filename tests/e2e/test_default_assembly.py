@@ -948,3 +948,274 @@ def test_run_operations_are_visible_in_cli_without_starting_assembly(tmp_path, m
     for identity in (RUN_SUBMIT, RUN_ACTIVATE, RUN_CANCEL):
         assert str(identity) in output.getvalue()
     assert not data.exists()
+
+
+async def cli_setup(root, *, behavior="normal"):
+    """为真实 CLI 宿主准备可恢复配置与离线工厂。"""
+    host, _, ctx, registry, clients, _, events, entered = setup(root, behavior=behavior)
+    await host.start(configure=lambda: seed(ctx))
+    await host.stop()
+    clients.clear()
+    events.clear()
+    plugins = (
+        adapter_plugin(),
+        model_plugin(),
+        react_plugin(),
+        tools_plugin(),
+        defaults_plugin(),
+        assembly_plugin(),
+        Plugin("cli_fixture", tuple(entry for entry in registry.entries() if entry.provider == "test")),
+    )
+    argv = ["--data-dir", str(root), "--assembly", str(ASSEMBLY), "--namespace", "org.aurora.bot"]
+    return plugins, argv, clients, events, entered
+
+
+def test_bot_cli_submit_tool_loop_and_activate_restore(tmp_path):
+    async def scenario():
+        plugins, argv, clients, events, _ = await cli_setup(tmp_path)
+        output = StringIO()
+        assert (
+            await run_cli([*argv, "run", "submit", "你好", "--instance-id", "main"], plugins=plugins, output=output)
+            == 0
+        )
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        receipt, result = records[0], records[-1]
+        assert receipt["event"] == "accepted" and receipt["sequence"] == 1 and receipt["guidance_id"]
+        assert result["event"] == "result" and result["status"] == "completed"
+        assert {record["run_id"] for record in records} == {receipt["run_id"]}
+        assert {record["instance_id"] for record in records} == {"main"}
+        model = [record for record in records if record["event"] == "model"]
+        assert "".join(record["delta"] for record in model) == "first"
+        assert len({record["execution_id"] for record in model}) == 2
+        assert any(record["tool_calls"] for record in model)
+        assert any(message["role"] == "tool" for message in clients[0].requests[-1]["messages"])
+        assert clients[0].closed and events[-2:] == ["tool.closed", "model.closed"]
+        output = StringIO()
+        assert await run_cli([*argv, "run", "activate", "--instance-id", "main"], plugins=plugins, output=output) == 0
+        restored = [json.loads(line) for line in output.getvalue().splitlines()]
+        assert restored[0]["run_id"] != receipt["run_id"] and "sequence" not in restored[0]
+        assert restored[-1]["status"] == "completed" and clients[1].closed
+        assert any(message["role"] == "tool" for message in clients[1].requests[0]["messages"])
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_bot_cli_streams_before_completion_and_reports_failure(tmp_path, monkeypatch, failure):
+    from aurora_model_adapter import ModelError
+
+    async def scenario():
+        plugins, argv, clients, _, _ = await cli_setup(tmp_path)
+        emitted, release = asyncio.Event(), asyncio.Event()
+
+        class Output(StringIO):
+            def write(self, text):
+                count = super().write(text)
+                if text.startswith("{") and json.loads(text).get("delta") == "前":
+                    emitted.set()
+                return count
+
+        async def chunks(self, request):
+            yield {"type": "text", "text": "前"}
+            await release.wait()
+            if failure:
+                raise ModelError("测试失败")
+            yield {"type": "text", "text": "后"}
+            yield {"type": "finish", "reason": "stop"}
+
+        monkeypatch.setattr(FakeModel, "_chunks", chunks)
+        output = Output()
+        task = asyncio.create_task(
+            run_cli([*argv, "run", "submit", "测试", "--instance-id", "main"], plugins=plugins, output=output)
+        )
+        try:
+            await asyncio.wait_for(emitted.wait(), timeout=5)
+            assert not task.done() and clients[0].active_streams == 1
+            release.set()
+            assert await task == (1 if failure else 0)
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            assert "".join(record["delta"] for record in records if record["event"] == "model") == (
+                "前" if failure else "前后"
+            )
+            assert records[-1]["status"] == ("failed" if failure else "completed")
+            assert records[-1]["error"] == ("ModelError" if failure else None)
+            assert clients[0].closed and clients[0].active_streams == 0
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_bot_cli_cancel_command_targets_current_host_run(tmp_path):
+    from aurora_cli.declarations import command_plugin, read_command
+    from aurora_cli.execution import execute_command
+
+    async def scenario():
+        plugins, argv, clients, events, entered = await cli_setup(tmp_path, behavior="wait")
+
+        async def execute(context):
+            submit = read_command(context.registry.get(Id("org.aurora.bot:commands/run/submit")))
+            cancel = read_command(context.registry.get(Id("org.aurora.bot:commands/run/cancel")))
+            task = asyncio.create_task(execute_command(submit, context, {"payload": "等待", "instance_id": "main"}))
+            try:
+                await asyncio.wait_for(entered.wait(), timeout=5)
+                receipt = json.loads(context.output.getvalue().splitlines()[0])
+                await execute_command(cancel, context, {"run_id": "unknown", "instance_id": "main"})
+                assert not task.done()
+                await execute_command(cancel, context, {"run_id": receipt["run_id"], "instance_id": "main"})
+                assert await task == 130
+            finally:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        extension = command_plugin(
+            "cli_cancel", {"cancel_test": {"help": "同宿主取消", "runtime": True, "executor": execute}}
+        )
+        output = StringIO()
+        assert (
+            await run_cli([*argv, "org.aurora.cli:commands/cancel_test"], plugins=(*plugins, extension), output=output)
+            == 0
+        )
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        cancelled = [record["cancelled"] for record in records if record["event"] == "cancel"]
+        assert cancelled == [False, True]
+        assert [record["status"] for record in records if record["event"] == "result"] == ["cancelled"]
+        assert events[-3:] == ["tool.cancelled", "tool.closed", "model.closed"] and clients[0].closed
+
+    asyncio.run(scenario())
+
+
+def test_bot_cli_interrupt_cancels_tool_and_persists_terminal(tmp_path):
+    async def scenario():
+        plugins, argv, clients, events, entered = await cli_setup(tmp_path, behavior="wait")
+        output = StringIO()
+        task = asyncio.create_task(
+            run_cli([*argv, "run", "submit", "等待", "--instance-id", "main"], plugins=plugins, output=output)
+        )
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            assert records[-1]["event"] == "result" and records[-1]["status"] == "cancelled"
+            assert events[-3:] == ["tool.cancelled", "tool.closed", "model.closed"]
+            assert clients[0].closed
+            restored, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
+            await restored.start()
+            try:
+                assert assembly.agent is not None
+                state = cast(dict, ctx.get(RUN, location={"instance_id": "main"}))
+                assert state["status"] == "cancelled" and state["run_id"] == records[-1]["run_id"]
+            finally:
+                await restored.stop()
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_bot_cli_output_failure_releases_subscription_and_run(tmp_path):
+    from aurora_bot.cli import submit
+    from aurora_cli.declarations import CommandContext
+    from aurora_core import entry_from
+
+    async def scenario():
+        host, assembly, ctx, registry, clients, _, _, _ = setup(tmp_path)
+        subscriptions = []
+        subscribe = ctx.subscribe
+
+        def tracked(callback, **filters):
+            handle = subscribe(callback, **filters)
+            subscriptions.append(handle)
+            return handle
+
+        registry.register(entry_from(ctx.subscribe, provider="test"))
+        registry.replace(RegistryEntry(Id("org.aurora.core:operations/ctx/subscribe"), "operation", tracked, "test"))
+        registry.register(entry_from(ctx.unsubscribe, provider="test"))
+
+        class BrokenOutput(StringIO):
+            def write(self, text):
+                raise BrokenPipeError("输出已关闭")
+
+        await host.start(configure=lambda: seed(ctx))
+        try:
+            with pytest.raises(BrokenPipeError):
+                await submit(CommandContext(tmp_path, BrokenOutput(), registry, ()), "测试", instance_id="main")
+            assert assembly.runtime.current is None
+            assert len(subscriptions) == 1 and not ctx.unsubscribe(subscriptions[0])
+            assert clients[0].active_streams == 0
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_bot_cli_sigint_returns_130_after_stream_cleanup(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    launcher = """
+import asyncio
+import importlib
+import json
+import runpy
+import signal
+import sys
+from pathlib import Path
+from aurora_model_adapter.fake import FakeModel
+
+source = runpy.run_path(sys.argv[1])
+entry = importlib.import_module("aurora_cli.main")
+
+class Output:
+    def write(self, text):
+        sys.stdout.write(text)
+        if text.startswith("{") and json.loads(text).get("delta") == "部分输出":
+            asyncio.get_running_loop().call_soon(signal.raise_signal, signal.SIGINT)
+        return len(text)
+    def flush(self):
+        sys.stdout.flush()
+
+async def chunks(self, request):
+    yield {"type": "text", "text": "部分输出"}
+    await asyncio.Event().wait()
+
+async def run():
+    plugins, argv, clients, events, _ = await source["cli_setup"](Path(sys.argv[2]))
+    FakeModel._chunks = chunks
+    try:
+        return await source["run_cli"](
+            [*argv, "run", "submit", "测试中断", "--instance-id", "main"], plugins=plugins, output=Output()
+        )
+    finally:
+        assert clients[0].active_streams == 0 and clients[0].closed
+        assert events[-2:] == ["tool.closed", "model.closed"]
+
+entry.run_cli = run
+raise SystemExit(entry.main())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", launcher, str(Path(__file__).resolve()), str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=15,
+    )
+    assert result.returncode == 130, result.stderr
+    records = [json.loads(line) for line in result.stdout.splitlines()]
+    assert records[-1]["status"] == "cancelled" and records[-1]["event"] == "result"
+    assert any(record.get("delta") == "部分输出" for record in records)
+    snapshot = json.loads((tmp_path / "framework" / "ctx.json").read_text(encoding="utf-8"))
+    run = next(entry["value"] for entry in snapshot["entries"] if entry["id"] == str(RUN))
+    assert run["status"] == "cancelled" and run["run_id"] == records[-1]["run_id"]
