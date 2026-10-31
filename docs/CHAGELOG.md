@@ -2,6 +2,33 @@
 
 ## 2026-10-31
 
+### M2.8：最小 bot 整体验收通过
+
+验收范围为默认装配、模型协议与适配、ReAct 工具循环、公共运行操作、CLI 观察及关闭恢复。此范围的 M2.8 完成；运行身份沿用 instance_id/run_id，界面消息关联、完整 world/cadence 插件和 TUI/Panel 属于后续范围。
+
+| 验收项 | 证据 | 结果 |
+| --- | --- | --- |
+| 模型协议与适配 | `tests/contract/test_model_protocol.py`、`test_litellm_adapter.py` | 流式/非流式、完整工具参数、能力拒绝、供应商异常、超时和流关闭通过 |
+| 默认装配与运行身份 | `tests/e2e/test_default_assembly.py` | 配置恢复、实例路由、序号拒绝、终态、取消竞态、停止顺序及遗留 running 标记处理通过 |
+| ReAct 与工具边界 | `tests/unit/test_react_agent.py`、`test_react_defaults.py`、`test_bot_tools.py` | 六阶段循环、迭代限制、参数拒绝、工具钩子、失败回填及取消后接纳通过 |
+| CLI 完整链路 | `tests/e2e/test_default_assembly.py` | 提交→工具→观察→再次推理→唯一终态通过；工具失败/超时作为观察保存，bot 可完成；重启保留观察且不重做动作 |
+| 中断与持久化 | CLI SIGINT 子进程、工具取消及重启用例 | Windows 退出码 130、流和工具清理、取消终态落盘通过；显式重启激活接纳取消观察且工具累计执行仅 1 次 |
+| 可选宿主缺席 | `tests/e2e/test_m2_acceptance.py` | 独立进程禁止导入 CLI/API，默认 bot 仍完成离线工具往返与快照保存 |
+| 真实 DeepSeek 工具往返 | `scripts/accept_m2.py`，`build/m2-acceptance-20261031/report.json` | 流式和非流式各完成 1 次本地工具调用及 2 轮推理，均为 completed；事件、回执和快照终态一致 |
+
+- 完整 `uv run --locked aurora check` 通过：433 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。验收脚本及改动测试的 basedpyright 为 0 错误、0 警告；SDK 保留 1 项 Pydantic ReadOnly 提示，无失败。本次改动仅涉及验收脚本、测试与记录。
+- 离线新增工具失败、工具超时和可选宿主缺席用例，并加强 CLI 工具取消后的重启验证。工具失败不等同于 bot 失败：工具错误作为结构化观察交给下一轮推理，运行可以 completed；模型失败仍以 failed 和退出码 1 收束。
+- 真实模型为 `deepseek/deepseek-flash`。流式 run_id 为 `aa82a4a3315d41c4a2c2b06cc4588082`，收到 20 个非空文本增量；非流式 run_id 为 `5414c66da5774761be0360a4e7f929c6`，收到 1 个非空文本增量。工具使用随机标记核对实际执行及结果回填；重启后的消息、bot 配置和模型角色绑定一致。每种模式的 `events.jsonl`、快照和日志位于报告目录下的 `stream`/`complete` 子目录，均检查不含运行期密钥。
+- 真实请求仅覆盖正常工具往返；供应商异常、超时、取消和故障恢复由确定性离线测试覆盖，不以真实正常请求代替故障验收。报告与快照保存在 Git 忽略的 build 目录，验收脚本纳入版本管理。
+
+重复真实验收需选择尚不存在的数据目录；此命令会调用所选供应商，凭证由 uv 从根目录 `.env` 加载：
+
+```powershell
+uv run --locked --env-file .env python scripts/accept_m2.py --data-dir build/m2-acceptance-rerun
+```
+
+脚本默认验证 DeepSeek 的流式与非流式完整链路，可显式指定 `--model`、`--credential-env`、`--base-url` 和每种模式的 `--timeout`；目录已存在时拒绝执行，避免覆盖验收数据。
+
 ### M2.7：CLI 引导提交、流式观察与同宿主取消
 
 - `aurora_bot.assembly` 声明 `org.aurora.bot:commands/run/submit`、`run/activate`、`run/cancel` 三个命令，由 CLI 接收。命令经既有公共 operation 调用运行管理器，要求显式 `--instance-id`；bot 仅使用 core 与结构接口，不导入 CLI 实现。CLI 缺席时命令声明保持未连接，进程内运行照常可用。
