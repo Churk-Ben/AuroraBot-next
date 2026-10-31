@@ -2,6 +2,14 @@
 
 ## 2026-10-31
 
+### DeepSeek 真实模型验收
+
+- LiteLLM 工厂支持 `deepseek/` 模型，通过实例自有 AsyncHTTPHandler 管理连接，默认端点为 `https://api.deepseek.com`，允许显式配置 base_url。请求指定 `thinking={"type":"disabled"}`；当前公共消息协议不保存 reasoning_content，DeepSeek 工具往返使用[官方非思考模式](https://api-docs.deepseek.com/guides/tool_calls/)。
+- 项目根 `.env` 的 `DEEPSEEK_API_KEY` 仅在运行期读取，文件由 Git 忽略。可重复执行的流式冒烟命令：`uv run --locked --env-file .env python examples/litellm_model/main.py --model deepseek/deepseek-flash --credential-env DEEPSEEK_API_KEY`；示例本身不自动搜索或加载 dotenv，配置文件由启动方显式指定。
+- DeepSeek 官方模型列表接口鉴权成功。真实 `deepseek-flash` 流式请求输出“Aurora 连接成功。”；正式 DefaultAssembly 的流式、非流式激活分别完成一次本地 echo 工具调用、观察回填及后续推理，均以 completed 收束并输出“验收成功”。两种装配关闭后重新启动，消息与引导消费位置恢复一致，快照不含运行期密钥。
+- 真实验收快照位于忽略目录 `build/deepseek-smoke-5ff05490/{stream,complete}/framework/ctx.json`。本次共执行一次简短文本请求和两次工具往返；真实模型取消与超时未重复调用，相关路径由既有离线测试覆盖。M2.3 的真实模型连接与工具往返已有验收证据，M2 的后续运行入口与 CLI 整体验收继续推进。
+- 完整 `uv run --locked aurora check` 通过：405 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。SDK 的 Pydantic 类型加载产生 1 项 ReadOnly 限定符提示，测试无失败。
+
 ### M2.3：LiteLLM 适配与离线验收
 
 - 模型插件登记 `org.aurora.model_adapter:adapters/litellm` 异步工厂，默认装配通过既有模型配置、角色绑定与运行期凭证解析器创建独立实例。插件发现不加载 SDK；供应商 SDK 类型保留在适配模块内。依赖固定在 LiteLLM 1.106 系列，锁文件选择 1.106.6；启用官方 mcp 依赖组以满足该版本工具请求转换的导入依赖，不登记或运行 MCP 插件。

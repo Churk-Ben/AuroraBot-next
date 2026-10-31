@@ -103,17 +103,18 @@ def _payload(request: ModelRequest) -> dict[str, Any]:
 
 
 class LiteLLMClient:
-    """串行调用的独立实例，支持 OpenAI 兼容接口和 Anthropic。
+    """串行调用的独立实例，支持 OpenAI 兼容接口、Anthropic 与 DeepSeek。
 
     能力来自 LiteLLM 模型目录，未声明的能力明确拒绝。每次流在 async with
     退出时关闭；宿主结束全部调用后关闭实例。SDK 重试与响应缓存均不启用。
     """
 
-    def __init__(self, sdk: Any, transport: Any, config: ModelConfig, api_key: str | None) -> None:
+    def __init__(self, sdk: Any, transport: Any, config: ModelConfig, api_key: str | None, provider: str) -> None:
         self._sdk = sdk
         self._transport = transport
         self._config = config
         self._api_key = api_key
+        self._provider = provider
         self._active = False
         self._closed = False
         self.capabilities = ModelCapabilities(
@@ -138,10 +139,15 @@ class LiteLLMClient:
 
     async def _request(self, request: ModelRequest, *, streaming: bool) -> Any:
         payload = _payload(request)
+        base_url = self._config.base_url
+        if self._provider == "deepseek":
+            # 当前公共消息协议不保存 reasoning_content，工具往返使用非思考模式。
+            payload["thinking"] = {"type": "disabled"}
+            base_url = base_url or "https://api.deepseek.com"
         try:
             return await self._sdk.acompletion(
                 model=self._config.model,
-                api_base=self._config.base_url,
+                api_base=base_url,
                 api_key=self._api_key,
                 client=self._transport,
                 stream=streaming,
@@ -264,16 +270,16 @@ async def create(config: ModelConfig, *, api_key: str | None = None) -> LiteLLMC
         _, provider, _, _ = litellm.get_llm_provider(model=config.model)
         if provider == "openai":
             transport = AsyncOpenAI(api_key=api_key, base_url=config.base_url, max_retries=0)
-        elif provider == "anthropic":
+        elif provider in ("anthropic", "deepseek"):
             transport = AsyncHTTPHandler()
         else:
-            raise UnsupportedCapability("当前 LiteLLM 工厂仅支持 openai/ 与 anthropic/ 模型")
+            raise UnsupportedCapability("当前 LiteLLM 工厂仅支持 openai/、anthropic/ 与 deepseek/ 模型")
     except ModelError:
         raise
     except Exception as error:  # noqa: BLE001 - SDK 异常在适配层统一转换，不上泄供应商对象。
         raise ModelError(f"模型客户端初始化失败：{type(error).__name__}") from None
     try:
-        return LiteLLMClient(litellm, transport, config, api_key)
+        return LiteLLMClient(litellm, transport, config, api_key, provider)
     except BaseException as error:
         await transport.close()
         if isinstance(error, Exception) and not isinstance(error, ModelError):

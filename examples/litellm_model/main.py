@@ -33,7 +33,7 @@ async def run(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, help="LiteLLM 模型名称，使用 openai/ 或 anthropic/ 前缀")
+    parser.add_argument("--model", required=True, help="LiteLLM 模型名称，使用 openai/、anthropic/ 或 deepseek/ 前缀")
     parser.add_argument("--credential-env", required=True, help="保存运行期密钥的环境变量名称")
     parser.add_argument("--base-url", help="可选供应商或兼容网关地址")
     parser.add_argument("--text", default="请用一句话回复你好。", help="本次发送给模型的文本")

@@ -105,12 +105,18 @@ def mock_completion(monkeypatch, sdk, value):
     return calls
 
 
-def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk):
+@pytest.mark.parametrize("provider", ["openai", "deepseek"])
+def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk, provider):
     registry = bootstrap()
     register_plugins(registry, (plugin(),))
     resolved = resolve_model(
         registry,
-        {"main": {"adapter": "org.aurora.model_adapter:adapters/litellm", "model": "openai/gpt-4o-mini"}},
+        {
+            "main": {
+                "adapter": "org.aurora.model_adapter:adapters/litellm",
+                "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
+            }
+        },
         {"reasoning": "main"},
         "reasoning",
     )
@@ -119,13 +125,17 @@ def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk):
 
     def handle(value):
         sent.append(json.loads(value.content))
+        if provider == "deepseek":
+            assert value.url.host == "api.deepseek.com"
+            assert sent[-1]["thinking"] == {"type": "disabled"}
         return httpx.Response(200, json=response())
 
     async def scenario():
         client = cast("LiteLLMClient", await resolved.factory(resolved.config, api_key="test-only"))
         # 直接替换测试实例的传输，真实 LiteLLM 与 OpenAI SDK 转换仍参与执行。
         await client._transport._client.aclose()
-        client._transport._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        client._transport._client = http
         value = request()
         value["tools"] = [{"name": "add", "description": "求和", "parameters": {"type": "object"}}]
         value["messages"] += [
@@ -143,15 +153,15 @@ def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk):
             assert outgoing["id"] == "call_1" and json.loads(outgoing["function"]["arguments"]) == {"a": 1}
         finally:
             await client.aclose()
-        assert client._transport.is_closed()
+        assert http.is_closed
 
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "deepseek"])
 def test_real_sdk_streaming_and_owned_transport_close(sdk, provider):
-    if provider == "openai":
-        model = "openai/gpt-4o-mini"
+    if provider != "anthropic":
+        model = "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash"
         values = [
             {"id": "r", "object": "chat.completion.chunk", "created": 1, "model": "gpt-4o-mini", **item}
             for item in [delta(content="一"), delta(content="二"), delta(reason="stop")]
@@ -183,6 +193,8 @@ def test_real_sdk_streaming_and_owned_transport_close(sdk, provider):
 
     def handle(value):
         assert value.url.host == "model.test"
+        if provider == "deepseek":
+            assert json.loads(value.content)["thinking"] == {"type": "disabled"}
         return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
 
     async def scenario():

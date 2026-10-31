@@ -38,15 +38,20 @@ COMPONENT = Id("dev.assembly:handlers/echo")
 
 
 @pytest.mark.parametrize("streaming", [False, True])
-def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypatch, streaming):
+@pytest.mark.parametrize("provider", ["openai", "deepseek"])
+def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypatch, streaming, provider):
     monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
     import openai
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
     original = openai.AsyncOpenAI.__init__
     transports, requests = [], []
 
     def handle(request):
         value = json.loads(request.content)
+        if provider == "deepseek":
+            assert request.url.host == "api.deepseek.com"
+            assert value["thinking"] == {"type": "disabled"}
         requests.append(value)
         observed = any(message["role"] == "tool" for message in value["messages"])
         message = {"role": "assistant", "content": "完成" if observed else None}
@@ -81,6 +86,13 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
 
     monkeypatch.setattr(openai.AsyncOpenAI, "__init__", create_transport)
 
+    def create_http(self, **kwargs):
+        transport = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        transports.append(transport)
+        return transport
+
+    monkeypatch.setattr(AsyncHTTPHandler, "create_client", create_http)
+
     async def scenario():
         host, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
 
@@ -91,7 +103,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
                 {
                     "real": {
                         "adapter": "org.aurora.model_adapter:adapters/litellm",
-                        "model": "openai/gpt-4o-mini",
+                        "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
                         "credential": "MODEL_TEST_KEY",
                     }
                 },
