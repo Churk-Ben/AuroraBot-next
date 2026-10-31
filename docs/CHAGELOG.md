@@ -2,6 +2,35 @@
 
 ## 2026-10-31
 
+### profile 独立连接与 LiteLLM 模型选择
+
+- 每个模型 profile 独立保存 adapter、model、base_url 和 credential，并可声明 provider 与 capabilities；角色绑定继续引用 profile 名称。凭证仍为环境变量引用，客户端及运行期密钥不写入 ctx。供应商协议和地址直接在 profile 中配置，不增加共享 provider 配置表。
+- provider 可显式选择 SDK 路由，如 `openai`、`anthropic`、`deepseek`、`xiaomi_mimo`；省略时按 SDK 模型命名规则推断，既有带前缀的配置可继续使用。显式指定 provider 后可填写平台模型名，如 `Qwen/private-deployment`，模型名称中的组织路径保留。OpenAI 兼容服务使用 `provider: "openai"` 与自己的 base_url；siliconflow 可作为 profile 名称，无需登记同名 SDK provider。
+- capabilities 可显式设置 `{"streaming": true, "tool_calls": true}`，必须同时提供两个布尔值。显式声明优先，省略时查询 SDK 模型目录，未知能力不会自动开启。能力值须按实际模型填写；启用工具能力时，工具参数按请求通过 SDK 参数检查，不全局注册模型、不静默丢弃工具。
+- LiteLLM 工厂支持 OpenAI 兼容路由、Anthropic、DeepSeek，以及锁定 SDK 自带 JSON 定义的兼容供应商（包含 MiMo）。客户端、连接池、地址、密钥和能力按实例隔离；不修改 SDK 全局 provider/model 映射。其他专用 SDK 路由未统一接入实例传输时明确拒绝，兼容 Chat Completions 的服务可选择 openai 路由。
+- 完整 `uv run --locked aurora check` 通过：449 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区检查；改动代码及测试的 basedpyright 为 0 错误、0 警告。新增验证覆盖配置原子拒绝、带组织路径的模型名、手动能力、MiMo、自有连接池、两个 profile 的地址/密钥/关闭隔离，以及默认装配的工具循环和配置恢复。新增兼容服务和 MiMo 路由通过真实 SDK 与模拟 HTTP 验收，未调用这些供应商的真实接口。
+- DeepSeek 流式与非流式真实回归均完成一次本地工具调用、两轮推理和重启恢复；报告位于 `build/profile-provider-regression-20261031/report.json`，快照、日志及事件记录均检查不含运行期密钥。SDK 保留 1 项 Pydantic ReadOnly 提示。
+
+硅基流动的 profile 示例，写入 `org.aurora.model_adapter:state/config`。地址参见[官方 OpenAI 兼容接入说明](https://docs.siliconflow.cn/docs/userguide/quickstart)；将 model 占位符替换为平台上的完整模型 ID，并按该模型能力填写两个布尔值：
+
+```json
+{
+  "siliconflow": {
+    "adapter": "org.aurora.model_adapter:adapters/litellm",
+    "provider": "openai",
+    "model": "<平台上的完整模型 ID>",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "credential": "SILICONFLOW_API_KEY",
+    "capabilities": {
+      "streaming": true,
+      "tool_calls": true
+    }
+  }
+}
+```
+
+在 `org.aurora.model_adapter:state/bindings` 中以 `{"reasoning":"siliconflow"}` 绑定角色；默认装配在下次启动读取配置。ctx/set 替换整个配置映射，已有其他 profile 时须一起保留。
+
 ### M2.8：最小 bot 整体验收通过
 
 验收范围为默认装配、模型协议与适配、ReAct 工具循环、公共运行操作、CLI 观察及关闭恢复。此范围的 M2.8 完成；运行身份沿用 instance_id/run_id，界面消息关联、完整 world/cadence 插件和 TUI/Panel 属于后续范围。
