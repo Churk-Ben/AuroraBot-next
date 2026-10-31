@@ -2,6 +2,34 @@
 
 ## 2026-10-31
 
+### M2.7：CLI 引导提交、流式观察与同宿主取消
+
+- `aurora_bot.assembly` 声明 `org.aurora.bot:commands/run/submit`、`run/activate`、`run/cancel` 三个命令，由 CLI 接收。命令经既有公共 operation 调用运行管理器，要求显式 `--instance-id`；bot 仅使用 core 与结构接口，不导入 CLI 实现。CLI 缺席时命令声明保持未连接，进程内运行照常可用。
+- submit 接收文本引导和可选 `--sequence`，activate 接纳已有输入。两者逐行输出 JSON：accepted 包含 run_id 和提交回执；run 展示阶段；model 展示内部推理的文本增量、模型执行身份及工具请求；result 在运行清理完成后报告终态。模型增量按 execution_id 区分一次激活内的多次推理，内部推理内容不作为对外消息投递。
+- 正常完成、失败、取消的退出码分别为 0、1、130。Ctrl+C 按本次 run_id 发起取消，等待流或工具清理，输出终态并交给宿主关闭资源、保存状态。输出失败也会释放订阅并取消未完成运行。cancel 命令仅操作当前宿主中的匹配运行，返回 cancelled 布尔值；独立新进程不能取消另一宿主的运行，`--connect` 仍只支持 ctx 命令。
+- 完整 `uv run --locked aurora check` 通过：430 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。命令模块、装配和相关测试的 basedpyright 为 0 错误、0 警告。覆盖工具往返、增量提前交付、模型失败、按 ID 取消、工具中断、输出失败清理和配置恢复；独立 Windows 进程验证 SIGINT、退出码 130 与取消终态落盘。SDK 保留 1 项 Pydantic ReadOnly 提示。
+- 通过真实 CLI 参数解析、宿主和默认装配调用 `deepseek/deepseek-flash`，收到 4 个非空文本增量，合并为“CLI验收成功”，终态 completed。验收数据位于 `build/cli-smoke-de69eede`；快照与日志均确认不包含运行期密钥。本次真实请求仅验收文本流，工具与取消路径由离线测试覆盖。M2.8 的整体验收继续推进。
+
+PowerShell 下可使用独立数据目录准备最小 DeepSeek 配置；已有配置可直接执行最后一条命令：
+
+```powershell
+$botPlugins = @(
+  '--plugin', 'aurora_model_adapter',
+  '--plugin', 'aurora_bot.model',
+  '--plugin', 'aurora_bot.react',
+  '--plugin', 'aurora_bot.tools',
+  '--plugin', 'aurora_bot.react_defaults',
+  '--plugin', 'aurora_bot.assembly'
+)
+$botData = @('--data-dir', 'build/cli-bot')
+uv run --locked aurora @botPlugins @botData ctx set org.aurora.bot:state/config '{"instance_id":"main","model_role":"reasoning","tools":[]}'
+uv run --locked aurora @botPlugins @botData ctx set org.aurora.model_adapter:state/config '{"primary":{"adapter":"org.aurora.model_adapter:adapters/litellm","model":"deepseek/deepseek-flash","credential":"DEEPSEEK_API_KEY"}}'
+uv run --locked aurora @botPlugins @botData ctx set org.aurora.model_adapter:state/bindings '{"reasoning":"primary"}'
+uv run --locked --env-file .env aurora @botPlugins @botData --assembly org.aurora.bot:assemblies/default --namespace org.aurora.bot run submit '只输出：CLI验收成功' --instance-id main
+```
+
+将最后一条命令的 `run submit '只输出：CLI验收成功'` 替换为 `run activate`，可显式激活已有输入。`--env-file .env` 仅由 uv 在本次启动时加载环境凭证，ctx 配置只保存变量名。
+
 ### bot 公共运行操作 ID
 
 - `aurora_bot.assembly` 在插件发现阶段登记三个 operation：`org.aurora.bot:operations/run/submit`、`org.aurora.bot:operations/run/activate`、`org.aurora.bot:operations/run/cancel`，统一接入 core 的 operations 注册表。CLI `id list` 可在启动装配前枚举这些定义。
