@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import json
 from pathlib import Path
-from typing import cast
 from uuid import uuid4
 
 from aurora_bot.assembly import DefaultAssembly
@@ -12,7 +11,6 @@ from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import CONFIG
 from aurora_bot.control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_bot.model import plugin as model_plugin
-from aurora_bot.react import Guidance
 from aurora_bot.react import plugin as react_plugin
 from aurora_bot.react_defaults import plugin as defaults_plugin
 from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
@@ -142,21 +140,11 @@ async def run(args: argparse.Namespace) -> None:
         assert assembly.agent is not None and assembly.defaults is not None
         print("装配已启动；尚未激活。", flush=True)
         if args.text is not None or args.activate:
-            request = ExecutionRequest(uuid4().hex)
-            if args.text is not None:
-                try:
-                    pending = cast(list[Guidance], assembly.agent.inbox.get(ctx, request))
-                except KeyError:
-                    pending = []
-                try:
-                    progress = cast(int, assembly.agent.progress.get(ctx, request))
-                except KeyError:
-                    progress = 0
-                sequence = max([progress, *(item["sequence"] for item in pending)]) + 1
-                assembly.agent.inbox.set(
-                    ctx, request, [*pending, {"id": uuid4().hex, "sequence": sequence, "payload": args.text}]
-                )
-            await host.run(assembly.activate, request)
+            handle = assembly.runtime.submit(args.text).run if args.text is not None else assembly.runtime.activate()
+            outcome = await handle.wait()
+            if outcome.status != "completed":
+                raise RuntimeError(f"激活未完成：{outcome.status}，{outcome.error}")
+            request = ExecutionRequest(handle.run_id)
             result = assembly.defaults.model.output_state.get(ctx, request)
             assert isinstance(result, dict)
             print(f"内部输出: {result['text']}")

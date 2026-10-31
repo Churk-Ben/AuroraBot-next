@@ -2,6 +2,18 @@
 
 ## 2026-10-31
 
+### M2.4：单 bot 的激活、引导提交与取消入口
+
+- DefaultAssembly.runtime 提供单一调度所有者 BotRuntime。宿主启动后可调用 `submit(payload, sequence=...)` 提交 JSON 引导，返回 Submission（sequence、guidance_id、run）；`activate()` 显式激活已有输入或空输入。两者同步返回，不等待推理。普通 ctx 写入和宿主启动不自动触发运行，恢复输入须显式接纳。
+- `await receipt.run.wait()` 返回 RunResult（run_id、completed/cancelled/failed、可选错误类型）。取消等待者不取消 bot。活动阶段的提交和重复 activate 共用当前句柄及 run_id；finish 阶段和终态通知期间的输入取得后续激活句柄，等待当前激活完成清理。每次成功激活结束后复查 pending，覆盖结束边界上的输入。
+- 引导 ID 自动生成，sequence 缺省取 progress 与 pending 最大序号加一。调用方可显式提供严格递增序号以拒绝重放；重复或过期序号在写入前报错，相同文本使用新序号表示新引导。序号约束沿用恢复的 inbox/progress，运行句柄不持久化。inbox 写入通知期间的同步重入提交明确拒绝，订阅方可调度到下一事件循环轮次。
+- `await assembly.runtime.cancel(run_id)` 仅处理匹配的当前或待执行句柄，并等待清理；未知或已完成的身份返回 False。重复取消只发出一次任务取消请求，取消方自身退出不打断 bot 清理。取消待执行激活不取消其前驱。失败或取消停止自动后续激活，尚未消费的输入保留；关联的待执行句柄以 cancelled 或 failed/PreviousRunFailed 收束，下一次显式 activate/submit 可接纳保留输入。
+- ReAct 已开始的激活沿用 state/run 的运行身份与唯一终态；尚未执行就取消的句柄仅返回 cancelled，不伪造一次 ReAct 执行。运行期间不能混用 runtime 管理与 `Lifecycle.run(assembly.activate, request)` 显式调度；显式装配与巡检示例仍可自行管理调度所有权。
+- 宿主停止时关闭提交入口、请求取消自有激活、等待模型流或工具清理，再关闭工具、模型和最终落盘。取消 close 等待者不取消后台收尾；资源清理未完成时宿主保留资源供重试。失败和取消均不自动重做工具动作，后续激活接纳既有恢复记录。
+- `examples/default_bot/main.py` 使用 runtime 提交和等待，`--text` 写入引导，`--activate` 接纳已有输入；启动不带两者时保持空闲。示例仍使用离线 FakeModel，不需要凭证。入口示例：`receipt = assembly.runtime.submit("开始检查")`，随后 `result = await receipt.run.wait()`；运行中通过 `await assembly.runtime.cancel(receipt.run.run_id)` 显式取消。
+- 本切片提供进程内运行入口；world/cadence 的完整插件、界面提交关联以及 CLI 交互命令由后续切片接入，不新增未确定的 conversation 端点或公共 operation ID。
+- 完整 `uv run --locked aurora check` 通过：419 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。新增运行管理、装配及相关测试、示例经 basedpyright 检查为 0 错误、0 警告；14 项新增集成用例覆盖提交、序号拒绝、收尾复查、取消与关闭竞态、失败保留、调度所有权和重启恢复。SDK 仍有 1 项 Pydantic ReadOnly 提示。
+
 ### DeepSeek 真实模型验收
 
 - LiteLLM 工厂支持 `deepseek/` 模型，通过实例自有 AsyncHTTPHandler 管理连接，默认端点为 `https://api.deepseek.com`，允许显式配置 base_url。请求指定 `thinking={"type":"disabled"}`；当前公共消息协议不保存 reasoning_content，DeepSeek 工具往返使用[官方非思考模式](https://api-docs.deepseek.com/guides/tool_calls/)。
