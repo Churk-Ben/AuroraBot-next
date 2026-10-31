@@ -201,7 +201,10 @@ def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"
         async def execute(request):
             call = input_state.get(ctx, request)
             assert isinstance(call, dict)
-            if behavior == "wait":
+            events.append("tool.executed")
+            if behavior == "tool_failure":
+                raise RuntimeError("验收工具失败")
+            if behavior in ("wait", "tool_timeout"):
                 try:
                     entered.set()
                     await asyncio.Event().wait()
@@ -953,7 +956,13 @@ def test_run_operations_are_visible_in_cli_without_starting_assembly(tmp_path, m
 async def cli_setup(root, *, behavior="normal"):
     """为真实 CLI 宿主准备可恢复配置与离线工厂。"""
     host, _, ctx, registry, clients, _, events, entered = setup(root, behavior=behavior)
-    await host.start(configure=lambda: seed(ctx))
+
+    def configure():
+        seed(ctx)
+        if behavior == "tool_timeout":
+            ctx.set(CONFIG, {**settings(), "tool_timeout": 0.01})
+
+    await host.start(configure=configure)
     await host.stop()
     clients.clear()
     events.clear()
@@ -1113,6 +1122,19 @@ def test_bot_cli_interrupt_cancels_tool_and_persists_terminal(tmp_path):
                 assert state["status"] == "cancelled" and state["run_id"] == records[-1]["run_id"]
             finally:
                 await restored.stop()
+            resumed_output = StringIO()
+            assert (
+                await run_cli(
+                    [*argv, "run", "activate", "--instance-id", "main"], plugins=plugins, output=resumed_output
+                )
+                == 0
+            )
+            resumed = [json.loads(line) for line in resumed_output.getvalue().splitlines()]
+            assert resumed[-1]["status"] == "completed" and resumed[-1]["run_id"] != records[-1]["run_id"]
+            assert events.count("tool.executed") == 1
+            messages = clients[1].requests[0]["messages"]
+            observations = [json.loads(message["content"]) for message in messages if message["role"] == "tool"]
+            assert len(observations) == 1 and observations[0]["status"] == "cancelled"
         finally:
             if not task.done():
                 task.cancel()
@@ -1219,3 +1241,37 @@ raise SystemExit(entry.main())
     snapshot = json.loads((tmp_path / "framework" / "ctx.json").read_text(encoding="utf-8"))
     run = next(entry["value"] for entry in snapshot["entries"] if entry["id"] == str(RUN))
     assert run["status"] == "cancelled" and run["run_id"] == records[-1]["run_id"]
+
+
+@pytest.mark.parametrize("behavior,code", [("tool_failure", "tool_failed"), ("tool_timeout", "timeout")])
+def test_bot_cli_tool_errors_are_observed_and_survive_restart(tmp_path, behavior, code):
+    async def scenario():
+        plugins, argv, clients, events, _ = await cli_setup(tmp_path, behavior=behavior)
+        output = StringIO()
+        assert (
+            await run_cli([*argv, "run", "submit", "执行工具", "--instance-id", "main"], plugins=plugins, output=output)
+            == 0
+        )
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        terminal = [
+            record["state"] for record in records if record["event"] == "run" and record["state"]["status"] != "running"
+        ]
+        assert len(terminal) == 1 and terminal[0]["status"] == records[-1]["status"] == "completed"
+        assert len(clients[0].requests) == 2
+        messages = clients[0].requests[-1]["messages"]
+        observation = json.loads(next(message["content"] for message in messages if message["role"] == "tool"))
+        assert observation["status"] == "failed" and observation["error"]["code"] == code
+        assert events[-2:] == ["tool.closed", "model.closed"] and clients[0].closed
+        if behavior == "tool_timeout":
+            assert events.index("tool.cancelled") < events.index("tool.closed")
+        restored_output = StringIO()
+        assert (
+            await run_cli([*argv, "run", "activate", "--instance-id", "main"], plugins=plugins, output=restored_output)
+            == 0
+        )
+        restored_messages = clients[1].requests[0]["messages"]
+        assert restored_messages[: len(messages)] == messages
+        assert events.count("tool.executed") == 1
+        assert json.loads(restored_output.getvalue().splitlines()[-1])["status"] == "completed"
+
+    asyncio.run(scenario())
