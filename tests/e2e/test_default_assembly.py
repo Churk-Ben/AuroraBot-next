@@ -12,6 +12,7 @@ from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, RUN, WORK
 from aurora_bot.control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_bot.model import plugin as model_plugin
+from aurora_bot.react import AgentBusyError
 from aurora_bot.react import plugin as react_plugin
 from aurora_bot.react_defaults import plugin as defaults_plugin
 from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
@@ -26,7 +27,7 @@ from aurora_core.lifecycle import Lifecycle, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter import ModelCapabilities, ToolDefinition, UnsupportedCapability
+from aurora_model_adapter import JsonValue, ModelCapabilities, ToolDefinition, UnsupportedCapability
 from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
 from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
 from aurora_model_adapter.fake import FakeModel, FakeReply
@@ -441,5 +442,386 @@ def test_registered_assembly_runs_through_cli_host_without_bot_cli_dependency(tm
         )
         assert status == 0 and json.loads(output.getvalue())["instance_id"] == "main"
         assert len(clients) == 2 and all(client.closed and not client.requests for client in clients)
+
+    asyncio.run(scenario())
+
+
+def gate_model(client, monkeypatch, *, cleanup=None):
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = client._chunks
+    first = True
+
+    async def chunks(request):
+        nonlocal first
+        if first:
+            first = False
+            entered.set()
+            try:
+                await release.wait()
+            finally:
+                if cleanup is not None:
+                    cleanup[0].set()
+                    await cleanup[1].wait()
+        async for chunk in original(request):
+            yield chunk
+
+    monkeypatch.setattr(client, "_chunks", chunks)
+    return entered, release
+
+
+def test_runtime_submission_receipts_sequences_and_repeated_activation(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        with pytest.raises(RuntimeError):
+            assembly.runtime.submit("尚未启动")
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        try:
+            assert clients[0].requests == [] and assembly.runtime.current is None
+            payload: dict[str, JsonValue] = {"text": "第一条"}
+            first = assembly.runtime.submit(payload, sequence=3)
+            payload["text"] = "外部修改"
+            second = assembly.runtime.submit("第二条")
+            assert first.sequence == 3 and second.sequence == 4
+            assert first.guidance_id != second.guidance_id
+            assert first.run is second.run is assembly.runtime.activate()
+            before = ctx.snapshot()
+            for sequence in (0, 3, 4, True):
+                with pytest.raises(ValueError, match="序号"):
+                    assembly.runtime.submit("重复", sequence=sequence)
+            with pytest.raises(ValueError):
+                assembly.runtime.submit(float("nan"))
+            assert ctx.snapshot() == before
+            result = await first.run.wait()
+            assert result.status == "completed" and result.run_id == first.run.run_id
+            assert assembly.agent is not None and assembly.defaults is not None
+            messages = cast(dict, assembly.defaults.context_state.get(ctx, ExecutionRequest("read")))["messages"]
+            assert json.loads(messages[0]["content"]) == {"text": "第一条"}
+            assert messages[1]["content"] == "第二条" and len(clients[0].requests) == 1
+            assert await assembly.runtime.cancel(first.run.run_id) is False
+            third = assembly.runtime.submit("下一次")
+            assert third.sequence == 5 and third.run.run_id != first.run.run_id
+            assert (await third.run.wait()).status == "completed"
+            with pytest.raises(ValueError):
+                assembly.runtime.submit("已消费", sequence=5)
+        finally:
+            await host.stop()
+        with pytest.raises(RuntimeError, match="关闭"):
+            assembly.runtime.activate()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_live_guidance_and_cancelled_waiter_keep_current_run(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        entered, release = gate_model(clients[0], monkeypatch)
+        try:
+            first = assembly.runtime.submit("先做这件事")
+            await entered.wait()
+            waiter = asyncio.create_task(first.run.wait())
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            second = assembly.runtime.submit("补充信息")
+            assert second.run is first.run and not first.run.done
+            release.set()
+            assert (await second.run.wait()).status == "completed"
+            assert len(clients[0].requests) == 2
+            assert clients[0].requests[-1]["messages"][-1]["content"] == "补充信息"
+            assert assembly.agent is not None
+            assert assembly.agent.progress.get(ctx, ExecutionRequest("read")) == 2
+        finally:
+            release.set()
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("boundary", ["finish", "completed"])
+def test_runtime_submission_at_finish_boundary_gets_followup_run(tmp_path, boundary):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        followups, terminals = [], []
+
+        def observe(change):
+            state = change.value
+            if change.address.key != RUN or not isinstance(state, dict):
+                return
+            if state["status"] in ("completed", "cancelled", "failed"):
+                terminals.append((state["run_id"], state["status"]))
+            match = state["status"] == "completed" if boundary == "completed" else state["phase"] == "finish"
+            if match and not followups:
+                followups.append(assembly.runtime.submit("收尾期间的输入"))
+
+        subscription = ctx.subscribe(observe, key=RUN)
+        try:
+            first = assembly.runtime.submit("首次输入")
+            assert (await first.run.wait()).status == "completed"
+            assert len(followups) == 1 and followups[0].run.run_id != first.run.run_id
+            assert (await followups[0].run.wait()).status == "completed"
+            assert terminals == [(first.run.run_id, "completed"), (followups[0].run.run_id, "completed")]
+            assert len(clients[0].requests) == 2
+        finally:
+            ctx.unsubscribe(subscription)
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_cancel_waits_for_cleanup_and_repeated_cancel_does_not_interrupt_it(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        cleaning, released = asyncio.Event(), asyncio.Event()
+        entered, _ = gate_model(clients[0], monkeypatch, cleanup=(cleaning, released))
+        try:
+            submission = assembly.runtime.submit("阻塞调用")
+            await entered.wait()
+            extra = assembly.runtime.submit("取消时仍未消费的输入")
+            first = asyncio.create_task(assembly.runtime.cancel(submission.run.run_id))
+            await cleaning.wait()
+            assert not first.done() and not submission.run.done
+            with pytest.raises(AgentBusyError, match="取消"):
+                assembly.runtime.submit("等待清理")
+            second = asyncio.create_task(assembly.runtime.cancel(submission.run.run_id))
+            await asyncio.sleep(0)
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            assert not second.done()
+            released.set()
+            assert await second is True
+            assert (await submission.run.wait()).status == "cancelled"
+            assert clients[0].active_streams == 0
+            assert assembly.agent is not None
+            assert [item["sequence"] for item in assembly.agent.pending(ExecutionRequest("read"))] == [extra.sequence]
+            assert assembly.runtime.current is None
+            resumed = assembly.runtime.activate()
+            assert resumed.run_id != submission.run.run_id
+            assert (await resumed.wait()).status == "completed"
+            assert await assembly.runtime.cancel(submission.run.run_id) is False
+        finally:
+            released.set()
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_cancel_before_task_start_preserves_input_for_explicit_activation(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        try:
+            submission = assembly.runtime.submit("等待显式恢复")
+            assert await assembly.runtime.cancel(submission.run.run_id) is True
+            assert (await submission.run.wait()).status == "cancelled"
+            assert clients[0].requests == []
+            assert assembly.runtime.current is None
+            assert (await assembly.runtime.activate().wait()).status == "completed"
+            assert len(clients[0].requests) == 1
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_failure_retains_new_input_without_automatic_retry(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        entered, release = gate_model(clients[0], monkeypatch)
+
+        def fail(request):
+            raise ValueError("故障夹具")
+
+        clients[0].respond = fail
+        try:
+            first = assembly.runtime.submit("失败输入")
+            await entered.wait()
+            second = assembly.runtime.submit("稍后处理")
+            release.set()
+            result = await first.run.wait()
+            assert result.status == "failed" and result.error == "ValueError"
+            assert first.run is second.run and assembly.runtime.current is None
+            assert len(clients[0].requests) == 1
+            clients[0].respond = lambda request: FakeReply(("已恢复",))
+            assert (await assembly.runtime.activate().wait()).status == "completed"
+            assert clients[0].requests[-1]["messages"][-1]["content"] == "稍后处理"
+        finally:
+            release.set()
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_host_shutdown_cancels_tool_then_closes_resources_and_restores_pending(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, events, entered = setup(tmp_path, behavior="wait")
+        await host.start(configure=lambda: seed(ctx))
+        first = assembly.runtime.submit("调用工具")
+        await entered.wait()
+        queued = assembly.runtime.submit("重启后处理")
+        await host.stop()
+        assert (await first.run.wait()).status == "cancelled"
+        assert events[-3:] == ["tool.cancelled", "tool.closed", "model.closed"]
+        assert clients[0].closed
+        restored, other, other_ctx, _, new_clients, _, _, _ = setup(tmp_path, behavior="quiet")
+        await restored.start()
+        try:
+            assert new_clients[0].requests == [] and other.runtime.current is None
+            with pytest.raises(ValueError):
+                other.runtime.submit("重放", sequence=queued.sequence)
+            assert (await other.runtime.activate().wait()).status == "completed"
+            assert other.agent is not None
+            assert other.agent.progress.get(other_ctx, ExecutionRequest("read")) == queued.sequence
+            messages = new_clients[0].requests[0]["messages"]
+            observation = json.loads(next(message["content"] for message in messages if message["role"] == "tool"))
+            assert observation["status"] == "cancelled"
+        finally:
+            await restored.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_prevents_mixing_manual_and_managed_owners(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        entered, release = gate_model(clients[0], monkeypatch)
+        try:
+            manual = asyncio.create_task(host.run(assembly.activate, ExecutionRequest("manual")))
+            await entered.wait()
+            with pytest.raises(AgentBusyError, match="混用"):
+                assembly.runtime.submit("不能并行")
+            release.set()
+            await manual
+            managed = assembly.runtime.submit("正式入口")
+            with pytest.raises(AgentBusyError, match="混用"):
+                await assembly.activate(ExecutionRequest("other"))
+            assert (await managed.run.wait()).status == "completed"
+        finally:
+            release.set()
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("finish_error", [False, True])
+def test_runtime_queued_cancellation_or_preceding_failure_keeps_input(tmp_path, finish_error):
+    async def scenario():
+        host, assembly, ctx, registry, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        entered, release = asyncio.Event(), asyncio.Event()
+        first_finish = True
+
+        async def finish(request):
+            nonlocal first_finish
+            if first_finish:
+                first_finish = False
+                entered.set()
+                await release.wait()
+                if finish_error:
+                    raise ValueError("收尾失败")
+
+        identity = Id("dev.assembly:handlers/finish_gate")
+        registry.register_many(component_entries(identity, finish, finish, provider="test"))
+        assert assembly.agent is not None
+        assembly.agent.slots["finish"].connect(ExecutionPlug(identity, finish))
+        try:
+            first = assembly.runtime.submit("第一条")
+            await entered.wait()
+            followup = assembly.runtime.submit("收尾后的输入")
+            assert followup.run.run_id != first.run.run_id
+            if not finish_error:
+                assert await assembly.runtime.cancel(followup.run.run_id) is True
+                assert not first.run.done
+            release.set()
+            result = await first.run.wait()
+            next_result = await followup.run.wait()
+            if finish_error:
+                assert result.status == "failed" and next_result.error == "PreviousRunFailed"
+            else:
+                assert result.status == "completed" and next_result.status == "cancelled"
+            assert len(clients[0].requests) == 1 and assembly.runtime.current is None
+            assert assembly.agent.pending(ExecutionRequest("read"))[0]["sequence"] == followup.sequence
+            assert (await assembly.runtime.activate().wait()).status == "completed"
+            assert len(clients[0].requests) == 2
+        finally:
+            release.set()
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_late_cancel_does_not_change_completed_run(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        cancellations = []
+
+        def observe(change):
+            if isinstance(change.value, dict) and change.value.get("status") == "completed":
+                cancellations.append(asyncio.create_task(assembly.runtime.cancel(change.value["run_id"])))
+
+        subscription = ctx.subscribe(observe, key=RUN)
+        try:
+            run = assembly.runtime.submit("完成边界").run
+            assert (await run.wait()).status == "completed"
+            assert len(cancellations) == 1 and await cancellations[0] is False
+            assert (await run.wait()).status == "completed"
+        finally:
+            ctx.unsubscribe(subscription)
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_rejects_reentrant_submission_without_losing_outer_input(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        checked = []
+
+        def observe(change):
+            if not checked:
+                checked.append(True)
+                with pytest.raises(RuntimeError, match="重入"):
+                    assembly.runtime.submit("重入")
+
+        subscription = ctx.subscribe(observe, key=AGENTS, location={"instance_id": "main", "part": "inbox"})
+        try:
+            submitted = assembly.runtime.submit("外层输入")
+            assert (await submitted.run.wait()).status == "completed"
+            assert checked == [True]
+            assert [m["content"] for m in clients[0].requests[0]["messages"] if m["role"] == "user"] == ["外层输入"]
+        finally:
+            ctx.unsubscribe(subscription)
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_cancelled_close_waiter_keeps_resource_cleanup_alive(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, events, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        cleaning, release = asyncio.Event(), asyncio.Event()
+        entered, _ = gate_model(clients[0], monkeypatch, cleanup=(cleaning, release))
+        run = assembly.runtime.submit("等待取消").run
+        await entered.wait()
+        closing = asyncio.create_task(assembly.runtime.close())
+        await cleaning.wait()
+        closing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+        assert not run.done and not clients[0].closed
+        release.set()
+        await assembly.runtime.close()
+        assert (await run.wait()).status == "cancelled"
+        await host.stop()
+        assert events[-1] == "model.closed" and clients[0].closed
 
     asyncio.run(scenario())

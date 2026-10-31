@@ -31,6 +31,7 @@ from .control import ExecutionRequest, InstanceStateBinding, StateBinding
 from .model import ModelCall
 from .react import AgentBusyError, ReActAgent
 from .react_defaults import ReActContext, ReActDefaults
+from .runtime import BotRuntime
 from .tools import TOOLS, ToolExecutor, ToolInstance, ToolSpec
 
 ASSEMBLY = Id("org.aurora.bot:assemblies/default")
@@ -51,8 +52,9 @@ class DefaultAssembly:
     同一配置的多次装配各自调用工厂，不隐式共享模型实例。工具工厂创建的实例由 bot
     所有者逆序关闭，模型最后关闭，ctx 最终落盘由宿主保证；工厂自身负责返回前的失败清理。
 
-    start 只开放 activate。调用方通过 Lifecycle.run(assembly.activate, request) 跟踪根调用，
-    以 agent.inbox 显式写入引导；本组件不订阅世界、不自动重启激活、不提供会话 send/cancel。
+    runtime 提供进程内引导提交、激活及取消，自有任务在工具和模型关闭前收束。
+    显式调度也可使用 Lifecycle.run(assembly.activate, request)，以 agent.inbox 写入引导；
+    两种调度所有者不能并行使用。本组件不订阅世界，不在启动时自动执行恢复的输入。
     模型配置和绑定变更在下次宿主启动生效。默认状态地址按配置的 bot instance_id 隔离。
     """
 
@@ -82,6 +84,7 @@ class DefaultAssembly:
         self._accepting = False
         self._executing = False
         self._last_request: ExecutionRequest | None = None
+        self.runtime = BotRuntime(self)
 
     def components(self) -> tuple[LifecycleComponent, ...]:
         """返回宿主生命周期组件，连接不创建模型、工具或任务。"""
@@ -229,12 +232,19 @@ class DefaultAssembly:
     @hook_handler("org.aurora.bot:handlers/assembly/start_bot", slot=START)
     def start_bot(self) -> None:
         self._accepting = True
+        self.runtime.start()
 
     def stop_accepting(self) -> None:
         self._accepting = False
+        self.runtime.stop_accepting()
 
     async def activate(self, request: ExecutionRequest) -> None:
         """等待一次显式激活，新的引导只写入 inbox；调用方负责结束后的 pending 复查。"""
+        if self.runtime.current is not None:
+            raise AgentBusyError("运行管理器已接管激活，不能混用调度所有者")
+        await self._activate(request)
+
+    async def _activate(self, request: ExecutionRequest) -> None:
         if not self._accepting or self.agent is None:
             raise RuntimeError("默认 bot 未启动或正在关闭")
         if self._executing:
@@ -276,6 +286,7 @@ class DefaultAssembly:
 
     @hook_handler("org.aurora.bot:handlers/assembly/stop_bot", slot=STOP)
     async def stop_bot(self) -> None:
+        await self.runtime.close()
         if self._executing:
             raise RuntimeError("停止前须通过宿主结束在途激活")
         self._compact()
