@@ -6,6 +6,7 @@ from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.registry import RegistryEntry
 
+from .adapters import create_litellm
 from .configuration import validate_bindings, validate_config
 from .models import ModelCapabilities, ModelChunk, ModelRequest, ModelResponse
 from .protocols import ModelClient
@@ -33,5 +34,14 @@ def plugin() -> Plugin:
                 register_to=Id(f"org.aurora.core:registries/{receiver}"),
             )
             for path, kind, target, receiver in definitions
+        )
+        + (
+            RegistryEntry(
+                Id("org.aurora.model_adapter:adapters/litellm"),
+                "adapter",
+                create_litellm,
+                "aurora_model_adapter",
+                register_to=Id("org.aurora.model_adapter:registries/adapters"),
+            ),
         ),
     )

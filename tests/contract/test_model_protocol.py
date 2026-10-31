@@ -182,4 +182,4 @@ def test_factory_creates_independent_instances_and_plugin_registers_existing_ids
     registry = bootstrap()
     register_plugins(registry, (plugin(),))
     assert all(item.status == AdmissionStatus.ACCEPTED for item in inspect_admissions(registry))
-    assert len([item for item in registry.entries() if item.id.namespace == "org.aurora.model_adapter"]) == 8
+    assert len([item for item in registry.entries() if item.id.namespace == "org.aurora.model_adapter"]) == 9

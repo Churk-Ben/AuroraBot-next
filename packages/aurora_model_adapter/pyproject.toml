@@ -3,7 +3,10 @@ name = "aurora-model-adapter"
 version = "0.1.0"
 description = "AuroraBot model protocols and adapters"
 requires-python = ">=3.12"
-dependencies = ["aurora-core>=0.1.0"]
+dependencies = [
+    "aurora-core>=0.1.0",
+    "litellm[mcp]>=1.106.6,<1.107",
+]
 
 [project.entry-points."aurorabot.plugins"]
 aurora_model_adapter = "aurora_model_adapter.plugin:plugin"
