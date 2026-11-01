@@ -20,6 +20,11 @@ class RunOperations:
     def __init__(self) -> None:
         self._runtimes: dict[str, AgentRuntime] = {}
 
+    @property
+    def instances(self) -> tuple[str, ...]:
+        """当前已绑定的 bot 实例；不创建或启动运行资源。"""
+        return tuple(self._runtimes)
+
     def bind(self, instance_id: str, runtime: AgentRuntime) -> None:
         """由装配在启动时绑定，禁止相同实例身份覆盖既有目标。"""
         if not isinstance(instance_id, str) or not instance_id:

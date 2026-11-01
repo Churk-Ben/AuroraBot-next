@@ -35,6 +35,7 @@ from .assembly_config import (
     validate_json,
 )
 from .cli import command_entries
+from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
 from .operations import RUN_CONTROL, RunOperations
 
 ASSEMBLY = Id("org.aurora.bot:assemblies/default")
@@ -347,6 +348,9 @@ def plugin() -> Plugin:
         "aurora_bot.assembly",
         (
             *command_entries(),
+            RegistryEntry(
+                CONVERSATION, "endpoint", ConversationEndpoint(operations), "aurora_bot", register_to=ENDPOINTS
+            ),
             RegistryEntry(
                 ASSEMBLY, "assembly", assemble, "aurora_bot", register_to=Id("org.aurora.core:registries/resources")
             ),

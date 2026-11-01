@@ -1,5 +1,7 @@
 """本机 ctx 传输的公开数据描述；不读取登记表、配置或运行期资源。"""
 
+from collections.abc import Iterable
+
 from .protocol import CHANGED, HTTP_ACTIONS, SUBSCRIBE, UNSUBSCRIBE, WATCH_PATH
 
 
@@ -16,7 +18,7 @@ def _object(properties: dict, required: tuple[str, ...] | None = None) -> dict:
     }
 
 
-def describe_contract() -> dict:
+def describe_contract(*, extensions: Iterable[dict] = ()) -> dict:
     """返回独立的 JSON Schema 与显式绑定；业务状态值只声明为 JSON。"""
     filters = {"key": _ref("StateId"), "location": _ref("Location")}
     definitions = {
@@ -64,7 +66,7 @@ def describe_contract() -> dict:
         "WatchError": _object({"type": {"const": "error"}, "error": _ref("ApiError")}),
         "WatchMessage": {"anyOf": [_ref("WatchReady"), _ref("WatchEvent"), _ref("WatchError")]},
     }
-    return {
+    contract = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": definitions,
         "http": {
@@ -92,3 +94,9 @@ def describe_contract() -> dict:
             "reconnect": "resubscribe_then_refresh",
         },
     }
+    for extension in extensions:
+        for field in ("$defs", "http"):
+            if contract[field].keys() & extension[field].keys():
+                raise ValueError("扩展契约的类型或动作名称冲突")
+            contract[field].update(extension[field])
+    return contract

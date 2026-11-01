@@ -14,6 +14,7 @@ from aurora_core.invocation import invoke_operation
 from aurora_core.json_data import decode_json, encode_json
 from aurora_core.registry import DefinitionRegistry
 
+from .endpoints import ENDPOINTS, Endpoint, EndpointReceiver
 from .protocol import CHANGED, HTTP_ACTIONS, SUBSCRIBE, UNSUBSCRIBE, WATCH_PATH, address_data, change_data, error_data
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,9 @@ def _filters(data: object, allowed: frozenset[Id], *, action: str) -> dict[str, 
     return values
 
 
-def create_application(registry: DefinitionRegistry, *, keys: Iterable[Id], queue_limit: int = 256) -> web.Application:
+def create_application(
+    registry: DefinitionRegistry, *, keys: Iterable[Id], queue_limit: int = 256, endpoints: Iterable[Id] = ()
+) -> web.Application:
     """仅开放显式选择的完整状态键；同一键的全部 location 均开放。"""
     allowed = frozenset(keys)
     for key in allowed:
@@ -95,6 +98,12 @@ def create_application(registry: DefinitionRegistry, *, keys: Iterable[Id], queu
             addresses = cast(tuple[StateAddress, ...], result)
             result = [address_data(address) for address in addresses if address.key in allowed]
         return web.Response(text=encode_json({"result": result}), content_type="application/json")
+
+    async def product(endpoint: Endpoint, action: str, request: web.Request) -> web.Response:
+        if request.content_type != "application/json":
+            return web.json_response(error_data("invalid_request", "请求需要 application/json"), status=415)
+        status, body = await endpoint.handle(action, decode_json(await request.text()))
+        return web.Response(text=encode_json(body), content_type="application/json", status=status)
 
     async def watch(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30, timeout=2, max_msg_size=1024 * 1024)
@@ -170,18 +179,30 @@ def create_application(registry: DefinitionRegistry, *, keys: Iterable[Id], queu
     for action, (path, _) in HTTP_ACTIONS.items():
         app.router.add_post(path, partial(handle, action))
     app.router.add_get(WATCH_PATH, watch)
+    for identity in endpoints:
+        entry = registry.get(identity)
+        if entry.register_to != ENDPOINTS or EndpointReceiver().rejection_reason(entry) is not None:
+            raise ValueError("开放目标须为有效的产品端点")
+        endpoint = cast(Endpoint, entry.target)
+        for action, binding in endpoint.http.items():
+            app.router.add_route(binding["method"], binding["path"], partial(product, endpoint, action))
     app.on_shutdown.append(shutdown)
     return app
 
 
 @asynccontextmanager
 async def serve(
-    registry: DefinitionRegistry, *, keys: Iterable[Id], port: int = 10270, queue_limit: int = 256
+    registry: DefinitionRegistry,
+    *,
+    keys: Iterable[Id],
+    port: int = 10270,
+    queue_limit: int = 256,
+    endpoints: Iterable[Id] = (),
 ) -> AsyncGenerator[str, None]:
     """在宿主循环监听 IPv4 回环地址，退出时先关闭连接与订阅。"""
     if not 0 <= port <= 65535:
         raise ValueError("端口须在 0 至 65535 之间")
-    app = create_application(registry, keys=keys, queue_limit=queue_limit)
+    app = create_application(registry, keys=keys, queue_limit=queue_limit, endpoints=endpoints)
     runner = web.AppRunner(app, access_log=None, shutdown_timeout=5)
     await runner.setup()
     try:
