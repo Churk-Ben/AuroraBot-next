@@ -14,7 +14,7 @@ from aurora_control import ExecutionRequest, InstanceStateBinding, StateBinding
 from aurora_core import entry_from, hook_handler
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import Plugin
-from aurora_core.hooks import HookConnections
+from aurora_core.hooks import HookConnection, HookConnections
 from aurora_core.ids import Id
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
@@ -82,7 +82,7 @@ class DefaultAssembly:
         self.config: BotConfig | None = None
         self._specs: list[ToolSpec] = []
         self._owned_tools: list[ToolInstance] = []
-        self._instances: set[str] = set()
+        self._execution_connections: list[HookConnection] = []
         self._connected = False
         self._accepting = False
         self._executing = False
@@ -200,10 +200,6 @@ class DefaultAssembly:
         self.defaults = ReActDefaults(
             self.agent, model, tools, context_state=self._fixed(MESSAGES), system_prompt=self.config["system_prompt"]
         )
-        self._instances.update((identity, model.instance_id, tools.instance_id))
-        self._instances.update(
-            f"{identity}/{method}" for method in ("build_prompt", "interpret_response", "record_observation")
-        )
         for selection, spec in zip(self.config["tools"], self._specs, strict=True):
             assert spec.factory is not None
             instance_id = f"{identity}/tool/{selection['instance_id']}"
@@ -228,9 +224,14 @@ class DefaultAssembly:
                 or owned.plug.states.get("output") != output_state
             ):
                 raise ValueError("工具工厂必须沿用装配分配的实例身份与工作地址")
-            tools.connect(Id(selection["tool"]), owned.plug)
-            self._instances.add(instance_id)
+            link = tools.connect(Id(selection["tool"]), owned.plug)
+            self._execution_connections.append(link.connection)
         self.defaults.connect()
+        self._execution_connections.extend(
+            link.connection
+            for phase in ("prepare", "infer", "act", "observe")
+            for link in self.agent.slots[phase].links()
+        )
         # 恢复出的运行时标志没有对应任务，只保留结果与明确的中断状态。
         for address in (*self.ctx.list(key=RUN, location={"instance_id": identity}), *self.ctx.list(key=WORK)):
             if dict(address.location).get("instance_id") != identity:
@@ -318,9 +319,9 @@ class DefaultAssembly:
             if owned.aclose is not None:
                 await owned.aclose()
             self._owned_tools.pop()
-        for identity in self._instances:
-            self.hooks.disconnect_instance(identity)
-        self._instances.clear()
+        for connection in self._execution_connections:
+            self.hooks.disconnect(connection)
+        self._execution_connections.clear()
         if self._run_operations is not None:
             assert self.config is not None
             self._run_operations.unbind(self.config["instance_id"], self.runtime)

@@ -327,6 +327,41 @@ def test_factory_creation_follows_restore_and_configure_and_start_does_not_activ
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("identity", ["default", "default/model", "default/bot"])
+@pytest.mark.parametrize("behavior", ["normal", "close_failure"])
+def test_overlapping_instance_names_preserve_model_cleanup(tmp_path, identity, behavior, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, events, _ = setup(tmp_path, behavior=behavior)
+
+        def configure():
+            seed(ctx)
+            ctx.set(CONFIG, {**cast(dict, ctx.get(CONFIG)), "instance_id": identity})
+
+        store = assembly.storage.snapshot_store()
+        original_save = type(store).save
+
+        def save(store, snapshot):
+            assert clients[0].closed
+            events.append("snapshot.saved")
+            original_save(store, snapshot)
+
+        monkeypatch.setattr(type(store), "save", save)
+        await host.start(configure=configure)
+        if behavior == "close_failure":
+            with pytest.raises(RuntimeError, match="模型关闭失败"):
+                await host.stop()
+            assert host.state == "failed" and not clients[0].closed
+            assert "snapshot.saved" not in events
+        await host.stop()
+        assert host.state == "stopped" and clients[0].closed and assembly.client is None
+        assert events[-3:] == ["tool.closed", "model.closed", "snapshot.saved"]
+        assert events.count("tool.closed") == 1
+        with pytest.raises(RuntimeError, match="关闭"):
+            ctx.get(CONFIG)
+
+    asyncio.run(scenario())
+
+
 def test_shutdown_cancels_inflight_tool_before_closing_resources(tmp_path):
     async def scenario():
         host, assembly, ctx, _, clients, _, events, entered = setup(tmp_path, behavior="wait")
