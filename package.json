@@ -36,7 +36,14 @@
     "vue": "catalog:"
   },
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=26.4.0 <27"
   },
-  "packageManager": "pnpm@12.15.0"
+  "packageManager": "pnpm@12.15.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0",
+      "onFail": "download"
+    }
+  }
 }

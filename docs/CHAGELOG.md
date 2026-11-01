@@ -2,6 +2,13 @@
 
 ## 2026-11-01
 
+### 升级 Node 26 并验证 OpenTUI 原生运行路径
+
+- 工作区 Node 要求统一为 `>=26.4.0 <27`，`.node-version` 和 `devEngines.runtime` 固定 `26.13.0`；pnpm 在需要时下载项目运行时，所有 pnpm 脚本及 `pnpm exec` 使用该版本，不替换系统全局 Node。pnpm 保持 `12.15.0`，不引入 Bun 运行时。
+- 同步 `@types/node` 到 `26.6.6`、ESLint 的 Node 语法目标及锁文件。TUI 保留已安装的 `@opentui/core@0.8.1`，按工作区约定纳入 catalog；界面代码尚未实现。
+- OpenTUI 的 Node 路径使用 ESM 和 `--experimental-ffi`，仅原生渲染入口需要该标志，不加入全局 NODE_OPTIONS。Windows x64 上已用 Node 26.13.0 完成真实原生测试渲染、帧读取和资源释放；具体运行要求见 [OpenTUI 文档](https://opentui.com/docs/getting-started/runtime-support/)。FFI 仍是 Node 实验性接口。
+- `pnpm install --frozen-lockfile` 通过。OpenTUI 的间接依赖 `bun-ffi-structs@0.3.1` 仍声明 TypeScript `^5` peer，工作区为 TypeScript 6.0.3；保留这一上游提示，不扩大版本容忍范围或降低工作区编译器。Node 26 下 `pnpm exec uv run --locked aurora check` 全部通过：555 项 Python 测试、59 项 TS/工具链测试、格式、lint、类型及生成契约检查；Python 供应商 SDK 保留既有 Pydantic ReadOnly 提示。本次不修改 Python 包、配置、快照或公共 ID。
+
 ### M3.6：直接交流端点、运行回执与客户端联通
 
 - bot 的 `aurora_bot.assembly` 登记 `org.aurora.bot:endpoints/conversation`，复用同一 RunOperations 和 AgentRuntime。API 新增 `aurora_api` 插件及 `org.aurora.api:registries/endpoints` 接收方，结构协议不引入 bot/API 双向导入；只在 `serve(..., endpoints=[...])` 或 CLI `serve --endpoints` 显式选择后开放。沿用本机回环、Origin/Host 检查与独立 ctx 白名单，不提供任意 operation 转发。

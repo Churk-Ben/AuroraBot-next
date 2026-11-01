@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@aurorabot/client": "workspace:*"
+    "@aurorabot/client": "workspace:*",
+    "@opentui/core": "catalog:"
   }
 }

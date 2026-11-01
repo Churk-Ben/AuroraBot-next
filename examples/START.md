@@ -6,6 +6,16 @@
 uv sync --locked --all-packages
 ```
 
+使用 TS 客户端或运行完整检查时，先安装前端工作区。pnpm 12.15.0 会按 `package.json` 的声明准备 Node 26.13.0，系统全局 Node 不受影响：
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm exec node --version
+pnpm exec uv run --locked aurora check
+```
+
+项目支持的 Node 范围为 `>=26.4.0 <27`，`.node-version` 也固定为 26.13.0。终端里的裸 `node` 仍可能指向系统版本；通过 `pnpm exec` 或 pnpm 脚本使用项目运行时。OpenTUI 原生渲染还需要 `--experimental-ffi`，TUI 界面与启动入口尚待交付。
+
 以下五个示例使用本地数据和假模型，无需模型密钥、外部模型服务或前端。每个示例使用独立数据目录。
 
 | 示例 | 入口 | 主要依赖与职责 |
