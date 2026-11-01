@@ -7,7 +7,7 @@ import type {
   SubscriptionUpdate,
 } from '@aurorabot/client';
 
-import type { WorkbenchClient } from '../src/workbench.ts';
+import type { WorkbenchClient } from '../src/state/workbench.ts';
 
 import { RemoteError } from '@aurorabot/client';
 

@@ -5,8 +5,8 @@ import { setTimeout } from 'node:timers/promises';
 import { CtxClient } from '@aurorabot/client';
 import { createTestRenderer } from '@opentui/core/testing';
 
-import { WorkbenchView } from '../src/view.ts';
-import { Workbench } from '../src/workbench.ts';
+import { Workbench } from '../src/state/workbench.ts';
+import { WorkbenchView } from '../src/ui/workbench-view.ts';
 
 async function until(condition: () => boolean): Promise<void> {
   const deadline = Date.now() + 10_000;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BOT, Workbench } from '../src/workbench.ts';
+import { BOT, Workbench } from '../src/state/workbench.ts';
 import { FakeClient, settle } from './fake-client.ts';
 
 const opened: Workbench[] = [];

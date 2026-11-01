@@ -4,9 +4,10 @@ import { parseArgs } from 'node:util';
 import { CtxClient } from '@aurorabot/client';
 import { createCliRenderer } from '@opentui/core';
 
-import { colors } from './theme.ts';
-import { WorkbenchView } from './view.ts';
-import { Workbench } from './workbench.ts';
+import { Workbench } from './state/workbench.ts';
+import { colors } from './theme/colors.ts';
+import { shortcutHelp } from './ui/shortcuts.ts';
+import { WorkbenchView } from './ui/workbench-view.ts';
 
 async function main(): Promise<void> {
   const { values } = parseArgs({
@@ -18,7 +19,7 @@ async function main(): Promise<void> {
   });
   if (values.help) {
     process.stdout.write(
-      'Aurora 终端工作台\n\npnpm --filter @aurorabot/tui start [--connect URL] [--instance ID]\n\nTab/F1/F2 切页；Enter 发送；Shift+Enter 或 Alt+Enter 换行；PgUp/PgDn 翻阅\nCtrl+T 展开工具；Ctrl+X 取消当前运行；F3 回到底部；F4 重试原请求；F5 核对；Ctrl+C 退出',
+      `Aurora 终端工作台\n\npnpm --filter @aurorabot/tui start [--connect URL] [--instance ID]\n\n${shortcutHelp}\n`,
     );
     return;
   }
