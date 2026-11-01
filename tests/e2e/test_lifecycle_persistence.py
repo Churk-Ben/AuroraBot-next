@@ -7,7 +7,7 @@ from aurora_core import Id, entry_from, hook_handler
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateKey
 from aurora_core.hooks import HookConnections
-from aurora_core.lifecycle import PREPARE, STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
+from aurora_core.lifecycle import CLEAN, PREPARE, STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
@@ -29,17 +29,20 @@ def environment(root):
 
 
 @pytest.mark.parametrize("stop_handler", [True, False])
-def test_final_snapshot_is_host_owned_and_restored_before_prepare(tmp_path, stop_handler):
+@pytest.mark.parametrize("phase", [STOP, CLEAN])
+def test_final_snapshot_is_host_owned_and_restored_before_prepare(tmp_path, stop_handler, phase):
     async def scenario():
         registry, ctx, hooks, storage, _, lifecycle = environment(tmp_path)
 
-        @hook_handler("dev.lifecycle:handlers/stop", slot=STOP)
+        @hook_handler("dev.lifecycle:handlers/stop", slot=phase)
         def stop():
             storage.set("dev.lifecycle", "finished", True)
             ctx.set(VALUE, "stopped")
 
         registry.register(entry_from(stop, provider="测试插件"))
-        connection = hooks.connect(STOP, Id("dev.lifecycle:handlers/stop"), slot_instance="app", handler_instance="app")
+        connection = hooks.connect(
+            phase, Id("dev.lifecycle:handlers/stop"), slot_instance="app", handler_instance="app"
+        )
         if not stop_handler:
             hooks.disconnect(connection)
         await lifecycle.start()

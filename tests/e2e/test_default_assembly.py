@@ -20,6 +20,8 @@ from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, RUN, WORK
 from aurora_bot.operations import RUN_ACTIVATE, RUN_CANCEL, RUN_CONTROL, RUN_SUBMIT
 from aurora_cli.commander import run_cli
+from aurora_config import configuration_component
+from aurora_config import plugin as configuration_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
@@ -174,6 +176,7 @@ def seed(ctx, *, tools=True, credential=False, model="first"):
 
 def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"):
     registry = bootstrap()
+    register_plugins(registry, (configuration_plugin(),))
     register_plugins(
         registry,
         (adapter_plugin(), model_plugin(), react_plugin(), tools_plugin(), defaults_plugin(), assembly_plugin()),
@@ -280,7 +283,7 @@ def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"
     host = ConfiguredLifecycle(
         ctx,
         hooks,
-        assembly.components(),
+        (configuration_component(registry, ctx, hooks, storage), *assembly.components()),
         persistence=ContextPersistence(ctx, storage.snapshot_store()),
         storage=storage,
         timeout=0.05 if behavior == "wait" else 10,

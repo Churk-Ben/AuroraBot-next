@@ -3,9 +3,8 @@
 from importlib import import_module
 from pkgutil import iter_modules
 
+from aurora_config import ConfigSchema, ConfigSpec, ConfigTemplate, config_entries
 from aurora_core.bootstrap import REGISTRY_DIRECTORY
-from aurora_core.configuration import ConfigTemplate
-from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
@@ -32,12 +31,10 @@ def install_commands(registry: DefinitionRegistry) -> None:
             "aurora_cli",
             register_to=Id("org.aurora.core:registries/schemas"),
         ),
-        RegistryEntry(
-            CONFIG,
-            "state_key",
-            StateKey(persistent=False, config=ConfigTemplate("aurora_cli")),
-            "aurora_cli",
-            register_to=Id("org.aurora.core:registries/state_keys"),
+        *config_entries(
+            Id("org.aurora.cli:configs/default"),
+            ConfigSpec(CONFIG, ConfigTemplate("aurora_cli"), ConfigSchema({})),
+            provider="aurora_cli",
         ),
     ]
     registry.register_many(entries)

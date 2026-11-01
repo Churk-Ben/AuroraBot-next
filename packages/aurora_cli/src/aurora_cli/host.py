@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
 
+from aurora_config import configuration_component
 from aurora_core.ctx import install_context
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
@@ -47,7 +48,7 @@ async def execute(
                 raise TypeError("装配工厂必须同步返回组件")
             if not isinstance(components, Iterable):
                 raise TypeError("装配工厂必须返回 LifecycleComponent 可迭代对象")
-            components = tuple(components)
+            components = (configuration_component(registry, ctx, hooks, storage), *components)
             if any(not isinstance(component, LifecycleComponent) for component in components):
                 raise TypeError("装配包含无效组件")
             lifecycle = Lifecycle(

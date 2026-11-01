@@ -14,7 +14,8 @@ from aurora_agent.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_agent.tools import plugin as tools_plugin
 from aurora_bot.assembly import DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
-from aurora_bot.assembly_config import CONFIG
+from aurora_config import configuration_component
+from aurora_config import plugin as configuration_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
@@ -27,9 +28,9 @@ from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
 from aurora_model_adapter import ModelConfig, ModelRequest
 from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
-from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
 from aurora_model_adapter.fake import FakeModel, FakeReply
 from aurora_model_adapter.plugin import plugin as adapter_plugin
+from configuration import configured_plugins
 
 ADAPTER = Id("dev.example.default:adapters/fake")
 TOOL = Id("dev.example.default:tools/echo")
@@ -73,7 +74,17 @@ async def run(args: argparse.Namespace) -> None:
     registry = bootstrap()
     register_plugins(
         registry,
-        (adapter_plugin(), model_plugin(), react_plugin(), tools_plugin(), defaults_plugin(), assembly_plugin()),
+        configured_plugins(
+            (
+                configuration_plugin(),
+                adapter_plugin(),
+                model_plugin(),
+                react_plugin(),
+                tools_plugin(),
+                defaults_plugin(),
+                assembly_plugin(),
+            )
+        ),
     )
     install_lifecycle_slots(registry)
     registry.register(RegistryEntry(ADAPTER, "adapter", create_model, "default_example", register_to=ADAPTERS))
@@ -110,44 +121,21 @@ async def run(args: argparse.Namespace) -> None:
     host = Lifecycle(
         ctx,
         hooks,
-        assembly.components(),
+        (configuration_component(registry, ctx, hooks, storage), *assembly.components()),
         persistence=ContextPersistence(ctx, storage.snapshot_store()),
         storage=storage,
     )
 
-    def configure_files() -> None:
-        defaults = {
-            CONFIG: {
-                "instance_id": "main",
-                "model_role": "reasoning",
-                "tools": [{"tool": str(TOOL), "instance_id": "echo", "config": {"prefix": "回显:"}}],
-            },
-            MODEL_CONFIG: {
-                "primary": {"adapter": str(ADAPTER), "model": "模型一"},
-                "secondary": {"adapter": str(ADAPTER), "model": "模型二"},
-            },
-            BINDINGS: {"reasoning": "primary"},
-        }
-        for key, value in defaults.items():
-            relative = {
-                CONFIG: "org.aurora.bot/config.toml",
-                MODEL_CONFIG: "org.aurora.model_adapter/profiles.toml",
-                BINDINGS: "org.aurora.model_adapter/bindings.toml",
-            }[key]
-            path = args.data_dir / "config" / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                with path.open("x", encoding="utf-8") as stream:
-                    stream.write(tomli_w.dumps(value))
-            except FileExistsError:
-                pass
+    def select_profile() -> None:
         if args.profile is not None:
-            (args.data_dir / "config/org.aurora.model_adapter/bindings.toml").write_text(
-                tomli_w.dumps({"reasoning": args.profile}), encoding="utf-8"
-            )
+            value = ctx.get(BINDINGS)
+            assert isinstance(value, dict)
+            value["reasoning"] = args.profile
+            path = args.data_dir / "config/org.aurora.model_adapter/bindings.toml"
+            path.write_text(tomli_w.dumps(value), encoding="utf-8")
+            ctx.set(BINDINGS, value)
 
-    configure_files()
-    await host.start()
+    await host.start(configure=select_profile)
     try:
         assert assembly.agent is not None and assembly.defaults is not None
         print("装配已启动；尚未激活。", flush=True)

@@ -19,6 +19,8 @@ class AbsentHosts(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, AbsentHosts())
 source = sys.argv.pop(1)
+from pathlib import Path
+sys.path.insert(0, str(Path(source).parent))
 runpy.run_path(source, run_name='__main__')
 assert not any(name.split('.')[0] in {'aurora_cli', 'aurora_api'} for name in sys.modules)
 """

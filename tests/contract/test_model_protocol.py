@@ -164,6 +164,9 @@ def test_incomplete_duplicate_and_late_chunks_are_rejected():
 
 
 def test_factory_creates_independent_instances_and_plugin_registers_existing_ids():
+    from aurora_config import plugin as configuration_plugin
+    from aurora_core.lifecycle import install_lifecycle_slots
+
     async def create(config: ModelConfig, *, api_key: str | None = None) -> ModelClient:
         assert api_key == "test-only"
         return FakeModel(lambda _: FakeReply((config.model,)))
@@ -180,6 +183,7 @@ def test_factory_creates_independent_instances_and_plugin_registers_existing_ids
 
     asyncio.run(scenario())
     registry = bootstrap()
-    register_plugins(registry, (plugin(),))
+    install_lifecycle_slots(registry)
+    register_plugins(registry, (configuration_plugin(), plugin()))
     assert all(item.status == AdmissionStatus.ACCEPTED for item in inspect_admissions(registry))
-    assert len([item for item in registry.entries() if item.id.namespace == "org.aurora.model_adapter"]) == 9
+    assert len([item for item in registry.entries() if item.id.namespace == "org.aurora.model_adapter"]) == 11

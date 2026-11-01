@@ -11,7 +11,8 @@ from aurora_core.registry import RegistryEntry
 
 
 @pytest.mark.parametrize("command", [["id/list"], ["id", "list"]])
-def test_list_definitions_without_starting_host(tmp_path, command):
+def test_list_definitions_without_starting_host(tmp_path, command, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "160")
     executed = []
     plugin = Plugin(
         "id_fixture",

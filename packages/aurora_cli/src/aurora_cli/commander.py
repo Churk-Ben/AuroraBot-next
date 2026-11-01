@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from importlib.metadata import version
 from typing import TextIO, cast
 
+from aurora_config import plugin as configuration_plugin
 from aurora_core.admission import AdmissionStatus, inspect_admissions
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import Plugin, load_plugins, register_plugins
@@ -51,6 +52,9 @@ async def run_cli(
             options.assembly = Id(cast(str, configured["assembly"]))
     install_commands(registry)
     install_lifecycle_slots(registry)
+    plugins = tuple(plugins)
+    if not any(item.name == "aurora_config" for item in plugins):
+        plugins = (configuration_plugin(), *plugins)
     register_plugins(registry, load_plugins(explicit=(*discover_commands(), *plugins), enabled=options.plugin))
     accepted = {
         admission.source

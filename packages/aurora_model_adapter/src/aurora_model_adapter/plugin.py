@@ -1,14 +1,13 @@
 """登记当前实现的模型协议入口；工厂及实例由装配显式选择。"""
 
+from aurora_config import ConfigSpec, ConfigTemplate, config_entries
 from aurora_core.bootstrap import KindReceiver
-from aurora_core.configuration import ConfigTemplate
-from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.registry import RegistryEntry
 
 from .adapters import create_litellm
-from .configuration import validate_bindings, validate_config
+from .configuration import BINDINGS, BINDINGS_SCHEMA, CONFIG, PROFILE_SCHEMA, check_bindings
 from .models import ModelCapabilities, ModelChunk, ModelRequest, ModelResponse
 from .protocols import ModelClient
 
@@ -21,26 +20,6 @@ def plugin() -> Plugin:
         ("schemas/model_response", "schema", ModelResponse, "schemas"),
         ("schemas/model_chunk", "schema", ModelChunk, "schemas"),
         ("schemas/model_capabilities", "schema", ModelCapabilities, "schemas"),
-        (
-            "state/config",
-            "state_key",
-            StateKey(
-                validate_config,
-                persistent=False,
-                config=ConfigTemplate("aurora_model_adapter", "config.tomls/profiles.toml"),
-            ),
-            "state_keys",
-        ),
-        (
-            "state/bindings",
-            "state_key",
-            StateKey(
-                validate_bindings,
-                persistent=False,
-                config=ConfigTemplate("aurora_model_adapter", "config.tomls/bindings.toml"),
-            ),
-            "state_keys",
-        ),
     )
     return Plugin(
         "aurora_model_adapter",
@@ -55,6 +34,23 @@ def plugin() -> Plugin:
             for path, kind, target, receiver in definitions
         )
         + (
+            *config_entries(
+                Id("org.aurora.model_adapter:configs/profiles"),
+                ConfigSpec(
+                    CONFIG, ConfigTemplate("aurora_model_adapter", "config.tomls/profiles.toml"), PROFILE_SCHEMA
+                ),
+                provider="aurora_model_adapter",
+            ),
+            *config_entries(
+                Id("org.aurora.model_adapter:configs/bindings"),
+                ConfigSpec(
+                    BINDINGS,
+                    ConfigTemplate("aurora_model_adapter", "config.tomls/bindings.toml"),
+                    BINDINGS_SCHEMA,
+                    check=check_bindings,
+                ),
+                provider="aurora_model_adapter",
+            ),
             RegistryEntry(
                 Id("org.aurora.model_adapter:adapters/litellm"),
                 "adapter",
@@ -63,4 +59,5 @@ def plugin() -> Plugin:
                 register_to=Id("org.aurora.model_adapter:registries/adapters"),
             ),
         ),
+        requires=("aurora_config",),
     )

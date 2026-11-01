@@ -9,14 +9,14 @@ from aurora_agent.react import AgentBusyError, ReActAgent
 from aurora_agent.react_defaults import ReActContext, ReActDefaults
 from aurora_agent.runtime import AgentRuntime
 from aurora_agent.tools import TOOLS, ToolExecutor, ToolInstance, ToolSpec
+from aurora_config import ConfigSpec, ConfigTemplate, config_entries
 from aurora_control import ExecutionRequest, InstanceStateBinding, StateBinding
 from aurora_core import entry_from, hook_handler
-from aurora_core.configuration import ConfigTemplate
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
-from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
+from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
 from aurora_core.storage import StorageService
 from aurora_model_adapter import ModelClient, require_capabilities
@@ -25,13 +25,13 @@ from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
 
 from .assembly_config import (
     AGENTS,
+    BOT_SCHEMA,
     CONFIG,
     MESSAGES,
     RUN,
     WORK,
     BotConfig,
     parse_config,
-    validate_config,
     validate_json,
 )
 from .cli import command_entries
@@ -108,10 +108,11 @@ class DefaultAssembly:
         try:
             for owner, phase, method in (
                 (model_owner, PREPARE, self.prepare_model),
-                (model_owner, STOP, self.stop_model),
+                (model_owner, CLEAN, self.clean_model),
                 (bot_owner, PREPARE, self.prepare_bot),
                 (bot_owner, START, self.start_bot),
                 (bot_owner, STOP, self.stop_bot),
+                (bot_owner, CLEAN, self.clean_bot),
             ):
                 definition = entry_from(method, provider="aurora_bot")
                 links.append(
@@ -309,6 +310,9 @@ class DefaultAssembly:
         if self._executing:
             raise RuntimeError("停止前须通过宿主结束在途激活")
         self._compact()
+
+    @hook_handler("org.aurora.bot:handlers/assembly/clean_bot", slot=CLEAN)
+    async def clean_bot(self) -> None:
         while self._owned_tools:
             owned = self._owned_tools[-1]
             if owned.aclose is not None:
@@ -322,8 +326,8 @@ class DefaultAssembly:
             self._run_operations.unbind(self.config["instance_id"], self.runtime)
             self._run_operations = None
 
-    @hook_handler("org.aurora.bot:handlers/assembly/stop_model", slot=STOP)
-    async def stop_model(self) -> None:
+    @hook_handler("org.aurora.bot:handlers/assembly/clean_model", slot=CLEAN)
+    async def clean_model(self) -> None:
         if self.client is not None:
             await self.client.aclose()
             self.client = None
@@ -360,26 +364,29 @@ def plugin() -> Plugin:
                 RegistryEntry(
                     key,
                     "state_key",
-                    StateKey(validator, persistent=False, config=ConfigTemplate("aurora_bot"))
-                    if key == CONFIG
-                    else StateKey(validator),
+                    StateKey(validator),
                     "aurora_bot",
                     register_to=Id("org.aurora.core:registries/state_keys"),
                 )
                 for key, validator in (
-                    (CONFIG, validate_config),
                     (AGENTS, validate_json),
                     (MESSAGES, validate_json),
                     (RUN, validate_json),
                     (WORK, validate_json),
                 )
             ),
+            *config_entries(
+                Id("org.aurora.bot:configs/default"),
+                ConfigSpec(CONFIG, ConfigTemplate("aurora_bot"), BOT_SCHEMA),
+                provider="aurora_bot",
+            ),
             *(
                 entry_from(getattr(DefaultAssembly, method), provider="aurora_bot")
-                for method in ("prepare_model", "stop_model", "prepare_bot", "start_bot", "stop_bot")
+                for method in ("prepare_model", "clean_model", "prepare_bot", "start_bot", "stop_bot", "clean_bot")
             ),
         ),
         requires=(
+            "aurora_config",
             "aurora_model_adapter",
             "aurora_agent.model",
             "aurora_agent.react",

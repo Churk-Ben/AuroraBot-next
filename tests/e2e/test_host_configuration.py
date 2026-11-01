@@ -20,7 +20,8 @@ def write_host(root, content):
     (directory / "host.toml").write_text(content, encoding="utf-8")
 
 
-def test_host_enables_plugins_before_discovery_without_initializing_resources(tmp_path):
+def test_host_enables_plugins_before_discovery_without_initializing_resources(tmp_path, monkeypatch):
+    monkeypatch.setenv("COLUMNS", "160")
     content = 'plugins = ["aurora_model_adapter"]\nassembly = "dev.missing:assemblies/app"\n'
     write_host(tmp_path, content)
     output = StringIO()

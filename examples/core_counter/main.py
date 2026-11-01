@@ -10,7 +10,7 @@ from aurora_core.ctx import Context, StateKey, install_context
 from aurora_core.discovery import Plugin, load_plugins, register_plugins
 from aurora_core.hooks import HookConnections, HookSlot
 from aurora_core.invocation import invoke_operation
-from aurora_core.lifecycle import PREPARE, STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
+from aurora_core.lifecycle import CLEAN, PREPARE, Lifecycle, LifecycleComponent, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
@@ -93,12 +93,12 @@ async def run_counter(data_dir: Path, name: str, amount: int) -> int:
             lambda change: print(f"{name}: {change.value}"), key=COUNT, location={"counter": name}
         )
 
-    @hook_handler("dev.example.counter:handlers/stop", slot=STOP)
-    def stop() -> None:
+    @hook_handler("dev.example.counter:handlers/clean", slot=CLEAN)
+    def clean() -> None:
         if subscription is not None:
             ctx.unsubscribe(subscription)
 
-    for phase, callback in ((PREPARE, prepare), (STOP, stop)):
+    for phase, callback in ((PREPARE, prepare), (CLEAN, clean)):
         entry = entry_from(callback, provider=PROVIDER)
         registry.register(entry)
         hooks.connect(phase, entry.id, slot_instance="counter", handler_instance="counter")

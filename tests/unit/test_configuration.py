@@ -5,8 +5,16 @@ from uuid import uuid4
 from zipfile import ZipFile
 
 import pytest
+from aurora_config import (
+    ConfigSchema,
+    ConfigSpec,
+    ConfigTemplate,
+    config_entries,
+    configuration_component,
+    load_configuration,
+    plugin,
+)
 from aurora_core.bootstrap import bootstrap
-from aurora_core.configuration import ConfigTemplate, load_configuration
 from aurora_core.ctx import Context, ContextSnapshot, StateAddress, StateKey, StateRecord
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
@@ -47,12 +55,12 @@ def package(tmp_path, monkeypatch):
 
 def definitions(name, resource="config.toml", *, owner=None, validate=None):
     registry = bootstrap()
-    registry.register(
-        RegistryEntry(
-            CONFIG,
-            "state_key",
-            StateKey(validate, persistent=False, config=ConfigTemplate(name, resource, owner)),
-            "测试插件",
+    registry.register_many(plugin().entries)
+    registry.register_many(
+        config_entries(
+            Id("dev.configuration:configs/options"),
+            ConfigSpec(CONFIG, ConfigTemplate(name, resource, owner), ConfigSchema({}, check=validate)),
+            provider="测试插件",
         )
     )
     return registry
@@ -80,12 +88,11 @@ def test_copy_resources_preserves_comments_and_user_files(tmp_path, package, res
 def test_explicit_owner_and_multiple_files(tmp_path, package):
     name = package({"config.tomls/first.toml": "value = 1", "config.tomls/second.toml": "value = 2"})
     registry = definitions(name, "config.tomls/first.toml", owner="dev.owner")
-    registry.register(
-        RegistryEntry(
-            SECOND,
-            "state_key",
-            StateKey(persistent=False, config=ConfigTemplate(name, "config.tomls/second.toml")),
-            "测试插件",
+    registry.register_many(
+        config_entries(
+            Id("dev.configuration:configs/bindings"),
+            ConfigSpec(SECOND, ConfigTemplate(name, "config.tomls/second.toml"), ConfigSchema({})),
+            provider="测试插件",
         )
     )
     records = load_configuration(registry, tmp_path / "data")
@@ -120,8 +127,12 @@ def test_rejects_conflicting_forms_missing_resource_and_destination_collision(tm
         load_configuration(definitions(name), tmp_path / "missing")
     name = package({"config.toml": ""})
     registry = definitions(name)
-    registry.register(
-        RegistryEntry(SECOND, "state_key", StateKey(persistent=False, config=ConfigTemplate(name)), "测试插件")
+    registry.register_many(
+        config_entries(
+            Id("dev.configuration:configs/bindings"),
+            ConfigSpec(SECOND, ConfigTemplate(name), ConfigSchema({})),
+            provider="测试插件",
+        )
     )
     with pytest.raises(ValueError, match="重复"):
         load_configuration(registry, tmp_path / "collision")
@@ -156,9 +167,43 @@ def test_configure_validates_all_records_before_commit_and_notification():
     assert ctx.snapshot(persistent_only=True).records == ()
 
 
-def test_template_states_require_explicit_non_persistence():
-    with pytest.raises(ValueError, match="不得持久化"):
-        StateKey(config=ConfigTemplate("example"))
+def test_template_states_require_explicit_non_persistence(tmp_path, package):
+    name = package({"config.toml": ""})
+    registry = definitions(name)
+    registry.replace(RegistryEntry(CONFIG, "state_key", StateKey(), "测试插件"))
+    with pytest.raises(ValueError, match="非持久"):
+        load_configuration(registry, tmp_path / "data")
+
+
+def test_cross_file_validation_finishes_before_any_configuration_is_injected(tmp_path, package):
+    from aurora_config.service import ConfigurationService
+
+    name = package({"config.tomls/options.toml": 'selected = "missing"', "config.tomls/bindings.toml": "known = true"})
+    registry = definitions(name, "config.tomls/options.toml")
+    observations = []
+
+    def check(values):
+        assert values[CONFIG] == {"selected": "missing"}
+        assert values[SECOND] == {"known": True}
+        raise ValueError("引用不存在")
+
+    registry.register_many(
+        config_entries(
+            Id("dev.configuration:configs/bindings"),
+            ConfigSpec(SECOND, ConfigTemplate(name, "config.tomls/bindings.toml"), ConfigSchema({}), check=check),
+            provider="测试插件",
+        )
+    )
+    ctx = Context(registry)
+    ctx.subscribe(observations.append)
+    storage = StorageService(tmp_path / "data")
+    try:
+        with pytest.raises(ValueError, match="bindings.toml.*引用不存在"):
+            ConfigurationService(registry, ctx, storage).configure()
+        assert ctx.list() == () and observations == []
+    finally:
+        storage.close()
+        ctx.close()
 
 
 def test_lifecycle_rebuilds_configuration_before_prepare_and_excludes_snapshot(tmp_path, package):
@@ -189,7 +234,11 @@ def test_lifecycle_rebuilds_configuration_before_prepare_and_excludes_snapshot(t
         )
         hooks.connect(PREPARE, identity, slot_instance="app", handler_instance="app")
         lifecycle = Lifecycle(
-            ctx, hooks, [LifecycleComponent("app")], persistence=ContextPersistence(ctx, store), storage=storage
+            ctx,
+            hooks,
+            [configuration_component(registry, ctx, hooks, storage), LifecycleComponent("app")],
+            persistence=ContextPersistence(ctx, store),
+            storage=storage,
         )
         return ctx, storage, store, lifecycle
 

@@ -22,7 +22,7 @@ from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateChange, StateKey
 from aurora_core.discovery import register_plugins
 from aurora_core.hooks import HookConnections
-from aurora_core.lifecycle import STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
+from aurora_core.lifecycle import CLEAN, STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
@@ -164,7 +164,7 @@ async def run(args: argparse.Namespace) -> None:
     async def stop_agent() -> None:
         await runtime.close()
 
-    @hook_handler("dev.example.react:handlers/close", slot=STOP)
+    @hook_handler("dev.example.react:handlers/close", slot=CLEAN)
     async def close() -> None:
         await client.aclose()
         keep = {model.output_state.address(request)}
@@ -179,10 +179,10 @@ async def run(args: argparse.Namespace) -> None:
                 ctx.delete(address.key, location=dict(address.location))
         agent.inbox.set(ctx, request, agent.pending(request))
 
-    for owner, handler in (("agent", stop_agent), ("model", close)):
+    for owner, phase, handler in (("agent", STOP, stop_agent), ("model", CLEAN, close)):
         entry = entry_from(handler, provider="react_example")
         registry.register(entry)
-        hooks.connect(STOP, entry.id, slot_instance=owner, handler_instance=owner)
+        hooks.connect(phase, entry.id, slot_instance=owner, handler_instance=owner)
     storage = StorageService(args.data_dir)
     host = Lifecycle(
         ctx,

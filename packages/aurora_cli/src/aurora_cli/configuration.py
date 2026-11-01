@@ -1,38 +1,33 @@
-"""插件发现前读取宿主 TOML；仅在启动本地宿主时创建缺失模板。"""
+"""宿主引导复用配置包的文件读取和结构校验，在插件发现前执行。"""
 
-import tomllib
 from importlib.resources import files
 from pathlib import Path
+from typing import cast
 
-from aurora_core.ids import Id
+from aurora_config import ConfigSchema, copy_missing, read_toml
+from aurora_config.templates import checked_path
+
+HOST_SCHEMA = ConfigSchema(
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "plugins": {"type": "array", "items": {"type": "string", "pattern": r"\S"}, "default": []},
+            "assembly": {"type": "string", "format": "aurora-id"},
+        },
+    }
+)
 
 
 def read_host_config(root: Path) -> dict[str, object]:
-    path = root.resolve() / "config" / "host.toml"
-    if path.resolve() != path:
-        raise ValueError(f"宿主配置路径存在重定向：{path}")
+    path = checked_path(root.resolve() / "config" / "host.toml")
     if not path.exists():
         return {}
     try:
-        value = tomllib.loads(path.read_text(encoding="utf-8-sig"))
-    except (tomllib.TOMLDecodeError, UnicodeError):
-        raise ValueError(f"宿主 TOML 无法解析：{path}") from None
-    if value.keys() - {"plugins", "assembly"}:
-        raise ValueError("host.toml 仅支持 plugins 和 assembly")
-    plugins = value.get("plugins", [])
-    if not isinstance(plugins, list) or any(not isinstance(name, str) or not name.strip() for name in plugins):
-        raise ValueError("host.toml 的 plugins 必须为插件名称列表")
-    if "assembly" in value:
-        Id(value["assembly"])
-    return value
+        return cast(dict[str, object], HOST_SCHEMA.parse(read_toml(path)))
+    except (ValueError, TypeError) as error:
+        raise ValueError(f"宿主配置 {path}：{error}") from None
 
 
 def initialize_host_config(directory: Path) -> None:
-    path = directory.resolve() / "host.toml"
-    if path.resolve() != path:
-        raise ValueError(f"宿主配置路径存在重定向：{path}")
-    try:
-        with path.open("xb") as stream:
-            stream.write(files("aurora_cli").joinpath("host.toml").read_bytes())
-    except FileExistsError:
-        pass
+    copy_missing(directory / "host.toml", files("aurora_cli").joinpath("host.toml").read_bytes())

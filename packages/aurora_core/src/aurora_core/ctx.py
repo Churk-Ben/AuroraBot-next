@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from threading import get_ident
 from typing import Literal
 
-from .configuration import ConfigTemplate
 from .declarations import entry_from, operation
 from .events import Event, EventBus
 from .ids import Id
@@ -21,18 +20,15 @@ class StateKey:
     """状态定义的可选同步校验器；通过时返回 None，拒绝时抛出异常。
 
     状态值须为支持独立深拷贝的数据。校验器收到独立副本，不通过返回值转换数据。
-    persistent 控制快照读写；配置模板须配合 persistent=False，启动时从 TOML 注入。
+    persistent 控制快照读写，非持久状态由宿主在启动时注入。
     """
 
     validate: Callable[[object], None] | None = None
     persistent: bool = True
-    config: ConfigTemplate | None = None
 
     def __post_init__(self) -> None:
         if type(self.persistent) is not bool:
             raise TypeError("persistent 必须为布尔值")
-        if self.config is not None and (not isinstance(self.config, ConfigTemplate) or self.persistent):
-            raise ValueError("配置模板必须使用 ConfigTemplate 且配置状态不得持久化")
         if self.validate is not None and (not callable(self.validate) or inspect.iscoroutinefunction(self.validate)):
             raise TypeError("状态校验器必须是同步回调")
 

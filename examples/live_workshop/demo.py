@@ -20,10 +20,10 @@ from aurora_bot.assembly import DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, MESSAGES, RUN, WORK
 from aurora_cli.declarations import CONFIG as CLI_CONFIG
+from aurora_config import ConfigSpec, ConfigTemplate
 from aurora_control import CONTROL_STATE, ExecutionPlug, ExecutionRequest, component_entries
 from aurora_control import plugin as control_plugin
 from aurora_core import Id, entry_from, hook_handler
-from aurora_core.configuration import ConfigTemplate
 from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
@@ -414,10 +414,10 @@ def plugins():
                 replace(
                     entry,
                     target=replace(
-                        entry.target, config=ConfigTemplate(__name__, "config.tomls/" + resources[entry.id])
+                        entry.target, template=ConfigTemplate(__name__, "config.tomls/" + resources[entry.target.state])
                     ),
                 )
-                if entry.id in resources and isinstance(entry.target, StateKey)
+                if isinstance(entry.target, ConfigSpec) and entry.target.state in resources
                 else entry
                 for entry in item.entries
             ),
