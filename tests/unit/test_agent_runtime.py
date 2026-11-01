@@ -109,6 +109,33 @@ def test_standalone_runtime_guidance_finish_boundary_and_waiter_cancellation():
     asyncio.run(scenario())
 
 
+def test_standalone_runtime_accepts_future_from_execute():
+    async def scenario():
+        entered = asyncio.Event()
+        completion: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        requests = []
+
+        def execute(request: ExecutionRequest) -> asyncio.Future[None]:
+            requests.append(request)
+            entered.set()
+            return completion
+
+        with standalone(entered.wait) as (agent, _, _, _):
+            runtime = AgentRuntime(get_agent=lambda: agent, execute=execute, is_executing=lambda: False)
+            runtime.start()
+            try:
+                handle = runtime.activate()
+                await asyncio.wait_for(entered.wait(), 2)
+                assert not handle.done
+                assert requests[0].run_id == handle.run_id
+                completion.set_result(None)
+                assert (await asyncio.wait_for(handle.wait(), 2)).status == "completed"
+            finally:
+                await runtime.close()
+
+    asyncio.run(scenario())
+
+
 def test_standalone_runtime_cancel_waits_for_host_cleanup():
     async def scenario():
         entered, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()

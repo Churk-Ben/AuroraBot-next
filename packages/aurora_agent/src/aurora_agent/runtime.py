@@ -185,7 +185,11 @@ class AgentRuntime:
     async def _execute(self, handle: RunHandle) -> RunResult:
         if handle._cancel_requested:
             return RunResult(handle.run_id, "cancelled")
-        handle._task = asyncio.create_task(self._activate(handle._request), name=f"agent-{handle.run_id}")
+
+        async def activate() -> None:
+            await self._activate(handle._request)
+
+        handle._task = asyncio.create_task(activate(), name=f"agent-{handle.run_id}")
         try:
             await handle._task
         except asyncio.CancelledError:

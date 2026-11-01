@@ -2,6 +2,12 @@
 
 ## 2026-11-01
 
+### AgentRuntime 执行回调类型修复
+
+- 创建激活任务时通过协程等待 execute 回调，保留 `Awaitable[None]` 接口，支持返回 Future 的宿主回调并消除 `asyncio.create_task` 参数类型错误。
+- 新增 Future 回调回归，验证运行句柄等待完成并保留 run_id；AgentRuntime 与默认装配相关 45 项测试通过，Python 类型检查无错误和警告。
+- 完整 `uv run --locked aurora check` 中 508 项 Python 测试、9 项工具链测试及 Python/TypeScript 类型和 lint 检查通过；Ruff 格式检查因本文档原有 ConfigSchema 示例及 `aurorabot-design-v0.2.3.md` 原有代码块格式未通过，未改动这两处内容。供应商 SDK 保留 1 项 Pydantic ReadOnly 提示。
+
 ### 五阶段生命周期与独立配置服务
 
 - core 提供 config、prepare、start、stop、clean 五个生命周期插槽。各启动阶段整体推进，依赖先执行；全部 stop 完成后按反向依赖 clean，最后由宿主保存业务状态并关闭存储和 ctx。配置或准备部分失败也进入清理，成功的 stop/clean 处理器不在重试时重复执行。
