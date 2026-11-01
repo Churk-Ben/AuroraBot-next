@@ -1,19 +1,19 @@
-# AuroraBot 初期设计文档 v0.2.2
+# AuroraBot 初期设计文档 v0.2.3
 
-版本：v0.2.2  
-设计版本日期：2026-10-29；执行包职责与命名对齐：2026-11-01。
+版本：v0.2.3
+设计版本日期：2026-10-29；执行包拆分、M2 验收与文档基线对齐：2026-11-01。
 
-状态：架构基线与当前实现说明；规划部分不代表已交付。
+状态：架构基线与当前实现说明；M2 已完成，M3 尚未开始。规划部分不代表已交付。
 
-配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
+配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
 
-控制组件由 aurora_control 提供，ReAct、模型调用、工具执行与运行管理由 aurora_agent 提供，aurora_bot 负责默认装配。五条可运行示例见 [启动指南](../examples/START.md)，执行定义见 [公共 ID 目录第 6 节](aurorabot-id-catalog-v0.2.2.md#6-控制agent-与-bot-定义已实现)。本文其余规划部分保留设计语境，当前验收范围见 [变更记录](CHAGELOG.md)。
+执行能力由三个平级包分担：`aurora_control` 提供执行契约与四种控制组合，`aurora_agent` 提供 ReAct、模型调用、工具执行与运行调度，`aurora_bot` 负责默认装配、资源和产品入口。五条可运行示例见 [启动指南](../examples/START.md)，执行定义见 [公共 ID 目录第 6 节](aurorabot-id-catalog-v0.2.3.md#6-控制agent-与-bot-定义已实现)，独立 harness 的边界与后续工作见 [拆包评估](aurora_agent_extraction_assessment.md)。本文其余规划部分保留设计语境，当前验收范围见 [变更记录](CHAGELOG.md)。
 
 ## 1. 项目概述
 
 AuroraBot 是一个以 ctx/hook 为总线、以 entrypoint 为插件发现入口、以命名空间 ID 为统一寻址方式的 bot 框架。Python 侧提供运行环境与能力装配，TypeScript 侧提供共享客户端、TUI、WebUI、文档站与落地页。
 
-总体架构采用微内核与插件装配：`aurora_core` 提供共享 ctx、对象登记与寻址、连接及最小调用机制；`aurora_bot` 装配默认插件；模型适配层提供统一模型服务；CLI 提供命令交互，API 为客户端连接后端提供传输支持。
+总体架构采用微内核与插件装配：`aurora_core` 提供共享 ctx、对象登记与寻址、连接及最小调用机制；`aurora_control` 提供执行契约和控制组合；`aurora_agent` 提供 ReAct、模型调用、工具执行与运行调度；`aurora_bot` 装配默认产品；模型适配层提供统一模型服务；CLI 提供命令交互，API 为客户端连接后端提供传输支持。
 
 公开资源、操作、插槽和扩展项使用稳定 ID 相互引用。命名空间组织归属与名称，组件通过显式连接组合；接口和 schema 随实际协作需要逐步明确，不要求先建立完整契约体系才能运行。
 
@@ -45,13 +45,18 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 
 | 包 | 职责 | 边界 |
 | --- | --- | --- |
-| `aurora_core` | 内存 ID 登记表、共享 ctx 与持久化基础、事件订阅、插槽连接、最小调用及生命周期 | 不实现 bot、模型、工具或具体流程控制业务 |
+| `aurora_core` | 内存 ID 登记表、共享 ctx 与持久化基础、事件订阅、插槽连接、最小调用及生命周期 | 不实现 bot、模型、工具或具体流程控制业务；不承担 TOML 加载与配置 schema 策略 |
+| `aurora_config` | 配置声明、结构及关联校验、TOML 模板处理与 config 阶段服务 | 基于 core；不承担模型、agent 或业务流程 |
 | `aurora_cli` | 启动前 ctx 预配置、命令发现、argv 解析、命令交互 | 不重复实现 ctx 或 bot 业务语义；缺席不影响无 CLI 的装配 |
 | `aurora_control` | 执行身份、状态绑定、连接契约与四种控制组合 | 仅依赖 core，不依赖 agent 或模型 |
 | `aurora_agent` | ReAct、模型调用、工具执行、默认阶段与运行调度 | 不依赖 bot、CLI 或 API；资源与地址由宿主提供 |
-| `aurora_bot` | TOML 配置、默认装配、资源所有权、运行操作及命令 | 不硬依赖 CLI/API 实现，不直接依赖具体模型 SDK |
+| `aurora_bot` | 默认配置与 TOML 模板、产品装配、资源所有权、运行操作及命令 | 不硬依赖 CLI/API 实现，不直接依赖具体模型 SDK；不复制 agent 的执行机制 |
 | `aurora_api` | client 与后端 ctx 交互所需的 HTTP/WS 传输、端点、事件信封及实际需要的契约导出 | 不作为插件接入总线，不预设任意 operation 的远端分发器 |
 | `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
+| `aurora_logging` | 宿主与库共用的日志级别、控制台输出、回溯与文件落盘配置 | 不依赖业务包，不参与 ctx 或插件登记 |
+| `aurora_world` | 世界输入与共享环境状态；当前为独立插件骨架 | 不依赖 bot 执行体系；世界变化通过 ctx 与 cadence 联系 |
+
+代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`model_adapter` 只依赖 core 并被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、model_adapter、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
 
 ### 3.2 TypeScript 侧与静态应用
 
@@ -62,6 +67,8 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | `aurora_panel` | 使用 Vue 生态构建 Web 对话、配置、ctx 查看与操作 | 通过 client 交互，保留 Web 界面行为 |
 | `docsite` | 文档页面、导航与公共 ID 参考 | 独立静态构建，不参与后端装配 |
 | `landing` | 项目介绍、导航与品牌资源 | 独立静态构建，不参与后端装配 |
+
+以下 TS 包与静态应用尚未全部建立，保留为设计边界；当前仓库已有 `aurora_client` 骨架以及 `apps/aurora_tui`、`apps/aurora_panel`、`apps/docsite`、`apps/landing` 的入口，业务实现随 M3、M4 推进。
 
 “bot 包保持薄”约束装配职责。默认能力可以作为插件与装配代码同包发布，或以后拆分；命名空间归属不要求与物理代码目录一一对应。
 
@@ -90,10 +97,14 @@ ID 不自动映射为文件路径、导入路径、HTTP URL、执行顺序或组
 | 包或应用 | 命名空间 | 定义所在环境 |
 | --- | --- | --- |
 | `aurora_core` | `org.aurora.core` | Python 运行时 |
+| `aurora_config` | `org.aurora.config` | Python 运行时 |
 | `aurora_cli` | `org.aurora.cli` | Python 运行时 |
+| `aurora_control` | `org.aurora.control` | Python 运行时 |
+| `aurora_agent` | `org.aurora.agent` | Python 运行时 |
 | `aurora_bot` | `org.aurora.bot` | Python 运行时 |
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
 | `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
+| `aurora_logging`、`aurora_world` | `org.aurora.logging`、`org.aurora.world` | Python 运行时；当前未登记公共定义 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
 | `aurora_tui` | `org.aurora.tui` | TUI 本地 |
 | `aurora_panel` | `org.aurora.panel` | WebUI 本地 |
@@ -118,6 +129,7 @@ ID 不自动映射为文件路径、导入路径、HTTP URL、执行顺序或组
 | `schema` | 需要显式维护的数据描述与校验定义 |
 | `state_key` | ctx 状态项定义，不建立内部访问隔离 |
 | `event` | 可发布、订阅的事件类型定义 |
+| `config` | 配置声明，关联非持久状态、结构校验与 TOML 模板 |
 | `command`、`adapter`、`assembly`、`endpoint` | 由对应接收方解释的扩展类型 |
 | 视图、界面动作、页面、生成契约 | 由本地应用或构建环境解释的类型 |
 
@@ -125,7 +137,7 @@ ID 不自动映射为文件路径、导入路径、HTTP URL、执行顺序或组
 
 ### 4.4 定义与实例
 
-公共 ID 标识定义；同一定义创建的多个对象通过实例标识区分，不以业务数据改变定义身份。bot 当前使用以下身份：
+公共 ID 标识定义；同一定义创建的多个对象通过实例标识区分，不以业务数据改变定义身份。执行组件当前使用以下身份：
 
 | 字段 | 用途 |
 | --- | --- |
@@ -169,9 +181,11 @@ list 返回已赋值的精确地址并排序；缺失 get 抛 KeyError，已登�
 
 需要恢复的数据在运行期间异步自动落盘。正常退出前完成待写入数据及停止过程中最后变更的落盘，再释放相关内存。
 
-当前持久化保存全部 ctx，并要求严格 JSON 数据；Context.set 本身只执行已配置的状态校验，不保证值一定能落盘。运行时服务对象、连接、函数与任务由装配持有，不进入 ctx。凭证通过运行期参数注入。模型配置与角色绑定的可恢复描述、重建方式仍待 M2.2 明确，不要求建立独立对象管理器或完整状态分类系统。
+当前持久化保存全部 ctx，并要求严格 JSON 数据；Context.set 本身只执行已配置的状态校验，不保证值一定能落盘。运行时服务对象、连接、函数与任务由装配持有，不进入 ctx。凭证通过运行期参数注入。模型配置与角色绑定使用 `aurora_config` 的非持久配置状态与 `org.aurora.model_adapter:state/config`、`state/bindings`，启动时重建客户端；不建立独立的运行时对象管理器或完整状态分类系统。
 
-ContextPersistence 默认每 0.5 秒合并写入，临时文件写完后替换正式快照；宿主先恢复再 configure、prepare/start。异步写入不承诺崩溃零丢失，正常退出由宿主保证最终 flush。业务保留策略由应用决定；controller 清理终态调用，示例清理中间值及历史结果，core 不裁剪完整快照。
+ContextPersistence 默认每 0.5 秒合并写入，临时文件写完后替换正式快照；宿主先恢复，再执行 config 阶段，之后 configure 与 prepare/start。异步写入不承诺崩溃零丢失，正常退出由宿主保证最终 flush。业务保留策略由应用决定；controller 清理终态调用，示例清理中间值及历史结果，core 不裁剪完整快照。
+
+配置由 `aurora_config` 声明与加载：插件通过 `ConfigSpec`、`ConfigSchema`、`ConfigTemplate` 与 `config_entries` 声明配置及对应的非持久状态。宿主在恢复业务状态后执行 config 阶段，完成全部文件与关联校验并原子注入 ctx，再执行 prepare/start。TOML 是配置的持久来源，只复制缺失的用户文件，不覆盖已有内容；运行期凭证单独解析，不进入模板、ctx、快照或日志。
 
 ### 5.4 命名空间目录与结构化存储
 
@@ -219,7 +233,7 @@ commands、hook_slots、resources 等逻辑注册表可以基于总表提供分�
 | --- | --- |
 | `org.aurora.core:registries/registries` | 由宿主直接引导建立；自身描述是否在目录中列出属于实现选择 |
 | core 其余逻辑注册表 | 登记到上述注册表目录 |
-| CLI commands、模型 adapters、bot tools/agents/mcp_servers、API endpoints | 对应提供方存在时登记到上述目录 |
+| CLI commands、模型 adapters、bot tools/agents/mcp_servers、API endpoints、config 配置声明 | 对应提供方存在时登记到上述目录 |
 | TS 本地与静态构建目录 | 在各自环境管理，不自动登记到 Python core |
 
 通用 resources 注册表可以接收 resource、assembly、contract 等已约定类型。登记项保留自己的 kind，由接收方按需要选择加载与校验方式；不因进入 resources 就改成另一种身份。prompt、theme、keymap 等具体内容可附带必要描述，不强制建立完整子类型系统。
@@ -244,11 +258,11 @@ slot: org.aurora.agent:react/prepare
 ### 6.4 发现与装配
 
 1. 宿主建立 core 总表、目录、ctx 及必要基础能力。
-2. 读取显式装配清单，并按配置发现 Python entry points。
+2. 读取显式装配清单，并按配置发现 `aurora.plugins` 入口点。
 3. 收集定义和连接声明，登记 ID，检查重复身份等基础问题。
 4. 已存在的接收方处理登记与连接，按需要判断接口兼容性；缺席的接收方记录 warning 与未连接状态。
 5. 选择组件实例、资源与服务，形成当前装配。
-6. 执行生命周期 prepare/start，工作结束后按依赖逐步停止。
+6. 执行 config 阶段校验并注入配置，再执行生命周期 prepare/start，工作结束后按依赖逐步停止。
 
 entry point 的 group、名称和导入路径只承担发现职责。实现只检查实际需要的规则，不以“缺少独立契约文件”为理由拒绝可以运行的特殊连接。
 
@@ -260,7 +274,7 @@ entry point 的 group、名称和导入路径只承担发现职责。实现只�
 
 组件可以同时提供插头与插槽。公共处理器与公共插槽分别拥有 ID，通过显式关系连接；运行时实例连接还应能区分各组件实例，不从 ID 路径或同名关系推导。
 
-bot 的 ExecutionPlug/ExecutionSlot 在连接时交换双方 StateBinding 与可选 schema。业务输入输出由实例自行读写 ctx；执行请求仅携带 run_id、execution_id 与父调用身份，返回值不承载业务结果。调用方等待执行来判断结束，订阅 ctx 变化或事件来观察更新；组件可按实际需要订阅变化触发工作，但不默认所有写入都是执行入口。core 的通用调用接口仍可处理普通函数参数与返回值。
+control 的 ExecutionPlug/ExecutionSlot 在连接时交换双方 StateBinding 与可选 schema。业务输入输出由实例自行读写 ctx；执行请求仅携带 run_id、execution_id 与父调用身份，返回值不承载业务结果。调用方等待执行来判断结束，订阅 ctx 变化或事件来观察更新；组件可按实际需要订阅变化触发工作，但不默认所有写入都是执行入口。core 的通用调用接口仍可处理普通函数参数与返回值。
 
 ### 7.2 接口描述与兼容判断
 
@@ -269,7 +283,7 @@ bot 的 ExecutionPlug/ExecutionSlot 在连接时交换双方 StateBinding 与可
 | 情况 | 处理方向 |
 | --- | --- |
 | 双方描述一致 | 接收方按自身规则连接 |
-| 描述不同但可兼容 | 允许连接；bot 执行连接在双方均提供 schema 且描述不同时输出 warning |
+| 描述不同但可兼容 | 允许连接；ExecutionSlot 在双方均提供 schema 且描述不同时输出 warning |
 | 无法静态确认兼容 | 接收方可允许尝试并告警，由运行时检验实际行为 |
 | 少量特殊连接没有正式 schema | 可以依赖签名、类型、双方约定和实际运行，不强制补契约 |
 | 接收方明确无法处理 | 可以拒绝该连接，并说明原因，不将其伪装为成功连接 |
@@ -319,29 +333,31 @@ prepare/start/stop 沿用既有生命周期插槽。正常退出类似插排逐�
 
 ### 7.6 默认 ReAct 与扩展
 
-aurora_agent 提供 prepare、infer、act、observe、finish、error 插槽。ReActDefaults 将上下文构建、ModelCall、响应解释、ToolExecutor 与观察接纳显式连接到工作阶段；finish/error 可不连接处理器。ModelCall 的组件定义为 `org.aurora.agent:handlers/model_call`。
+aurora_agent 提供 ReActAgent 和 prepare、infer、act、observe、finish、error 六个阶段插槽。ReActDefaults 将上下文构建、ModelCall、响应解释、ToolExecutor 与观察接纳显式连接到工作阶段；finish/error 可不连接处理器。ModelCall 的组件定义为 `org.aurora.agent:handlers/model_call`。
 
-默认过程准备输入并推理，需要工具时执行动作、接纳观察并继续推理，得到结果或达到终止条件后收束。循环和终止由装配的控制组件负责；处理器列表不构成可执行流程。完成、取消和失败保持不同运行状态。
+ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正整数；控制组合只负责外层调用结构。AgentRuntime 管理提交、激活、等待和取消，通过宿主提供的 agent 获取、执行和占用查询接入；运行句柄仅存在于进程内。默认装配在启动后绑定 runtime；恢复出的中断运行标记为 failed，不自动续跑。
 
-工具、多模型选择与聚合、agent 通信及 MCP 由 bot 插件提供，模型执行使用注入的 ModelClient。core 不增加对应业务机制。
+引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具、多模型选择与聚合、agent 通信及 MCP 由 bot 插件提供，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
 
 ## 8. 模型适配与绑定
 
-`aurora_model_adapter` 已提供 ModelClient/ModelFactory 协议、JSON 请求/响应/流式片段、能力声明、ResponseBuffer 与确定性 FakeModel。插件登记 adapters 注册表、model_client 服务与四个模型 schema。LiteLLM 是规划中的真实适配器，尚未实现；FakeModel 无需网络或密钥，没有独立 adapter ID。
+`aurora_model_adapter` 提供 ModelClient/ModelFactory 协议、JSON 请求/响应/流式片段、能力声明、ResponseBuffer 与确定性 FakeModel。插件登记 adapters 注册表、model_client 服务与四个模型 schema。LiteLLM 适配器已实现并按需启用；FakeModel 无需网络或密钥，没有独立 adapter ID。
 
-装配选择适配器、连接配置和逻辑模型角色，创建服务实例并注入组件。同一服务定义可以绑定多个实例，不通过修改公共服务 ID 区分具体模型。
+装配选择适配器、连接配置和逻辑模型角色，创建服务实例并注入组件。同一服务定义可以绑定多个实例，不通过修改公共服务 ID 区分具体模型。模型 profiles、角色 bindings 与默认 bot 配置使用包内 TOML 模板；用户文件位于 `<data-dir>/config/<命名空间>/`，只复制缺失文件并保留用户内容。凭证只保存环境变量名称，运行期解析且不写入 ctx。
 
-ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 aclose。ModelFactory 异步接收 ModelConfig(model, base_url) 和单独的 api_key 参数；当前只有协议，工厂加载与绑定恢复待实现。能力包含 streaming、tool_calls，能力不足明确拒绝，不自动降级。SDK 类型不上泄，不增加独立工厂 schema ID。
+ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 aclose。ModelFactory 异步接收 ModelConfig 和单独的 api_key 参数；工厂加载与角色绑定恢复已接入默认装配。能力包含 streaming、tool_calls，能力不足明确拒绝，不自动降级。SDK 类型不上泄，不增加独立工厂 schema ID。
 
 模型数据使用 TypedDict 表达普通 JSON。文本按 text chunk 增量输出；工具名称与 JSON 对象参数由适配层组装成完整 ToolCall 后输出，bot 不接收半截 JSON。ResponseBuffer 只保存累计结果，要求唯一且最后的 finish，缺失结束片段明确失败。结束原因区分 stop、tool_calls、length、content_filter，不将模型响应结束等同于对话完成。
 
 `aurora_agent.model` 的 ModelCall 从约定 ctx 地址读取请求，在同一输出地址更新 status、execution_id、text、tool_calls、finish_reason。失败或取消保留已收到的部分文本并标记 failed/cancelled，错误继续传播，不保存片段历史。完整响应接口在返回前不提供部分文本。
 
-单次响应流由调用组件关闭；共享客户端由创建它的装配在所有调用结束后关闭。同一输出地址须串行调用，组件不保证共享客户端任意并发安全。ModelCall 的 completed 只表示该模型请求完成，工具执行与下一轮推理由后续装配实现。连接配置与绑定恢复继续讨论，不增加独立配置／秘密／对象管理子系统。
+单次响应流由调用组件关闭；共享客户端由创建它的装配在所有调用结束后关闭。同一输出地址须串行调用，组件不保证共享客户端任意并发安全。ModelCall 的 completed 只表示该模型请求完成，工具执行与下一轮推理由后续装配实现。连接配置与绑定恢复沿用 TOML 和状态地址，不增加独立配置／秘密／对象管理子系统。
 
 ## 9. CLI、API 与事件传输
 
 CLI 将 argv 转为对应接口使用或操作调用，不重复实现 ctx 与 bot 行为。bot 可以在自己的命名空间声明命令、端点等入口，引用 CLI/API 的公开注册目标；这不要求导入或安装它们的实现。
+
+当前 CLI 提供 ctx 读写、观察、`id list`、`run` 和 bot 的 `run submit` / `run activate` / `run cancel`。`run` 启动选定装配后等待取消；提交类命令在本次进程内完成一次提交、等待运行收尾并输出流式 JSON，然后退出。运行中的外部输入与界面关联仍待 M3 的 D10 决策，本版不提供常驻提交通道。
 
 API 为 client 提供后端连接和 ctx 访问所需传输，不作为插件扩展总线。API 可以提供明确需要的额外端点，但不预设统一的任意 operation 远端调用系统，也不要求先经过 CLI 描述才能实现 ctx 传输。
 
@@ -369,7 +385,7 @@ TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各�
 
 消息提交、取消等界面动作保留既有公共 ID，但本版不决定它们如何与 bot 执行发生联系。特别是不预设“写入某个 ctx 输入项就触发运行”，也不要求通过 bot operation 或 conversation 端点发起。相关机制属于后续 bot 设计讨论。
 
-既有 bot send/cancel operation 和 conversation 端点保留为规划定义，不表示它们是 TUI/Panel 必经入口；界面动作与它们之间没有本版强制建立的绑定。
+既有 bot send/cancel operation 和 conversation 端点保留为规划定义，不表示它们是 TUI/Panel 必经入口；界面动作与它们之间没有本版强制建立的绑定。该决策记为 D10，最迟在 M3.6 界面动作联通前完成；当前 bot 的 `run submit/activate/cancel` 是进程内运行入口，不构成界面提交协议。
 
 ### 10.3 按需生成
 
@@ -384,10 +400,14 @@ TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各�
 | 使用方 | 代码依赖方向 | ID 引用与连接 |
 | --- | --- | --- |
 | `aurora_core` | 通用基础依赖 | 不依赖业务包；维护当前后端总表 |
+| `aurora_config` | core | 提供配置声明、校验、模板与 config 阶段服务 |
 | `aurora_model_adapter` | core | 提供适配器和 ModelClient 定义 |
-| `aurora_bot` | core、模型适配层公开协议 | 可声明面向 CLI/API 的入口，不硬依赖其实现 |
-| `aurora_cli` | core | 接收已启用的命令声明，不导入 bot 插件实现 |
+| `aurora_control` | core | 提供执行契约、控制组合与控制状态 |
+| `aurora_agent` | core、control、model_adapter | 提供 ReAct、模型调用、工具执行与运行调度 |
+| `aurora_bot` | core、control、agent、model_adapter | 可声明面向 CLI/API 的入口，不硬依赖其实现 |
+| `aurora_cli` | core、api | 接收已启用的命令声明，不导入 bot 插件实现 |
 | `aurora_api` | core；按实际需要复用 CLI 公开适配描述 | 提供 client 传输；不强制经过 CLI，不导入 bot 插件实现 |
+| `aurora_logging`、`aurora_world` | core；按实际需要 | 当前分别提供日志配置与世界插件骨架，未登记业务定义 |
 | `aurora_client` | TS 传输与所需生成类型 | 实现统一 ctx 接口和既有 ctx ID 入口 |
 | `aurora_tui`、`aurora_panel` | client | 使用 ctx interface，不参与后端插件装配 |
 | `docsite`、`landing` | 各自构建依赖 | 独立解析页面和资源 |
@@ -397,10 +417,15 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | 路径 | 内容 |
 | --- | --- |
 | `packages/aurora_core/` | 微内核 |
+| `packages/aurora_config/` | 配置声明、校验与 TOML 加载 |
+| `packages/aurora_control/` | 执行契约与控制组合 |
+| `packages/aurora_agent/` | ReAct、模型调用、工具执行与运行调度 |
 | `packages/aurora_model_adapter/` | 模型适配 |
-| `packages/aurora_bot/` | 默认装配与默认插件 |
+| `packages/aurora_bot/` | 默认装配、配置与产品入口 |
 | `packages/aurora_cli/` | CLI |
 | `packages/aurora_api/` | 后端传输 |
+| `packages/aurora_logging/` | 日志配置 |
+| `packages/aurora_world/` | 世界输入与共享环境状态骨架 |
 | `packages/aurora_client/` | TS 共享 ctx 访问与连接 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 终端与 Web 界面 |
 | `apps/docsite/`、`apps/landing/` | 静态应用 |
@@ -424,26 +449,35 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | --- | --- |
 | M0 骨架 | Monorepo、ID 格式、统一登记项与总表、自举、逻辑注册表、未连接告警；按需接口描述的表达方式 |
 | M1 微内核可用 | 显式 ctx 操作及其当前用例所需行为、变化订阅、异步落盘、逐步关闭与最终落盘、插槽连接与调用、CLI 基础入口 |
-| M2 最小 bot | 默认装配及实际所需控制组件、单模型 ReAct、提示词、ModelClient、LiteLLM 与基本工具路径；明确实际连接与工厂接口 |
+| M2 最小 bot | 默认装配、控制组件、单模型 ReAct、ModelClient、LiteLLM、TOML 配置与绑定恢复、基本工具路径、运行提交与取消 |
 | M3 client、API 与 TUI | ctx interface、HTTP/WS 传输、实际订阅和重连行为、需要的生成类型、界面数据范围与连接访问控制、OpenTUI 界面 |
 | M4 能力扩展 | 多模型、agent 通信、MCP、Vue Panel、文档站与落地页 |
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消等 bot 交互机制另行讨论，本表不替代该设计。
 
-当前 M0、M1 完成，M2.1 完成，M2.2 与 M2.5 具备组件基础，M2 整体仍在进行；M3、M4 未进入业务实现。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收（默认装配、模型协议与适配、ReAct 工具循环、公共运行操作、CLI 观察及关闭恢复）。M3 尚未开始，D08、D09、D10 仍待决策；M4 未进入实现。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 
-1. **默认装配与恢复。** 根组件、实例连接、角色绑定的最小表示，以及恢复配置后重建运行时对象；不提前设计完整执行语言。
-2. **真实模型适配。** LiteLLM 增量工具参数组装、错误映射、超时与 HTTP 资源关闭。
-3. **工具与 ReAct。** 参数校验、失败与观察表达、工具往返、循环终止及取消收尾。
-4. **bot 交互机制。** send 的返回/等待、忙碌与重复提交、取消竞态、遗留运行处理；界面关联机制单独确认。
-5. **client 连接。** 传输订阅、信封、断线与重连、对界面提供的数据及外部访问方式。
-6. **公共接口维护。** 从实际边界提炼必要的 schema、兼容与迁移规则，不预设通用证明系统，不以规划 ID 证明接口已经冻结。
+1. **界面动作关联（D10）。** send 的返回与等待、忙碌与重复提交、取消竞态、遗留运行处理，以及界面动作通过何种机制关联运行；M3.6 前完成。
+2. **client 连接（D08、D09）。** 对外数据与访问边界、传输订阅、信封、断线重连、慢消费者和重新获取状态策略。
+3. **独立 harness。** 复用 core、model_adapter、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
+4. **世界与 cadence。** `aurora_world` 作为并行接入根生命周期的插件维护世界状态；cadence 订阅选定地址并把引导写入 agent 的 inbox。完整唤醒工具与子代理仍属后续切片。
+5. **公共接口维护。** 从实际边界提炼必要的 schema、兼容与迁移规则，不预设通用证明系统，不以规划 ID 证明接口已经冻结。
 
 ## 15. 变更记录
 
-### 15.1 v0.2.2
+### 15.1 v0.2.3
+
+- 执行能力拆分为平级的 `aurora_control` 与 `aurora_agent`：control 承载执行契约和四种控制组合，agent 承载 ReAct、模型调用、工具执行、默认阶段与运行调度；`aurora_bot` 保留配置、默认装配、资源所有权和产品入口。
+- 公共 ID 与插件入口按包归属：control 使用 `org.aurora.control`，agent 使用 `org.aurora.agent`；发现分组为 `aurora.plugins`，运行时不提供旧导入路径、旧插件名或旧 ID 别名。
+- AgentRuntime 通过宿主提供的 agent 获取、执行与占用查询连接，不再访问 `DefaultAssembly` 私有成员；运行句柄仍只存在于进程内。
+- 补充 M2 已完成状态：LiteLLM 适配、TOML 模型 profiles 与角色绑定、基本工具往返、CLI `run submit/activate/cancel`、取消与重启恢复均已验收；M3 与 D10 尚未开始。
+- 配置声明、结构校验、TOML 模板与 config 阶段服务归属 `aurora_config`；core 保留通用状态、持久化与生命周期机制。
+- 明确独立 harness 的目标集合为 core、model_adapter、control 与 agent，并记录拆包边界、测试与后续工作。
+- 同步包职责、命名空间、依赖方向、目录与里程碑；补充 `aurora_logging`、`aurora_world` 的当前边界。
+
+### 15.2 v0.2.2
 
 - core 明确维护 `Id → RegistryEntry` 内存哈希表；逻辑注册表可基于总表提供视图与接入行为，定义、实例、状态值分别管理。
 - 明确可选 CLI/API 接收方缺席时保留未连接声明并告警，不因此阻断整个插件加载。
@@ -455,14 +489,14 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 - 明确类似插排逐步断开的退出顺序，最后写入完成后落盘，再释放存储和剩余资源。
 - 同步依赖说明、里程碑和配套目录，沿用既有公共 ID 与 kind。
 
-### 15.2 v0.2.1
+### 15.3 v0.2.1
 
 - 明确个人单租户、唯一 bot 后端、多客户端与内部共享 ctx。
 - 明确内存工作区、显式变更、异步持久化和正常退出收尾。
 - 移除内部命名空间授权前提，补充目录与插件数据库边界。
 - 明确插头／插槽、树形装配和插件流程控制；TUI 使用 OpenTUI，Panel 使用 Vue 生态。
 
-### 15.3 v0.2
+### 15.4 v0.2
 
 - 在 ctx/hook、插件发现和包边界基础上加入统一命名空间 ID。
 - 区分定义与实例、插槽与处理器、命令／端点与操作。

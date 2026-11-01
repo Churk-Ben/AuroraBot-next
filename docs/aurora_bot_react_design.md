@@ -1,5 +1,7 @@
 # 主动 bot、ReActAgent 与外围环境的设计决策
 
+> 实施位置：ReActAgent、六个阶段插槽、ReActDefaults 与 AgentRuntime 现由 `aurora_agent` 提供；`aurora_control` 提供执行契约。本文保留设计讨论语境，当前 ID 见 [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。
+
 ## 要点
 
 - 设计以 bot 为中心：外围环境提供感知、执行、持久化与调度条件，尊重 bot 对关注对象、目标推进和行动的选择。没有新用户消息时，bot 仍可推进目标或主动行动；回复消息是可选择的行动，一次激活允许不采取行动就正常结束。
@@ -102,7 +104,7 @@ A: 我先对照现有组件、插头插槽和公共 ID 约定，整理 ReActAgen
 
 可以，现在已经足够设计 ReActAgent 的组件身份、执行端口、阶段插槽，以及 cadence 与它之间的引导约定。下面是接口草案。
 
-按照现有连接约定 (/E:/Aurora/AuroraBot-next/docs/aurorabot-design-v0.2.2.md:253)，cadence 提供调用插槽，ReActAgent 提供执行插头；ReActAgent 内部再提供阶段插槽，接入模型、工具等组件。
+按照现有连接约定（[设计文档](aurorabot-design-v0.2.3.md)第 7.1 节），cadence 提供调用插槽，ReActAgent 提供执行插头；ReActAgent 内部再提供阶段插槽，接入模型、工具等组件。
 
 world ──变化通知──→ cadence
                       │

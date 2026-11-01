@@ -117,7 +117,7 @@ plugins = [
 assembly = "org.aurora.bot:assemblies/default"
 ```
 
-只使用执行契约不要求启用控制插件；使用四种控制组合时额外启用 `aurora_control`。组件定义、执行端口和状态归属见[公共 ID 目录](../docs/aurorabot-id-catalog-v0.2.2.md)。
+只使用执行契约不要求启用控制插件；使用四种控制组合时额外启用 `aurora_control`。组件定义、执行端口和状态归属见[公共 ID 目录](../docs/aurorabot-id-catalog-v0.2.3.md)。
 
 ## 真实模型验收
 

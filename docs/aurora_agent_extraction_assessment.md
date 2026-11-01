@@ -1,6 +1,6 @@
 # aurora_agent 拆包与 aurora_harness 独立化评估
 
-评估日期：2026-11-01。本文说明 control、agent 与 bot 的职责边界，以及独立 harness 的后续工作；实现与验收记录见 [变更记录](CHAGELOG.md)。
+评估日期：2026-11-01。本文说明 control、agent 与 bot 的职责边界，以及独立 harness 的后续工作；实现与验收记录见 [变更记录](CHAGELOG.md)。实施状态：阶段一（独立组件包）与阶段二（运行调度解耦）已完成；阶段三（独立 harness 最小宿主）尚未开始，恢复与裁剪辅助的可复用提取随该阶段处理。
 
 ## 1. 结论与目标
 

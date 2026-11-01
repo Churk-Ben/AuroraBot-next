@@ -1,20 +1,20 @@
 # AuroraBot 里程碑与编码计划
 
-日期：2026-10-30；实现核对基线：`4eb4d6e`。
+日期：2026-11-01；实现核对基线：`7b84b6b`。
 
-设计基线：[初期设计 v0.2.2](aurorabot-design-v0.2.2.md)、[公共 ID 目录 v0.2.2](aurorabot-id-catalog-v0.2.2.md)。
+设计基线：[初期设计 v0.2.3](aurorabot-design-v0.2.3.md)、[公共 ID 目录 v0.2.3](aurorabot-id-catalog-v0.2.3.md)、[执行包拆包评估](aurora_agent_extraction_assessment.md)。
 
 本计划细化设计中的 M0–M4，作为任务拆分、编码顺序和阶段验收依据。任务编号仅用于计划追踪，不是公共 ID。下文模块路径是建议的代码落点，按实际复杂度拆分，不要求提前创建全部文件。
 
 ## 1. 实施基线与范围
 
-M0、M1 已完成。core 的登记、ctx、订阅、持久化、连接调用与生命周期，以及 CLI 基础宿主和检查入口均可使用。M2.1 模型协议与确定性假模型已完成；aurora_control 提供四类控制组件，aurora_agent 提供通过 ctx 交换数据的 ModelCall 和 ReAct 组件。五个示例的启动方式见 [示例指南](../examples/START.md)。
+M0、M1、M2 已完成。core 的登记、ctx、订阅、持久化、连接调用与生命周期，`aurora_config` 的配置声明与加载（工作区迁移中），`aurora_control` 的执行契约与控制组合，`aurora_agent` 的 ReAct、模型调用、工具执行与运行调度，以及 `aurora_bot` 的默认装配与 CLI 运行入口均可使用；M2.8 于 2026-10-31 通过整体验收。五个示例的启动方式见 [示例指南](../examples/START.md)。
 
-M2 仍在进行：默认装配与绑定恢复、真实模型适配、对话提交/取消、ReAct 工具循环及 CLI 对话尚未完成。API、共享 client 和四个应用仍为骨架。下文任务表保留各阶段的交付范围，不表示所有条目均未开始；当前接续任务见第 6、11 节与 [M2 交接](m2-handoff.md)。
+M3 尚未开始：API、共享 client、TUI/Panel 以及界面动作关联（D10）仍待实现；M4 扩展分支未进入实现。执行包已按 control、agent、bot 分层，独立 harness 的边界与剩余工作见[拆包评估](aurora_agent_extraction_assessment.md)。下文任务表保留各阶段的交付范围，不表示所有条目均未开始。
 
 实施必须保持以下边界：
 
-- core 维护通用登记、ctx、连接、订阅、最小调用和生命周期；ReAct、工具、选择、并行、循环等控制逻辑由 bot 插件提供。
+- core 维护通用登记、ctx、连接、订阅、最小调用和生命周期；执行契约与控制组合由 `aurora_control` 提供，ReAct、模型、工具与运行调度由 `aurora_agent` 提供，产品装配由 `aurora_bot` 提供。
 - 定义 ID、组件实例、状态值、事件实例分别管理；命名空间不是内部权限边界，不从 ID 路径推导执行顺序、URL 或文件位置。
 - 插槽接收方判断兼容性，按需使用类型、签名或 schema；不要求所有连接具备独立契约文件。
 - bot 组件通过 ctx 读写业务数据，连接握手交换地址与可选 schema，执行只传递运行和调用身份；等待执行确定完成，订阅用于观察或组件主动选择的触发方式。
@@ -31,11 +31,11 @@ M2 仍在进行：默认装配与绑定恢复、真实模型适配、对话提�
 | --- | --- | --- | --- |
 | M0 骨架与登记（完成） | 宿主发现插件、登记定义，输出连接诊断 | 现有工作区 | ID、自举、发现及可选宿主行为通过验证 |
 | M1 微内核可用（完成） | CLI 操作 ctx、观察变化，退出后恢复状态 | M0 | 显式状态操作、连接调用、异步落盘及生命周期闭环 |
-| M2 最小 bot（进行中） | 单模型流式对话、一次工具循环、取消与恢复 | M1；ModelClient 协议已具备 | 默认装配可运行，完成/取消/失败可区分，SDK 不泄漏 |
+| M2 最小 bot（完成） | 单模型流式对话、工具循环、取消与恢复、CLI 提交观察 | M1；ModelClient 协议已具备 | 默认装配可运行，完成/取消/失败可区分，SDK 不泄漏 |
 | M3 API、client 与 TUI | TUI 连接后端，操作 ctx 并完成对话交互 | M1 支撑传输；M2 支撑对话 | 共享访问语义、访问边界、断线恢复及 OpenTUI 交互可验收 |
 | M4 能力扩展与产品入口 | 多模型、agent、最小 MCP、Vue Panel、静态站点 | 按扩展分支依赖进入 | 各分支独立验收，默认装配与多客户端场景回归通过 |
 
-关键路径：`M0 → M1 → M2 → M3 对话联调 → M4 集成验收`。
+关键路径：`M0 → M1 → M2 → M3 对话联调 → M4 集成验收`。当前处于 M2 完成、M3 未开始的交界。
 
 允许独立推进的工作：
 
@@ -63,9 +63,9 @@ M2 仍在进行：默认装配与绑定恢复、真实模型适配、对话提�
 | D09 | M3.2–M3.5 | 订阅标识、取消确认、信封与序号、队列上限、断线清理、重连及重新获取状态策略 | 断开、重连、慢消费者和重复取消测试 |
 | D10 | M2.4 确定运行提交与取消语义；M3.6 前确定界面关联 | 提交如何创建运行、重复/忙碌请求、取消竞态；界面动作通过何种机制关联执行 | 一轮提交、重复请求、运行结束时取消、断线期间运行用例 |
 
-D10 的界面关联需要专门设计讨论。既有 `conversation/send`、`conversation/cancel` 和 conversation 端点保留为规划入口，不据此指定 TUI/Panel 必经路径，也不默认 ctx 写入触发执行。该决策未完成时，M2 可用进程内入口与 CLI 验证运行；M3 对话部分保持待实现。
+D10 的界面关联需要专门设计讨论。既有 `conversation/send`、`conversation/cancel` 和 conversation 端点保留为规划入口，不据此指定 TUI/Panel 必经路径，也不默认 ctx 写入触发执行。M2 已用进程内入口与 CLI 验证运行；M3 对话部分仍待该决策。
 
-D01、D02、D04 已由 M0/M1 实现确定。D03 已有完整 JSON 快照和装配持有运行时对象的边界，尚需绑定恢复描述；D05 已有定义/实例/执行身份、端口连接和 priority 排序，尚需默认装配格式。D06 已验证宿主关闭与单次模型流收尾，真实 HTTP 客户端和工具任务接入时复核。D07 已确定异步接口、完整工具请求、能力拒绝与模型结束语义，真实供应商映射留给 M2.3。D08、D09、D10 仍待相应任务决策。
+D01、D02、D04 已由 M0/M1 实现确定。D03 已由完整 JSON 快照、装配持有运行时对象、TOML 模型配置与角色绑定恢复共同确定。D05 已由默认装配格式、定义/实例/执行身份、端口连接和 priority 排序确定。D06 已验证宿主关闭、模型流与工具任务收尾，真实 HTTP 客户端接入时复核。D07 已由异步协议、完整工具请求、能力拒绝、模型结束语义与 LiteLLM 映射确定。D08、D09、D10 仍待相应任务决策，其中 D10 阻塞 M3.6。
 
 ## 4. M0：骨架、统一登记与插件发现（完成）
 
@@ -100,41 +100,41 @@ CLI 的 M1 场景以当前宿主进程为操作环境；不隐含跨进程共享
 
 必须覆盖的关闭序列：停止接收新工作 → 在途工作完成或取消 → 停止状态写入来源 → 最终 flush → 关闭存储与剩余资源。测试记录实际顺序，而非仅断言 stop 被调用。
 
-## 6. M2：ModelClient 与最小 ReAct bot
+## 6. M2：ModelClient 与最小 ReAct bot（完成）
 
 设计对应：第 7.3、7.6、8 节；公共 ID 目录第 5、6 节。
 
-当前进度：
+当前进度（全部完成）：
 
 | 任务 | 状态 | 已有基础与剩余范围 |
 | --- | --- | --- |
 | M2.1 | 完成 | ModelClient/ModelFactory 协议、JSON 数据类型、ResponseBuffer 与 FakeModel；模型边界可离线验证 |
-| M2.2 | 部分完成 | 显式代码装配、组件身份、实例连接和客户端生命周期已验证；默认装配、工厂加载和可恢复绑定未实现 |
-| M2.3 | 待实现 | LiteLLM 适配、供应商错误与增量工具参数映射、真实连接冒烟 |
-| M2.4 | 待实现 | 对话 send/cancel、会话运行状态与重启处理；ModelCall 状态不代替对话状态 |
-| M2.5 | 部分完成 | Serial、Branch、While、Parallel 与 ModelCall 已具备；提示词、ReAct 六插槽及完整循环未实现 |
-| M2.6 | 待实现 | 工具登记、执行、结果回填；模型可返回 ToolCall 不代表工具已执行 |
-| M2.7 | 待实现 | CLI chat/cancel、流式展示与同宿主取消 |
-| M2.8 | 待完成 | 已有控制/模型组件和示例验收；默认 bot、工具往返、对话恢复和真实模型仍需验收 |
+| M2.2 | 完成 | 默认装配、TOML 配置、工厂加载、角色绑定恢复、资源所有权；bot 不依赖 CLI/API 实现 |
+| M2.3 | 完成 | LiteLLM 适配、供应商错误与增量工具参数映射；模拟响应覆盖转换，真实 DeepSeek 冒烟通过 |
+| M2.4 | 完成 | AgentRuntime 的 submit/activate/cancel、运行状态与结束边界复查；运行句柄仅存在于进程内 |
+| M2.5 | 完成 | Serial、Branch、While、Parallel、ReActAgent 六插槽、ReActDefaults 与循环上限 |
+| M2.6 | 完成 | ToolSpec、JSON Schema 校验、before/after 钩子、失败与超时结构化结果 |
+| M2.7 | 完成 | CLI `run submit/activate/cancel`、流式 JSON 观察、同宿主取消 |
+| M2.8 | 完成 | 2026-10-31 整体验收：默认装配、模型协议与适配、工具循环、公共运行操作、CLI 观察、关闭恢复 |
 
 已确定的执行边界：适配层组装完整工具名称和 JSON 参数后交给 bot，文本保持逐段输出；失败或取消保留已收到的部分文本，在同一输出状态标记终态。controller 只保留在途状态，通知终态后删除该调用地址。业务结果保留策略由装配负责，core 仍对全部 ctx 数据做快照。
 
 | 任务 | 编码内容与落点 | 依赖 | 验收 |
 | --- | --- | --- | --- |
 | M2.1 模型协议与假实现 | model_adapter 的 `protocols.py`、`models.py`、`fake.py`；请求、响应、chunk、能力声明、工厂协议与确定性假模型 | M0 登记基础、D07 | 流式文本、工具请求、无能力/失败路径均可离线驱动；公共协议不含 SDK 类型 |
-| M2.2 默认装配与实例绑定 | bot 的 `assembly.py`、model_adapter 的工厂接入；装配资源、逻辑模型角色、实例连接、服务注入 | M1、M2.1、D03、D05 | 同一 ModelClient 定义可有不同实例；配置可恢复、连接对象不落盘；bot 无 CLI/API 实现依赖 |
+| M2.2 默认装配与实例绑定 | `aurora_bot` 的 `assembly.py` 与 TOML 配置、`aurora_model_adapter` 的工厂接入；装配资源、逻辑模型角色、实例连接、服务注入 | M1、M2.1、D03、D05 | 同一 ModelClient 定义可有不同实例；配置可恢复、连接对象不落盘；bot 无 CLI/API 实现依赖 |
 | M2.3 LiteLLM 适配 | model_adapter 的 `adapters/litellm.py`；能力映射、非流式/流式转换、工具调用片段组装、超时、取消和连接释放 | M2.1、M2.2、D07 | 使用模拟 SDK 响应覆盖转换与异常；能力不足明确拒绝；SDK 对象不上泄 |
-| M2.4 对话运行与状态 | bot 的 `conversation.py`；send/cancel 进程内操作、消息/运行定位、状态转移、事件关联与最终结果 | M2.2、D10 运行部分 | started 后恰有一个终态；completed/cancelled/failed 可区分；重复提交及取消竞态按确定语义处理 |
-| M2.5 提示词与 ReAct 控制 | bot 的 `react/`、`resources/`；soul/react 资源、六个插槽及默认处理器；最小循环控制与终止限制 | M1.5、M2.4 | 无工具时结束，有工具时进入 act/observe 后再次 infer；达到轮次限制可解释地收束；循环不进入 core |
-| M2.6 基本工具路径 | bot 的 `tools/`；工具注册、参数校验、before_call/after_call、结果与失败结构；先用确定性本地工具验收 | 组件基础依赖 M1、M2.1；整体接入依赖 M2.5 | 未知工具/非法参数不执行；工具结果可进入下一轮上下文；失败、超时、取消不遗留悬挂运行 |
-| M2.7 CLI 对话接入 | bot 声明 chat/cancel 命令，由 CLI 接收并绑定操作；流式输出和中断处理 | M1.7、M2.4–M2.6 | CLI 显示增量与终态；中断触发约定取消并清理；CLI 缺席时进程内运行仍可完成 |
+| M2.4 对话运行与状态 | `aurora_agent` 的 `runtime.py`、`aurora_bot` 的 `operations.py`；submit/activate/cancel、运行句柄、状态转移与恢复修正 | M2.2、D10 运行部分 | started 后恰有一个终态；completed/cancelled/failed 可区分；重复提交及取消竞态按确定语义处理 |
+| M2.5 提示词与 ReAct 控制 | `aurora_agent` 的 `react.py`、`react_defaults.py`；六个插槽、默认处理器与最小循环控制 | M1.5、M2.4 | 无工具时结束，有工具时进入 act/observe 后再次 infer；达到轮次限制可解释地收束；循环不进入 core |
+| M2.6 基本工具路径 | `aurora_agent` 的 `tools.py`；工具注册、参数校验、before_call/after_call、结果与失败结构；先用确定性本地工具验收 | 组件基础依赖 M1、M2.1；整体接入依赖 M2.5 | 未知工具/非法参数不执行；工具结果可进入下一轮上下文；失败、超时、取消不遗留悬挂运行 |
+| M2.7 CLI 对话接入 | `aurora_bot` 声明 `run submit/activate/cancel` 命令，由 CLI 接收并绑定运行操作；流式输出和中断处理 | M1.7、M2.4–M2.6 | CLI 显示增量与终态；中断触发约定取消并清理；CLI 缺席时进程内运行仍可完成 |
 | M2.8 最小 bot 验收 | `tests/contract/` 的模型与插槽边界，`tests/e2e/` 的默认装配、工具循环、取消、重启 | M2.3、M2.7 | 假模型场景无需网络/密钥即可重复；使用可用配置另做真实模型冒烟；两者结果分别记录 |
 
-对话恢复至少验证消息和所选配置的恢复；进程重启时遗留的进行中 run 必须按明确策略处理，不能继续显示为仍在执行，也不承诺透明续跑。该策略随 M2.4 确定。
+对话恢复至少验证消息和所选配置的恢复；进程重启时遗留的进行中 run 必须按明确策略处理，不能继续显示为仍在执行，也不承诺透明续跑。该策略已由 M2.4 确定：恢复时将仍为 running 的状态标记为 failed（InterruptedRun），保留未消费输入和可获得工具结果，不自动重跑动作。
 
 阶段演示：CLI 提交输入 → 模型返回工具请求 → 工具执行并记录观察 → 模型输出结果；另演示一次流式取消和一次工具失败。运行状态、事件和持久化结果互相一致。
 
-## 7. M3：API、共享 client 与 OpenTUI
+## 7. M3：API、共享 client 与 OpenTUI（未开始）
 
 设计对应：第 5.5、9、10 节；公共 ID 目录第 7–9 节。
 
@@ -204,10 +204,15 @@ M4 各分支独立实现与验收。多模型或 MCP 未配置时，M2/M3 的基
 | 范围 | 建议模块 | 必须保持的约束 |
 | --- | --- | --- |
 | `packages/aurora_core/src/aurora_core/` | ids、registry、bootstrap、discovery、ctx、events、hooks、invocation、persistence、lifecycle | 不导入 bot、CLI、API 或模型 SDK；模块按行为形成后再拆分 |
+| `packages/aurora_config/src/aurora_config/` | declarations、schema、templates、service | 基于 core；不承担模型、agent 或业务流程，core 不反向依赖配置包 |
+| `packages/aurora_control/src/aurora_control/` | execution、components | 仅依赖 core；执行契约与控制组合不引入模型或 agent 依赖 |
+| `packages/aurora_agent/src/aurora_agent/` | react、react_defaults、model、tools、runtime | 不依赖 bot、CLI 或 API；资源、状态地址与恢复策略由宿主提供 |
 | `packages/aurora_model_adapter/src/aurora_model_adapter/` | protocols、models、factories、adapters | 依赖 core；上层仅消费统一协议 |
-| `packages/aurora_bot/src/aurora_bot/` | assembly、conversation、react、tools、multi_model、agents、mcp、resources | 装配入口保持薄；默认业务由插件实现；CLI/API 通过声明连接 |
-| `packages/aurora_cli/src/aurora_cli/` | main、commands、config | 接收命令，不复制 ctx 或 bot 逻辑 |
+| `packages/aurora_bot/src/aurora_bot/` | assembly、assembly_config、operations、cli、world、cadence、multi_model、agents、mcp | 装配入口保持薄；产品配置与资源由 bot 提供；CLI/API 通过声明连接 |
+| `packages/aurora_cli/src/aurora_cli/` | main、commander、commands、configuration、parsing | 接收命令，不复制 ctx 或 bot 逻辑 |
 | `packages/aurora_api/src/aurora_api/` | app、config、endpoints、contracts | 只提供明确的传输绑定，不导入 bot 实现 |
+| `packages/aurora_logging/src/aurora_logging/` | 日志配置与输出 | 不依赖业务包，不登记公共定义 |
+| `packages/aurora_world/src/aurora_world/` | 世界输入、环境状态与来源插槽 | 不依赖 bot 执行体系；通过 ctx 与 cadence 联系 |
 | `packages/aurora_client/src/` | ctx、transport、subscriptions、connection、generated | 共用 core ctx 身份与语义，不复制后端插件树 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 应用入口、视图、本地动作及偏好 | 共享 client；界面状态按需要留在本地 |
 | `apps/docsite/`、`apps/landing/` | 页面、导航、静态资源、构建配置 | 静态构建独立于后端运行 |
@@ -251,17 +256,18 @@ uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_id
 
 ## 11. 接续队列与提交粒度
 
-M0–M1 及 M2.1 已交付。建议下一切片围绕确定性本地工具和假模型完成一次工具往返，复用现有控制组件与 ModelCall。具体工具失败策略、运行提交和默认装配语义在对应任务开始时确认，不由本队列冻结。
+M0–M2 及执行包拆分已交付。下一步进入 M3：先收敛 D08、D09、D10，再按 API、client、界面动作与 OpenTUI 的顺序推进；harness 的最小宿主验证可并行进行，不阻塞 M3。
 
 | 顺序 | 任务范围 | 交付证据 |
 | --- | --- | --- |
-| 1 | M2.6 的基本工具组件，补齐所需局部约定 | 完整 ToolCall 进入 ctx；已登记工具执行并写入结果；未知工具、参数错误、失败与取消有可观察结果 |
-| 2 | M2.5 的最小离线组合 | 假模型请求工具 → 执行 → 观察回填 → 再次推理；无工具结束与循环上限可验证 |
-| 3 | M2.2、M2.4 | 确定 D03、D05、D10；正式默认装配、绑定恢复、会话 send/cancel 与遗留运行处理 |
-| 4 | M2.3（可独立推进） | LiteLLM 边界测试与可用配置下的真实模型冒烟 |
-| 5 | M2.7–M2.8 | CLI 流式交互、工具循环、取消、失败与重启的整体验收 |
+| 1 | D10 界面动作关联，以及 D08/D09 的访问边界 | 决策记录；提交、取消与运行的关联用例；对外数据范围测试 |
+| 2 | M3.1–M3.3 API 传输 | ctx 读取、写入、订阅与错误路径的暴露边界；断线释放订阅 |
+| 3 | M3.4–M3.5 契约生成与共享 client | 可重复生成；类型与服务端一致；重连后重建订阅并重新获取状态 |
+| 4 | M3.6 界面动作联通 | 提交和取消对应正确 run；重连不重复提交 |
+| 5 | M3.7–M3.9 OpenTUI 与联调 | 一轮对话和取消可操作；断线反馈；Python/TS 相同 ctx 用例一致 |
+| 6 | harness 最小宿主（可并行） | 无 bot 环境完成装配、提交、取消、恢复与关闭；默认路径不依赖 bot 配置或 CLI |
 
-前两步以进程内组合验证组件边界，不据此宣告正式 ReAct、对话运行或 M2 里程碑完成。
+M3.6 之前不冻结界面提交协议；agent 包边界已由测试固定，后续 M3 的决策集中在传输与界面动作，不需要重新调整 agent 内部结构。
 
 提交信息使用中文、以动词开头，说明提交目的；每次只涵盖一个可审查主题。后续阶段沿各任务依赖继续，不为赶里程碑将尚未决策的接口伪装成稳定协议。
 

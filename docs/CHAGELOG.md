@@ -2,6 +2,13 @@
 
 ## 2026-11-01
 
+### 文档基线 v0.2.3
+
+- 设计文档与公共 ID 目录升版为 v0.2.3，同步 control、agent、bot 的包职责、命名空间、依赖方向、模型适配器状态与 M2 完成情况；补充 `aurora_config` 的配置声明、校验、模板与 config 阶段边界；旧版本号只保留在修订记录中。
+- [计划](plan.md) 更新实现基线、M2 完成状态、D03/D05/D06/D07 结论、模块落点与 M3 接续队列；[M2 交接](m2-handoff.md) 标注为已完成的交接语境，并修正模型、CLI 与依赖方向；[主动 bot 设计](aurora_bot_react_design.md) 与[拆包评估](aurora_agent_extraction_assessment.md) 补充实施位置与阶段状态。
+- `AGENTS.md` 的项目结构补齐 `aurora_config`、`aurora_control`、`aurora_agent`、`aurora_logging`、`aurora_world`；[示例指南](../examples/START.md) 的公共 ID 链接指向 v0.2.3。
+- 本次仅改动文档，不改变运行行为。文档更新前的基线 `7b84b6b` 完整检查通过（488 项测试）；当前工作区另有进行中的 `aurora_config` 迁移，未重新取得全绿检查，该差异不归因于文档更新。`docs/`、`examples/START.md` 与 `AGENTS.md` 的 71 条相对链接全部有效。
+
 ### 示例入口与独立运行管理
 
 - 示例提供 core 计数器、control 控制流、独立 agent、默认 bot 和持续巡检宿主五条路径，完整启动方式见 [示例指南](../examples/START.md)。真实模型验收统一使用 `scripts/accept_m2.py` 的 TOML profile 与 CLI 流程。

@@ -1,9 +1,9 @@
-# AuroraBot 公共 ID 目录 v0.2.2
+# AuroraBot 公共 ID 目录 v0.2.3
 
-版本：v0.2.2  
-设计版本日期：2026-10-29；执行包与插件命名对齐：2026-11-01。
+版本：v0.2.3
+设计版本日期：2026-10-29；执行包拆分、M2 验收与文档基线对齐：2026-11-01。
 
-对应主文档：[设计文档](aurorabot-design-v0.2.2.md)。
+对应主文档：[设计文档](aurorabot-design-v0.2.3.md)。
 
 范围：第 6 节列出 control、agent 和 bot 的实际插件定义；其他章节包含设计规划，按各节标注区分。目录中的存在不代表对象已连接、启用或接口字段冻结。
 
@@ -21,30 +21,32 @@
 - 公共覆盖、实现选择和处理器替换由显式装配表达，不依赖加载顺序。
 - client 实现统一 ctx 接口及既有 ctx 操作 ID 入口，不创建同义动作 ID；插件在进程内访问 ctx，TUI/Panel 通过 client 访问同一后端。
 - 界面不承担后端插件装配；既有 send/cancel operation 和 conversation 端点不是本版规定的界面必经入口。消息提交与取消如何关联执行，另行讨论。
-- 参与 bot 执行连接的局部组件也应显式登记；普通私有辅助函数无需登记，不要求各阶段一次性实现全部规划。
+- 参与执行连接的局部组件也应显式登记；普通私有辅助函数无需登记，不要求各阶段一次性实现全部规划。
 
 ## 2. 命名空间总表
 
 | 包或应用 | 命名空间 | 解析环境 |
 | --- | --- | --- |
 | `aurora_core` | `org.aurora.core` | Python 运行时 |
+| `aurora_config` | `org.aurora.config` | Python 运行时 |
 | `aurora_cli` | `org.aurora.cli` | Python 运行时 |
 | `aurora_control` | `org.aurora.control` | Python 运行时 |
 | `aurora_agent` | `org.aurora.agent` | Python 运行时 |
 | `aurora_bot` | `org.aurora.bot` | Python 运行时 |
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
 | `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
+| `aurora_logging`、`aurora_world` | `org.aurora.logging`、`org.aurora.world` | Python 运行时；当前未登记公共定义 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
 | `aurora_tui` | `org.aurora.tui` | TUI 本地 |
 | `aurora_panel` | `org.aurora.panel` | WebUI 本地 |
 | `docsite` | `org.aurora.docsite` | 文档构建环境 |
 | `landing` | `org.aurora.landing` | 落地页构建环境 |
 
-## 3. aurora_core
+## 3. 基础登记（core 与 config）
 
 ### 3.1 注册目标
 
-以下 core 逻辑注册表已实现，基于统一内存表提供分类索引与专属接入规则。宿主直接引导建立总表、注册表目录和所需基础定义，随后登记其他注册表；跨包注册目标是否存在取决于该包实现与启用情况。
+以下逻辑注册表已实现，基于统一内存表提供分类索引与专属接入规则。宿主直接引导建立总表、注册表目录和所需基础定义，随后登记其他注册表；跨包注册目标是否存在取决于该包实现与启用情况。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
@@ -58,6 +60,7 @@
 | `org.aurora.core:registries/schemas` | `registry` | 数据契约 |
 | `org.aurora.core:registries/state_keys` | `registry` | ctx 状态项定义 |
 | `org.aurora.core:registries/events` | `registry` | 事件类型定义 |
+| `org.aurora.config:registries/configs` | `registry` | 配置声明、结构校验与模板关系 |
 
 注册表登记定义，不保存所有状态值或历史事件实例。`RegistryEntry` 是内部登记项名称，不是本版新增的公共 ID。
 
@@ -67,6 +70,7 @@
 | --- | --- |
 | `org.aurora.core:registries/registries` | 宿主直接建立，自身描述是否列入目录由实现决定 |
 | 本节其余 core 注册表 | `org.aurora.core:registries/registries` |
+| `org.aurora.config:registries/configs` | `org.aurora.core:registries/registries` |
 | `org.aurora.cli:registries/commands` | `org.aurora.core:registries/registries` |
 | `org.aurora.model_adapter:registries/adapters` | `org.aurora.core:registries/registries` |
 | `org.aurora.agent:registries/tools` | `org.aurora.core:registries/registries` |
@@ -75,6 +79,8 @@
 | `org.aurora.api:registries/endpoints` | `org.aurora.core:registries/registries` |
 
 resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，保留原 kind，由接收方选择必要的加载和校验方式。提示词、主题等内容不必为登记而建立完整子类型体系。
+
+配置声明使用 `config` kind，由 `org.aurora.config:registries/configs` 接收；声明同时提供对应的非持久状态、结构校验与包内 TOML 模板。插件入口为 `aurora_config`。宿主在恢复业务状态后执行 config 阶段，全部文件与关联校验通过后才原子注入 ctx。
 
 ### 3.2 操作、生命周期与基础契约
 
@@ -100,11 +106,11 @@ resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，
 
 ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使用对应命令，client 实现携带上述同一 ID 的 ctx 访问入口，TUI/Panel 使用 client。各语言实现共享语义，不要求前端解析 Python 对象或插件安装 TS 包。
 
-所有命名空间通过显式接口访问共享 ctx，需要恢复的数据异步落盘。退出时停止新工作，让组件收尾、结束最后状态写入，保持存储可用直至最终落盘完成，再释放剩余资源。宿主负责这一顺序，不要求为每个内置收尾动作增加公共 handler ID。生命周期插槽不代表 core 内置 bot 能力。
+所有命名空间通过显式接口访问共享 ctx，需要恢复的数据异步落盘。配置声明由 `org.aurora.config:registries/configs` 接收，宿主在恢复业务状态后执行 config 阶段，再进入 prepare/start。退出时停止新工作，让组件收尾、结束最后状态写入，保持存储可用直至最终落盘完成，再释放剩余资源。宿主负责这一顺序，不要求为每个内置收尾动作增加公共 handler ID。生命周期插槽不代表 core 内置 bot 能力。
 
 `ctx_access` 沿用历史规划 ID，仅描述访问动作、目标与业务定位，不表示内部授权。保留 ID 不表示旧授权字段继续适用，也不要求所有 ctx 动作共享这一份结构。
 
-当前 ctx 的 set 整项替换、读写深复制；list 返回已赋值地址并排序。成功 set 均通知，订阅不回放历史，可显式取消；缺失 get 抛 KeyError，缺失 delete 返回 False。core 的 StorageService 提供目录与存储，bot 控制组件见第 6.0 节。数据描述可使用 Python 类型、签名或 schema，不批量新增局部请求／响应 ID。
+当前 ctx 的 set 整项替换、读写深复制；list 返回已赋值地址并排序。成功 set 均通知，订阅不回放历史，可显式取消；缺失 get 抛 KeyError，缺失 delete 返回 False。core 的 StorageService 提供目录与存储，控制组件见第 6.1 节。数据描述可使用 Python 类型、签名或 schema，不批量新增局部请求／响应 ID。
 
 ## 4. aurora_cli
 
@@ -138,17 +144,17 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | --- | --- | --- | --- |
 | `org.aurora.model_adapter:registries/adapters` | `registry` | 已实现 | 接收模型适配器工厂 |
 | `org.aurora.model_adapter:services/model_client` | `service` | 已实现 | 上层消费的统一 ModelClient 协议 |
-| `org.aurora.model_adapter:adapters/litellm` | `adapter` | 规划 | 基于 LiteLLM 创建 ModelClient |
+| `org.aurora.model_adapter:adapters/litellm` | `adapter` | 已实现 | 基于 LiteLLM 创建 ModelClient |
 | `org.aurora.model_adapter:schemas/model_request` | `schema` | 已实现 | 统一模型请求 |
 | `org.aurora.model_adapter:schemas/model_response` | `schema` | 已实现 | 统一模型响应 |
 | `org.aurora.model_adapter:schemas/model_chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
 | `org.aurora.model_adapter:schemas/model_capabilities` | `schema` | 已实现 | streaming、tool_calls 能力声明 |
-| `org.aurora.model_adapter:state/config` | `state_key` | 规划 | 适配器选择与连接配置 |
-| `org.aurora.model_adapter:state/bindings` | `state_key` | 规划 | 逻辑模型角色与服务实例的可恢复绑定描述 |
+| `org.aurora.model_adapter:state/config` | `state_key` | 已实现 | 适配器选择与连接配置；来源为包内 TOML 模板 |
+| `org.aurora.model_adapter:state/bindings` | `state_key` | 已实现 | 逻辑模型角色与服务实例的可恢复绑定描述；来源为包内 TOML 模板 |
 
-插件入口为 `aurora_model_adapter`，登记上述六项已实现定义；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。ModelFactory 已有异步协议，但工厂加载、默认绑定和 LiteLLM 适配尚未实现。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
+插件入口为 `aurora_model_adapter`，登记 adapters、model_client、四个模型 schema 与两个模型配置状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
 
-模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 默认完整 JSON 快照，运行时对象由装配持有，凭证不写入 ctx；可恢复绑定格式仍待确定。
+模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 默认完整 JSON 快照，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 
 ## 6. 控制、Agent 与 Bot 定义（已实现）
 
@@ -348,6 +354,7 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 | 声明方 | 关系 | 目标 |
 | --- | --- | --- |
 | 各 Python 逻辑注册表 | 目录登记 | `org.aurora.core:registries/registries`；自举按第 3.1 节处理 |
+| 各插件配置声明 | `register_to` | `org.aurora.config:registries/configs`；同时声明非持久状态与模板 |
 | bot run 命令 | `register_to` | `org.aurora.cli:registries/commands`；CLI 缺席时未连接并告警 |
 | bot submit 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/submit` |
 | bot cancel 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/cancel` |
@@ -355,6 +362,8 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 | bot conversation 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
 | bot conversation 端点 | 规划操作绑定 | bot conversation/send 与 conversation/cancel；不作为界面必经入口 |
 | ReAct 默认处理器 | `register_to` | `org.aurora.core:registries/hook_handlers` |
+| AgentRuntime | 宿主入口 | `get_agent`、`execute`、`is_executing`；不引用 DefaultAssembly |
+| control 组件 | 执行插槽 | 通过 ExecutionSlot 连接 ExecutionPlug，业务数据经 ctx 绑定交换 |
 | 提示词构建处理器 | `slot` | `org.aurora.agent:react/prepare` |
 | 模型调用处理器 | 注入服务 | `org.aurora.model_adapter:services/model_client` |
 | LiteLLM 适配器 | `register_to` | `org.aurora.model_adapter:registries/adapters` |
@@ -388,12 +397,23 @@ register_to: org.aurora.model_adapter:registries/adapters
 
 - 新公共定义确定命名空间、kind、实际用途及登记环境；接口描述按需要维护，不强制独立 schema ID。
 - 用途、输入输出或连接变化时同步文档和实际维护的接口；名称保留不等于字段或行为已经冻结。
-- 当前 bot 执行组件通过 component_entries 显式登记定义和端口，再建立实例连接；普通私有辅助函数无需登记。
+- 当前执行组件通过 component_entries 显式登记定义和端口，再建立实例连接；普通私有辅助函数无需登记。
 - client 对同一 ctx 动作沿用现有身份，不为语言或传输差异创建同义操作。
 - 兼容与迁移围绕实际稳定的公共边界处理，不强制所有局部连接建立版本体系。
 - `aurora_playground` 正式纳入包设计后再补充，本版不预占公共 ID。
 
-## 16. v0.2.2 原始修订记录（2026-10-29）
+## 16. 版本修订记录
+
+### 16.1 v0.2.3（2026-11-01）
+
+- control、agent 与 bot 定义按包归属：control 使用 `org.aurora.control`，agent 使用 `org.aurora.agent`，bot 保留 `org.aurora.bot`。
+- 插件发现分组为 `aurora.plugins`；入口为 `aurora_control` 与 `aurora_agent.model/react/tools/react_defaults`，运行时不提供旧名称别名。
+- 更新模型适配器状态：LiteLLM、TOML profiles、模型配置与角色绑定均已实现。
+- 新增 `org.aurora.config`：配置声明、结构校验与 TOML 模板由 `aurora_config` 提供，core 保留通用状态与持久化机制。
+- 同步 AgentRuntime 的宿主入口、M2 完成状态与独立 harness 边界。
+- 保留 v0.2.2 的全部规划身份；未实现的 API、client、TUI/Panel 与扩展定义仍按规划列出。
+
+### 16.2 v0.2.2 原始修订记录（2026-10-29）
 
 - 沿用 v0.2.1 全部公共 ID 与 kind，不新增、删除或重命名定义。
 - 同步 core 统一哈希表、登记项与逻辑注册表关系，并补充自举和跨包目录登记说明。
