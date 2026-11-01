@@ -3,7 +3,7 @@
 版本：v0.2.3
 设计版本日期：2026-10-29；执行包拆分、M2 验收与文档基线对齐：2026-11-01。
 
-状态：架构基线与当前实现说明；M2 已完成，M3 尚未开始。规划部分不代表已交付。
+状态：架构基线与当前实现说明；M2 已完成，M3 已交付本机 ctx 传输、按需契约和共享客户端。直接交流与 world/cadence 的职责已确定，M3.6 与 M4-W 尚待实现。规划部分不代表已交付。
 
 配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
 
@@ -54,7 +54,7 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | `aurora_api` | client 与后端 ctx 交互所需的 HTTP/WS 传输、端点、事件信封及实际需要的契约导出 | 不作为插件接入总线，不预设任意 operation 的远端分发器 |
 | `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
 | `aurora_logging` | 宿主与库共用的日志级别、控制台输出、回溯与文件落盘配置 | 不依赖业务包，不参与 ctx 或插件登记 |
-| `aurora_world` | 世界输入与共享环境状态；当前为独立插件骨架 | 不依赖 bot 执行体系；世界变化通过 ctx 与 cadence 联系 |
+| `aurora_world` | 世界输入记录、共享环境状态与来源接入；当前为独立插件骨架，正式能力由 M4-W 交付 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
 
 代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`model_adapter` 只依赖 core 并被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、model_adapter、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
 
@@ -339,6 +339,31 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具、多模型选择与聚合、agent 通信及 MCP 由 bot 插件提供，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
 
+### 7.7 直接交流与世界输入（已确定方向，待实现）
+
+输入按交流性质分为两条路径。面对面交流已表达“请目标 bot 关注这条输入”，由产品入口直接提交引导；外部消息与环境变化进入 world，由 cadence 形成引导。首版默认 Panel/TUI/CLI 的交互为直接交流，外部来源走世界路径；平台本身不永久绑定一种语义。直接交流记录无需先写入世界，world 也不承担全部用户对话存储。
+
+```text
+面对面交流 ──→ bot 直接交流入口 ────────────┐
+                                          ├──→ 同一 AgentRuntime ──→ ReActAgent
+外部消息/环境变化 ──→ world ──→ cadence ──┘
+```
+
+| 职责 | 归属与边界 |
+| --- | --- |
+| 世界输入与记录 | `aurora_world` 接收并保存带来源身份的消息，提供可读取记录和可观察状态；不要求消息具有 bot/run 身份，不决定唤醒谁 |
+| 从世界形成引导 | cadence 位于 `aurora_bot/cadence/`，作为可选插件显式启用；根据配置选择订阅范围和目标，向既有 AgentRuntime 提交 |
+| 直接交流与装配 | `aurora_bot` 提供直接交流入口，选择来源、cadence、运行与回复策略；CLI/API 接收其声明，client 承担明确的传输 |
+| 执行与调度 | `aurora_agent` 保持来源无关；每个实例只有一个 AgentRuntime 调度所有者，直接交流和 cadence 共用其提交/取消行为 |
+
+首版 cadence 对订阅范围内的世界消息原样转发：一条消息形成一条引导，保留内容与来源关联，暂不做语义聚类、合并或延迟调度。消息身份、重复识别、消费位置和转交回执用于可靠交付；来源消息、世界记录、引导、run_id 与 execution_id 分别管理。世界消息可能在一个已有运行中被接纳，不假设一条消息对应一个独立 run。
+
+world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。具体存储、保留、转交一致性与恢复边界由 M4.W1–M4.W3 的 D11 明确。接收回执不默认承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
+
+正式 cadence 不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。`live_workshop` 当前的模拟世界与自有调度属于示例，M4.W4 将其改为正式能力的消费者；不能直接把示例循环当成可交付的 cadence。世界来源和 cadence 持有自己的后台资源，关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。
+
+M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
+
 ## 8. 模型适配与绑定
 
 `aurora_model_adapter` 提供 ModelClient/ModelFactory 协议、JSON 请求/响应/流式片段、能力声明、ResponseBuffer 与确定性 FakeModel。插件登记 adapters 注册表、model_client 服务与四个模型 schema。LiteLLM 适配器已实现并按需启用；FakeModel 无需网络或密钥，没有独立 adapter ID。
@@ -357,7 +382,7 @@ ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 
 
 CLI 将 argv 转为对应接口使用或操作调用，不重复实现 ctx 与 bot 行为。bot 可以在自己的命名空间声明命令、端点等入口，引用 CLI/API 的公开注册目标；这不要求导入或安装它们的实现。
 
-当前 CLI 提供 ctx 读写、观察、`id list`、`run` 和 bot 的 `run submit` / `run activate` / `run cancel`。`run` 启动选定装配后等待取消；提交类命令在本次进程内完成一次提交、等待运行收尾并输出流式 JSON，然后退出。运行中的外部输入与界面关联仍待 M3 的 D10 决策，本版不提供常驻提交通道。
+当前 CLI 提供 ctx 读写、观察、`id list`、`run` 和 bot 的 `run submit` / `run activate` / `run cancel`。`run` 启动选定装配后等待取消；提交类命令在本次进程内完成一次提交、等待运行收尾并输出流式 JSON，然后退出。远程 ctx 访问已实现，面向常驻 bot 的直接交流传输由 M3.6 接入；输入路径已按 D10 确定，API 回执与运行关联仍待实现。
 
 API 为 client 提供后端连接和 ctx 访问所需传输，不作为插件扩展总线。API 可以提供明确需要的额外端点，但不预设统一的任意 operation 远端调用系统，也不要求先经过 CLI 描述才能实现 ctx 传输。
 
@@ -381,11 +406,13 @@ core 的事件机制负责进程内发布订阅，ctx 变化订阅属于 ctx 接
 
 ### 10.2 界面动作边界
 
-TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各自维护本地视图、动作、主题、键位与偏好。
+TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各自维护本地视图、动作、主题、键位与偏好。首版采用围绕长期存在的 bot 的工作台，展示直接交流、运行、输出和工具活动；世界能力接入后展示世界输入及其引导关联，不提前建立多会话上下文隔离。
 
-消息提交、取消等界面动作保留既有公共 ID，但本版不决定它们如何与 bot 执行发生联系。特别是不预设“写入某个 ctx 输入项就触发运行”，也不要求通过 bot operation 或 conversation 端点发起。相关机制属于后续 bot 设计讨论。
+直接交流由 bot 的专用产品入口接收，复用现有 run 提交与取消操作；API 只接收明确的传输绑定，client 关联目标实例、消息回执、引导与运行。通用 ctx 写入不隐式触发交流，不提供任意 operation 的远端转发，也不为该路径新增 conversation/send、conversation/cancel 同义操作。
 
-既有 bot send/cancel operation 和 conversation 端点保留为规划定义，不表示它们是 TUI/Panel 必经入口；界面动作与它们之间没有本版强制建立的绑定。该决策记为 D10，最迟在 M3.6 界面动作联通前完成；当前 bot 的 `run submit/activate/cancel` 是进程内运行入口，不构成界面提交协议。
+D10 已确定：空闲提交可启动一次运行，运行中提交作为引导保留当前 loop 和既有结果；接纳回执不表示任务完成，也不承诺 bot 必须回复。停止作用于指定 instance_id/run_id，取消须等待收尾；关闭或断开界面仅停止观察，不取消运行或永久停用来源/cadence。首版不把模型过程输出自动等同于对外回复。
+
+M3.6 将明确回执与可查询状态、重复请求身份及其作用域、运行结束边界和取消竞态；客户端重连不自动重复提交，结果不确定时应可观察并核对。`run submit/activate/cancel` 目前为进程内入口；保留的 conversation 端点身份仍为规划，具体 URL、信封及关联记录在实现时同步契约生成和测试。M3.6 无需先实现世界来源或 cadence。
 
 ### 10.3 按需生成
 
@@ -409,7 +436,8 @@ TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各�
 | `aurora_bot` | core、control、agent、model_adapter | 可声明面向 CLI/API 的入口，不硬依赖其实现 |
 | `aurora_cli` | core、api | 接收已启用的命令声明，不导入 bot 插件实现 |
 | `aurora_api` | core；按实际需要复用 CLI 公开适配描述 | 提供 client 传输；不强制经过 CLI，不导入 bot 插件实现 |
-| `aurora_logging`、`aurora_world` | core；按实际需要 | 当前分别提供日志配置与世界插件骨架，未登记业务定义 |
+| `aurora_logging` | core；按实际需要 | 当前提供日志配置 |
+| `aurora_world` | core；声明配置时使用 config | 当前为插件骨架；正式世界记录不依赖 agent/bot，cadence 通过其公开记录与 ctx 订阅接入 |
 | `aurora_client` | TS 传输与所需生成类型 | 实现统一 ctx 接口和既有 ctx ID 入口 |
 | `aurora_tui`、`aurora_panel` | client | 使用 ctx interface，不参与后端插件装配 |
 | `docsite`、`landing` | 各自构建依赖 | 独立解析页面和资源 |
@@ -453,18 +481,18 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | M1 微内核可用 | 显式 ctx 操作及其当前用例所需行为、变化订阅、异步落盘、逐步关闭与最终落盘、插槽连接与调用、CLI 基础入口 |
 | M2 最小 bot | 默认装配、控制组件、单模型 ReAct、ModelClient、LiteLLM、TOML 配置与绑定恢复、基本工具路径、运行提交与取消 |
 | M3 client、API 与 TUI | ctx interface、HTTP/WS 传输、实际订阅和重连行为、需要的生成类型、界面数据范围与连接访问控制、OpenTUI 界面 |
-| M4 能力扩展 | 多模型、agent 通信、MCP、Vue Panel、文档站与落地页 |
+| M4 能力扩展 | M4-W 世界记录与 cadence；多模型、agent 通信、MCP、Vue Panel、文档站与落地页 |
 
-各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消等 bot 交互机制另行讨论，本表不替代该设计。
+各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收（默认装配、模型协议与适配、ReAct 工具循环、公共运行操作、CLI 观察及关闭恢复）。M3 尚未开始，D08、D09、D10 仍待决策；M4 未进入实现。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约及共享 TS client；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连已验证，D10 已确定直接交流与工作台方向，M3.6 的传输关联待实现。M4-W 已纳入正式计划但尚未实现。顺序为 M3.6 直接交流、M3.7–M3.9 工作台、M4-W 模拟世界来源与 cadence；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 
-1. **界面动作关联（D10）。** send 的返回与等待、忙碌与重复提交、取消竞态、遗留运行处理，以及界面动作通过何种机制关联运行；M3.6 前完成。
-2. **client 连接（D08、D09）。** 对外数据与访问边界、传输订阅、信封、断线重连、慢消费者和重新获取状态策略。
+1. **直接交流传输（D10）。** 产品路径已确定；M3.6 落实回执、重复请求身份与作用域、状态查询、取消竞态和契约，不把接纳或模型输出解释为业务完成。
+2. **client 连接（D08、D09）。** 本机 ctx 与订阅重连已交付；按浏览器和远程接入需要补齐认证、来源与数据范围，复用已有关闭和刷新语义。
 3. **独立 harness。** 复用 core、model_adapter、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
-4. **世界与 cadence。** `aurora_world` 作为并行接入根生命周期的插件维护世界状态；cadence 订阅选定地址并把引导写入 agent 的 inbox。完整唤醒工具与子代理仍属后续切片。
+4. **世界与 cadence（D11、M4-W）。** world 的记录与来源独立于执行；bot 的可选 cadence 插件先原样转发，统一通过既有 AgentRuntime 提交。细化记录保留、重复识别、消费位置、转交结果不确定及恢复行为，验证两条输入路径并存；唤醒工具与子代理另行实施。
 5. **公共接口维护。** 从实际边界提炼必要的 schema、兼容与迁移规则，不预设通用证明系统，不以规划 ID 证明接口已经冻结。
 
 ## 15. 变更记录
@@ -474,7 +502,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 - 执行能力拆分为平级的 `aurora_control` 与 `aurora_agent`：control 承载执行契约和四种控制组合，agent 承载 ReAct、模型调用、工具执行、默认阶段与运行调度；`aurora_bot` 保留配置、默认装配、资源所有权和产品入口。
 - 公共 ID 与插件入口按包归属：control 使用 `org.aurora.control`，agent 使用 `org.aurora.agent`；发现分组为 `aurora.plugins`，运行时不提供旧导入路径、旧插件名或旧 ID 别名。
 - AgentRuntime 通过宿主提供的 agent 获取、执行与占用查询连接，不再访问 `DefaultAssembly` 私有成员；运行句柄仍只存在于进程内。
-- 补充 M2 已完成状态：LiteLLM 适配、TOML 模型 profiles 与角色绑定、基本工具往返、CLI `run submit/activate/cancel`、取消与重启恢复均已验收；M3 与 D10 尚未开始。
+- 文档基线对齐时补充 M2 已完成状态：LiteLLM 适配、TOML 模型 profiles 与角色绑定、基本工具往返、CLI `run submit/activate/cancel`、取消与重启恢复均已验收；当时 M3 与 D10 尚未开始。当前进度见第 13 节，后续变更见[变更记录](CHAGELOG.md)。
 - 配置声明、结构校验、TOML 模板与 config 阶段服务归属 `aurora_config`；core 保留通用状态、持久化与生命周期机制。
 - 明确独立 harness 的目标集合为 core、model_adapter、control 与 agent，并记录拆包边界、测试与后续工作。
 - 同步包职责、命名空间、依赖方向、目录与里程碑；补充 `aurora_logging`、`aurora_world` 的当前边界。

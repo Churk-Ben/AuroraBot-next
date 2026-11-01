@@ -5,7 +5,7 @@
 
 对应主文档：[设计文档](aurorabot-design-v0.2.3.md)。
 
-范围：第 6 节列出 control、agent 和 bot 的实际插件定义；其他章节包含设计规划，按各节标注区分。目录中的存在不代表对象已连接、启用或接口字段冻结。
+范围：第 6.1–6.3 节列出 control、agent 和 bot 的实际插件定义；第 6.5 节补充世界与 cadence 的规划归属，其他章节按各节标注区分。目录中的存在不代表对象已连接、启用或接口字段冻结。
 
 ## 1. 使用规则
 
@@ -20,7 +20,7 @@
 - 描述不同但兼容时可以连接，按需要告警；缺少接收方时保留未连接声明并 warning，不因可选 CLI/API 缺席阻断整个插件加载。
 - 公共覆盖、实现选择和处理器替换由显式装配表达，不依赖加载顺序。
 - client 实现统一 ctx 接口及既有 ctx 操作 ID 入口，不创建同义动作 ID；插件在进程内访问 ctx，TUI/Panel 通过 client 访问同一后端。
-- 界面不承担后端插件装配；既有 send/cancel operation 和 conversation 端点不是本版规定的界面必经入口。消息提交与取消如何关联执行，另行讨论。
+- 界面不承担后端插件装配。D10 已确定直接交流经 bot 的专用入口复用 run 操作；世界输入经 world/cadence 向同一 AgentRuntime 提交。传输回执及具体绑定随 M3.6 实现，不创建 conversation/send、conversation/cancel 同义操作。
 - 参与执行连接的局部组件也应显式登记；普通私有辅助函数无需登记，不要求各阶段一次性实现全部规划。
 
 ## 2. 命名空间总表
@@ -162,7 +162,7 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 
 模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 
-## 6. 控制、Agent 与 Bot 定义（已实现）
+## 6. 控制、Agent、Bot 与世界定义
 
 发现分组为 `aurora.plugins`。插件名称、公开定义和 Python 导入路径分别归属自己的包，运行时不提供旧名称别名。
 
@@ -259,6 +259,19 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 
 多 agent 通信、多模型聚合、MCP 和额外消息传输属于后续扩展，未实现的规划名称不作为已登记定义列出。具体定义以所选插件的 `id list` 输出为准，名称存在不代表组件已连接或执行。
 
+### 6.5 世界与 cadence 的归属（规划，未登记）
+
+`aurora_world` 当前仅提供返回空清单的[插件入口](../packages/aurora_world/src/aurora_world/plugin.py)，没有已登记的世界操作、状态或来源插槽。正式能力按 [M4-W 计划](plan.md)交付；下表限定定义归属，不预占尚无实际消费者的完整 ID。
+
+| 能力 | 定义归属 | 实施边界 |
+| --- | --- | --- |
+| 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 明确最小数据及接口后登记；不承载全部直接对话，不要求记录绑定某个 run |
+| 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | M4.W2 先接入模拟来源；来源连接为运行期资源，配置复用 aurora_config |
+| cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 在 bot 包内提供可选插件；插件名与完整 ID 随实现登记，不建立独立 cadence 包 |
+| 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
+
+来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，避免同一输入经两条路径重复提交。M4.W4 将 live_workshop 改为正式 world/cadence 的消费者，替换其示例自有调度。
+
 ## 7. aurora_api
 
 ### 7.1 传输契约与基础端点
@@ -287,9 +300,9 @@ core 负责进程内事件和 ctx 变化订阅，client 封装界面所需订阅
 
 | ID | kind | 注册目标与操作绑定 |
 | --- | --- | --- |
-| `org.aurora.bot:endpoints/conversation` | `endpoint` | 登记到 `org.aurora.api:registries/endpoints`，绑定 bot 的 conversation/send 与 conversation/cancel 操作 |
+| `org.aurora.bot:endpoints/conversation` | `endpoint` | 规划的直接交流传输入口；由 API 接收专用绑定，复用既有 run/submit 与 run/cancel 操作 |
 
-此 ID 属于 bot 命名空间，是保留的规划入口；API 缺席时声明保留为未连接并 warning，不阻断其他 bot 能力。保留此端点不规定 TUI/Panel 经其提交消息或取消，具体交互机制另行讨论。
+此 ID 属于 bot 命名空间，仍未实现或登记。D10 已确定直接交流经产品入口提交给目标实例，API 仅承担传输；M3.6 明确 URL、回执、重复请求及取消关联，并同步生成契约。该路径不依赖 world/cadence，不提供任意 operation 远端转发；API 缺席时适用可选接收方约定，不阻断进程内运行。
 
 API 传输实际需要的 bot/core 事件时保留原事件类型 ID，可添加传输信封，不另建同义业务事件身份。
 
@@ -316,11 +329,11 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.tui:views/chat` | `view` | 对话界面 |
+| `org.aurora.tui:views/chat` | `view` | bot 工作台中的直接交流与运行观察 |
 | `org.aurora.tui:views/config` | `view` | 配置界面 |
 | `org.aurora.tui:views/ctx` | `view` | ctx 查看与操作 |
-| `org.aurora.tui:actions/message/submit` | `ui_action` | 界面提交动作，经 client 交互；与执行的关联机制待讨论 |
-| `org.aurora.tui:actions/run/cancel` | `ui_action` | 界面取消动作；具体交互机制待讨论 |
+| `org.aurora.tui:actions/message/submit` | `ui_action` | 经 client 直接引导目标 bot；运行中保留当前 loop；M3.6 实现传输关联 |
+| `org.aurora.tui:actions/run/cancel` | `ui_action` | 取消指定 instance_id/run_id 并等待收尾；不等同于关闭观察 |
 | `org.aurora.tui:resources/keymap/default` | `resource` | 默认按键映射 |
 | `org.aurora.tui:state/preferences` | `state_key` | 终端界面偏好 |
 
@@ -328,15 +341,15 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.panel:views/chat` | `view` | Web 对话界面 |
+| `org.aurora.panel:views/chat` | `view` | Web bot 工作台中的直接交流与运行观察 |
 | `org.aurora.panel:views/config` | `view` | Web 配置界面 |
 | `org.aurora.panel:views/ctx` | `view` | Web ctx 查看与操作 |
-| `org.aurora.panel:actions/message/submit` | `ui_action` | 界面提交动作，经 client 交互；与执行的关联机制待讨论 |
-| `org.aurora.panel:actions/run/cancel` | `ui_action` | 界面取消动作；具体交互机制待讨论 |
+| `org.aurora.panel:actions/message/submit` | `ui_action` | 经 client 直接引导目标 bot；复用 M3.6 的传输关联 |
+| `org.aurora.panel:actions/run/cancel` | `ui_action` | 取消指定 instance_id/run_id；浏览器断开不自动取消运行 |
 | `org.aurora.panel:resources/theme/default` | `resource` | 默认界面主题 |
 | `org.aurora.panel:state/preferences` | `state_key` | Web 界面偏好 |
 
-TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈和本地状态，不参与后端插件装配。视图与动作在本地解析；本版不规定提交／取消动作绑定 bot operation 或端点，也不规定 ctx 写入如何触发执行。
+第 9–10 节的视图与动作仍为待实现的规划身份。TUI 与 Panel 共享 client，各自处理输入、反馈和本地状态，不参与后端插件装配。首版是 bot 工作台，直接交流路径由 D10 确定；通过专用入口接入 run 操作，通用 ctx 写入不隐式启动业务。首版不引入多会话上下文隔离，世界输入和引导关联在 M4-W 接入后补充展示。
 
 ## 11. docsite
 
@@ -372,7 +385,9 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 | bot cancel 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/cancel` |
 | bot 命令与 CLI 接收方 | 可使用的描述 | `org.aurora.cli:schemas/command`；不要求导入 CLI 实现 |
 | bot conversation 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
-| bot conversation 端点 | 规划操作绑定 | bot conversation/send 与 conversation/cancel；不作为界面必经入口 |
+| bot conversation 端点 | M3.6 规划操作绑定 | `org.aurora.bot:operations/run/submit` 与 `org.aurora.bot:operations/run/cancel`；复用现有操作 |
+| world 来源 | M4-W 规划数据写入 | 世界记录由 world 提供；来源不直接决定 agent 运行 |
+| cadence | M4-W 规划读取与提交 | 订阅选定世界记录，向目标实例的既有 AgentRuntime 提交引导 |
 | ReAct 默认处理器 | `register_to` | `org.aurora.core:registries/hook_handlers` |
 | AgentRuntime | 宿主入口 | `get_agent`、`execute`、`is_executing`；不引用 DefaultAssembly |
 | control 组件 | 执行插槽 | 通过 ExecutionSlot 连接 ExecutionPlug，业务数据经 ctx 绑定交换 |
@@ -384,7 +399,7 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
 | TUI/Panel 的订阅 | 连接与订阅支持 | `org.aurora.client:services/event_stream` |
 
-界面动作到 bot 执行的关联不在本版建立具体绑定。ID 引用不等于代码导入、已连接或默认对外暴露。
+直接交流与世界输入的路径已确定，M3.6/M4-W 的具体绑定仍须实现和验收。ID 引用不等于代码导入、已连接或默认对外暴露；本次规划不改变已有 ID、配置和快照，无需数据迁移。
 
 ## 14. 第三方声明示例
 

@@ -2,6 +2,16 @@
 
 ## 2026-11-01
 
+### 确定直接交流路径并纳入 M4-W 世界输入规划
+
+- D10 确定面对面交流由 bot 产品入口向目标实例的既有 AgentRuntime 提交引导；首版默认 Panel/TUI/CLI 使用此路径，外部消息与环境变化经 world/cadence 接入。路由按交流性质配置，不把平台永久绑定到某条路径；直接交流不要求先进入 world。两条路径共用一个调度所有者，运行中保留当前 loop，接纳不等于完成，关闭界面不取消后端运行。
+- 首版界面确定为 bot 工作台，展示直接交流、运行与工具活动，不提前实现多会话上下文隔离。M3.6 接续专用提交/取消入口、回执、重复请求与运行关联；复用 run 操作，不新增 conversation/send、conversation/cancel 同义实现。具体信封和 URL 待实现时同步契约与测试。
+- [设计文档](aurorabot-design-v0.2.3.md)补充两条路径与包边界：world 负责独立的世界记录与来源，cadence 先作为 bot 包内可选插件逐条原样转发，不做语义聚类、合并或延迟调度。agent 不依赖 world，cadence 不另建激活调度循环；直接对话与世界记录分别保留来源身份。
+- [计划](plan.md)新增 D11 与 M4.W1–M4.W4：世界记录及接口、模拟来源与生命周期、原样转发 cadence、双路径与隔离安装验收。M4-W 排在 M3 工作台之后，不阻塞 M3.6；明确重复来源、消费位置、转交结果不确定及关闭恢复边界，后续将 live_workshop 改为正式能力消费者。移除 bot 编码落点中重复的 world 职责。
+- [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)补充 world/cadence 的命名空间归属，明确 world 当前为空插件、cadence 尚未实现；保留的 conversation 端点规划改为复用已有 run 操作，未预占新的世界业务 ID。同步[主动 bot 设计摘要](aurora_bot_react_design.md)，原始讨论记录保留为历史草案。
+- 本次仅更新文档，不改 README.md、AGENTS.md、运行代码、已登记 ID、插件清单、配置或快照，无需数据迁移。M3.6 和 M4-W 未标记为已交付。
+- 验证通过：5 份文档的 Prettier 与 Ruff 格式检查、39 条相对链接、4 项 M4-W 任务编号唯一性及 git diff 空白检查。现行设计已移除过期的 M3/D10 状态和 cadence 自建调度要求；历史聊天和旧变更记录保留原文。纯文档修改未运行业务测试或真实模型验收。
+
 ### M3.5：共享 TS ctx 客户端与断线恢复
 
 - `@aurorabot/client` 导出 `CtxClient`、订阅句柄、更新类型及 `RemoteError`/`ProtocolError`，复用生成的 HTTP/WS 绑定和 core ctx ID。提供 get、set、delete、list、subscribe、unsubscribe；HTTP 方法接收对应的请求对象，可另传 AbortSignal。get 保留 JSON null 与缺失错误的区别，set 返回 null，delete 返回是否删除，list 保留精确 location 语义。没有任意 operation 转发入口。

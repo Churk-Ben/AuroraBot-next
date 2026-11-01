@@ -2,15 +2,17 @@
 
 > 实施位置：ReActAgent、六个阶段插槽、ReActDefaults 与 AgentRuntime 现由 `aurora_agent` 提供；`aurora_control` 提供执行契约。本文保留设计讨论语境，当前 ID 见 [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。
 
+> 当前接续决策（2026-11-01）：直接交流经 bot 产品入口向既有 AgentRuntime 提交引导；世界消息经 world/cadence 进入同一入口。首版为 bot 工作台；M3.6 实现直接交流，M4-W 单独交付世界记录与原样转发 cadence。详见[设计第 7.7、10.2 节](aurorabot-design-v0.2.3.md)与[里程碑计划](plan.md)。下方聊天原文保留历史草案，不作为新增调度所有者的实施要求。
+
 ## 要点
 
 - 设计以 bot 为中心：外围环境提供感知、执行、持久化与调度条件，尊重 bot 对关注对象、目标推进和行动的选择。没有新用户消息时，bot 仍可推进目标或主动行动；回复消息是可选择的行动，一次激活允许不采取行动就正常结束。
 - bot 实例长期存在；一次激活包含可能多次推理与工具执行的 ReAct loop；一次模型或工具调用属于激活内部。激活结束不销毁 bot 的身份、目标及需要保留的状态。安排下一次唤醒、子代理等能力通过工具提供，具体工具随相应切片实现。
 - 再次触发表达可能需要重新规划的引导。空闲时启动一次激活；运行中接纳新信息并在后续观察、推理节点调整计划，保留当前运行及已有执行结果。引导不隐含强制取消、重启或创建并发 loop；同一次激活保留 run_id，子调用各自拥有 execution_id。
 - world 是独立接入根生命周期的插件，与 bot 执行体系并行工作。world 的插槽接入客观世界的信息来源，例如外部消息、MCP 推送或模拟环境；world 维护相关 ctx 空间，不直接提供供 cadence 接入的执行插槽。
-- cadence 订阅选定的 world ctx 地址，按自身策略筛选变化、准备引导并触发连接的 ReActAgent。不同 cadence 可以关注同一世界的不同范围；world 的信息维护不依赖某个 bot 是否关注。world 与 cadence 的联系通过 ctx 数据和订阅表达。
-- cadence 提供执行插槽，ReActAgent 提供执行插头；连接握手交换 ctx 地址与可选 schema，执行只传递运行和调用身份。每个 agent 实例由一个调度所有者串行管理激活；运行中通过持续输入接纳引导。ReActAgent 的执行入口等待本次激活收束，调用完成由等待确定。
-- 持续输入采用 inbox、progress、runtime 三类地址角色：cadence 写入带标识与顺序的引导；ReActAgent 记录已纳入上下文的位置及当前运行状态。progress 表达已接纳，不代表已完成对应要求。inbox 与消费位置按 agent 实例定位，跨激活保留；单次推理、动作等数据可沿用按 run_id 定位的绑定。保留与裁剪策略由装配明确，不由 core 自动推断。
+- cadence 位于 bot 包内，作为可选插件订阅选定的世界记录并向既有 AgentRuntime 提交；首版逐条原样转发，复杂筛选、聚类和调度后续扩展。world 的信息维护不依赖某个 bot 是否关注；面对面交流有独立入口，不要求先进入 world。
+- 每个 agent 实例由一个 AgentRuntime 调度所有者串行管理激活；直接交流与 cadence 都复用它，cadence 不另建执行调度循环。ReActAgent 的执行入口等待本次激活收束，调用完成由等待确定。历史草案中的 cadence 执行插槽关系不作为默认产品的新调度入口。
+- 持续输入采用 inbox、progress、runtime 三类地址角色：入口经 AgentRuntime 提交带标识与顺序的引导，不自行改写 inbox/progress；ReActAgent 记录已纳入上下文的位置及当前运行状态。progress 表达已接纳，不代表已完成对应要求。inbox 与消费位置按 agent 实例定位，跨激活保留；单次推理、动作等数据可沿用按 run_id 定位的绑定。保留与裁剪策略由装配明确，不由 core 自动推断。
 - ReActAgent 在推理前接纳引导，在结束前检查待处理输入；调度所有者在执行返回后复查输入，覆盖结束边界上的变化。ctx 订阅仅通知后续变更，没有历史回放承诺；需要逐条处理的世界消息应保存可读取的记录，消费方维护位置，不能仅依赖不断覆盖的最新值或瞬时事件。
 - 接口草案：org.aurora.agent:handlers/react_agent 为 component，其 /execute 为 hook_handler；沿用 org.aurora.agent:react/{prepare,infer,act,observe,finish,error} 六个 hook_slot。prepare 在每次推理前准备上下文与引导，infer 形成行动或结束决定，act 执行工具，observe 接纳结果，finish 收束本次激活且允许无输出，error 处理失败。阶段连接属于具体 agent 实例，执行顺序由 bot 组件负责。
 - 实施顺序：先交付可再次激活、运行中接纳引导的 ReActAgent 最小组件与离线行为验收，再接入基本工具往返、默认装配与恢复、真实模型和 CLI 整体验收。world、cadence 的完整插件、唤醒工具与子代理属于后续切片；阶段入口和持续输入先以显式进程内装配验证。达到本切片验收不代表整个 M2 完成。
