@@ -180,6 +180,18 @@ assembly = "org.aurora.bot:assemblies/default"
 
 只使用执行契约不要求启用控制插件；使用四种控制组合时额外启用 `aurora_control`。组件定义、执行端口和状态归属见[公共 ID 目录](../docs/aurorabot-id-catalog-v0.2.3.md)。
 
+## 使用已有配置启动真实模型后端
+
+已有 `data/config/` 配置时，使用正式 CLI 宿主启动。`data/config/host.toml` 的插件列表须包含默认 bot 所需插件及 `aurora_api`，并选择 `org.aurora.bot:assemblies/default`。模型由 `profiles.toml` 与 `bindings.toml` 决定；profile 的 `credential` 保存环境变量名，凭证由 uv 从根目录 `.env` 加载。
+
+```powershell
+uv run --locked --env-file .env aurora --data-dir data serve --port 10270 `
+  --keys '["org.aurora.bot:state/agents","org.aurora.bot:state/messages","org.aurora.bot:state/run","org.aurora.bot:state/react_work"]' `
+  --endpoints '["org.aurora.bot:endpoints/conversation"]'
+```
+
+另一个终端运行 `pnpm --filter @aurorabot/tui start`。此后端按现有配置连接真实供应商，启动本身不激活 bot；TUI 发送消息才触发模型调用。工具是否可用由 bot 配置的 `tools` 决定。后端终端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一 `data` 目录。
+
 ## 真实模型验收
 
 [scripts/accept_m2.py](../scripts/accept_m2.py) 创建独立 TOML profile 和 bot 配置，经 CLI 验证流式、完整响应、工具往返与恢复。该脚本会调用指定供应商，需要事先配置凭证；`--data-dir` 必须是尚不存在的目录。
