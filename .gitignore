@@ -28,3 +28,6 @@ Thumbs.db
 
 # JetBrains IDEs
 .idea/
+
+# User Configuration
+/config/
