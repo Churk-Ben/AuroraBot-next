@@ -263,6 +263,8 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 
 ### 7.1 传输契约与基础端点
 
+下表为规划身份，尚未登记。当前实现直接提供本机 `POST /ctx/get`、`/ctx/list`、`/ctx/set`、`/ctx/delete` 与 `WS /ctx/watch`，绑定既有 core ctx 操作 ID。公开数据描述位于 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py)，不提供任意 operation 转发或全量登记表导出。
+
 | ID | kind | 用途 |
 | --- | --- | --- |
 | `org.aurora.api:registries/endpoints` | `registry` | 接收实际需要的 HTTP/WS 端点 |
@@ -294,6 +296,8 @@ API 传输实际需要的 bot/core 事件时保留原事件类型 ID，可添加
 ## 8. aurora_client
 
 以下对象在 TS 客户端环境解析；本地状态不自动成为 Python ctx 状态。
+
+当前已生成 [ctx 类型及 ID 常量](../packages/aurora_client/src/generated/ctx-contract.ts) 与 [JSON 描述](../packages/aurora_client/src/generated/ctx-contract.json)，由 `@aurorabot/client` 导出 TS 契约。下表仍为规划身份；共享访问、连接和订阅运行时尚未实现，生成文件本身不等于登记 `contracts/generated`。
 
 | ID | kind | 用途 |
 | --- | --- | --- |

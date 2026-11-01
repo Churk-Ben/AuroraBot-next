@@ -1,3 +1,2 @@
-// 共享 ctx 访问与连接的包入口。
-// oxlint-disable-next-line unicorn/require-module-specifiers -- 空导出保留包的模块边界。
-export {};
+// 共享 ctx 传输的类型与显式绑定。
+export * from './generated/ctx-contract.ts';

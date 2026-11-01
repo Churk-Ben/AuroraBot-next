@@ -2,6 +2,15 @@
 
 ## 2026-11-01
 
+### M3.4：本机 ctx 传输契约按需生成
+
+- `aurora_api.contract.describe_contract()` 描述现有四个 HTTP ctx 请求及响应、错误、WS 握手与事件信封，显式绑定 URL、方法、既有 core 操作及事件 ID。JSON Schema Draft 2020-12 保留必填、可选、空值与 location 结构；业务状态值仅描述为 JSON，不读取配置、登记表或运行期资源，不引入新公共 ID。
+- `uv run --locked python scripts/generate_ctx_contract.py` 生成 `packages/aurora_client/src/generated/ctx-contract.json` 和 `ctx-contract.ts`，TS 类型与绑定常量由 `@aurorabot/client` 导出。需要已安装 Python 工作区及 Node/pnpm 开发依赖，格式化复用工作区 Prettier。`--check` 不写文件，产物缺失或过期时返回非零；`--output <目录>` 可指定输出位置。生成一致性已纳入 pytest 回归。
+- 描述中的 `aurora-id` 格式使用 core 的 Id 语法；JSON Schema 的格式、字符串和数值约束不全部体现在 TS 类型中，服务端继续负责校验。TS 使用 JavaScript number，不提供任意精度整数转换。合法 UTF-8、有限数值、重复对象键等编码约束继续由共用 JSON 编解码实施。
+- WS 保持每连接一个订阅，关闭即取消，revision 作用域为当前宿主 ctx；断线后需重新订阅并读取状态，无历史补发。当前接口仍仅开放本机回环及显式状态键，拒绝浏览器 Origin 与非本机 Host。M3.4 完成当前传输范围，M3.5 的共享访问与重连、远程及浏览器访问、D10 界面运行关联仍待实现。计划和公共文档据代码修正为 M3 进行中。
+- 新增 17 项契约测试，覆盖真实 HTTP/WS 载荷、必填与空值边界、访问拒绝、慢消费者错误、重复生成及只读过期检查；与已有 API 测试合计 30 项通过。配置、快照和已有 ID 未变化，无需数据迁移，未调用真实模型服务。
+- 完整检查中的 548 项 Python 测试、9 项工具链测试通过；修正新增 TS 配置字段排序及本文档、设计文档两处已有代码块格式后，`uv run --locked aurora check --lint` 全部通过，包括格式、lint、Python/TypeScript 类型和客户端导入。供应商 SDK 保留 1 项 Pydantic ReadOnly 提示。API/core wheel 构建通过，隔离安装验证 4 条 HTTP 绑定及 20 个数据定义可导出，环境中未安装 bot、agent、配置、模型或 CLI 包，导出不加载 aiohttp。验收 wheel 位于 `build/m3-contract-wheels`。
+
 ### JSON 提交前拒绝无法编码为 UTF-8 的字符串
 
 - 共用 JSON 编解码校验字符串值和对象键的 UTF-8 可编码性，拒绝孤立代理字符。HTTP `/ctx/set` 在提交状态前返回 400，保留原值、修订和订阅状态，避免单项非法数据阻断完整快照保存。合法中文、补充平面字符及 JSON 转义中的合法代理对继续往返。
@@ -91,11 +100,13 @@ entries = config_entries(
     ConfigSpec(
         state=Id("dev.example:state/options"),
         template=ConfigTemplate("my_plugin", "config.tomls/options.toml"),
-        schema=ConfigSchema({
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {"enabled": {"type": "boolean", "default": True}},
-        }),
+        schema=ConfigSchema(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"enabled": {"type": "boolean", "default": True}},
+            }
+        ),
     ),
     provider="my_plugin",
 )
