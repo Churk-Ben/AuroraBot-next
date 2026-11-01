@@ -45,7 +45,7 @@ def test_directory_package_is_discovered_without_dispatcher_changes(tmp_path, mo
     assert error.value.code == 2
 
 
-def test_runtime_executor_uses_core_and_persists_without_id_special_case(tmp_path):
+def test_runtime_executor_writes_transient_configuration_without_id_special_case(tmp_path):
     async def execute(context, value):
         await invoke_operation(
             context.registry, Id("org.aurora.core:operations/ctx/set"), Id("org.aurora.cli:state/config"), value
@@ -79,7 +79,7 @@ def test_runtime_executor_uses_core_and_persists_without_id_special_case(tmp_pat
     assert output.getvalue() == "已写入\n"
     output = StringIO()
     asyncio.run(run_cli(["--data-dir", str(tmp_path), "ctx/get", "org.aurora.cli:state/config"], output=output))
-    assert json.loads(output.getvalue()) == {"value": 42}
+    assert json.loads(output.getvalue()) == {}
 
 
 def test_entry_point_command_is_only_loaded_when_enabled(tmp_path, monkeypatch):

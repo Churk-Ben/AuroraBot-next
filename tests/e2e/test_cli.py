@@ -33,22 +33,23 @@ def invoke(*args):
     )
 
 
-def test_ctx_commands_recover_across_processes(tmp_path):
+def test_cli_configuration_rebuilds_from_toml_across_processes(tmp_path):
     def run(*args):
         result = invoke("--data-dir", tmp_path, *args)
         assert result.returncode == 0, result.stderr
         return json.loads(result.stdout)
 
     assert run("ctx", "set", CONFIG, '{"value":1}') is None
-    assert run("ctx/get", CONFIG) == {"value": 1}
+    assert run("ctx/get", CONFIG) == {}
+    (tmp_path / "config/org.aurora.cli/config.toml").write_text("value = 3\n", encoding="utf-8")
+    assert run("ctx/get", CONFIG) == {"value": 3}
     assert run("ctx", "set", CONFIG, '{"value":2}', "--location", '{"scope":"other"}') is None
     assert run("ctx/list", "--location", "{}") == [{"id": CONFIG, "location": {}}]
-    assert run("ctx", "get", CONFIG, "--location", '{"scope":"other"}') == {"value": 2}
-    assert run("ctx/delete", CONFIG) is True
-    assert run("ctx/delete", CONFIG) is False
-    missing = invoke("--data-dir", tmp_path, "ctx/get", CONFIG)
+    missing = invoke("--data-dir", tmp_path, "ctx/get", CONFIG, "--location", '{"scope":"other"}')
     assert missing.returncode == 1
-    assert "KeyError" in missing.stderr
+    assert run("ctx/delete", CONFIG) is True
+    assert run("ctx/delete", CONFIG) is True
+    assert run("ctx/get", CONFIG) == {"value": 3}
 
 
 @pytest.mark.parametrize(
@@ -64,7 +65,7 @@ def test_ctx_commands_recover_across_processes(tmp_path):
     ],
 )
 def test_cli_errors_keep_tracebacks_in_file_and_stdout_clean(tmp_path, options, tracebacks, visible):
-    result = invoke(*options, "--data-dir", tmp_path, "ctx/get", CONFIG)
+    result = invoke(*options, "--data-dir", tmp_path, "ctx/get", CONFIG, "--location", '{"scope":"missing"}')
     assert result.returncode == 1
     assert result.stdout == ""
     assert ("KeyError" in result.stderr) is visible
@@ -214,6 +215,6 @@ def test_run_applies_config_before_prepare_and_flushes_stop(tmp_path):
             assert content.count(message) == 1
         output = StringIO()
         await run_cli(["--data-dir", str(tmp_path), "ctx/get", CONFIG], output=output)
-        assert json.loads(output.getvalue()) == {"stopped": True}
+        assert json.loads(output.getvalue()) == {}
 
     asyncio.run(scenario())

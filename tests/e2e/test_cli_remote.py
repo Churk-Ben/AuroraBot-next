@@ -51,7 +51,7 @@ async def command(*args, cwd=None):
             await process.communicate()
 
 
-def test_remote_watch_and_commands_share_one_host_and_persist_on_shutdown(tmp_path):
+def test_remote_watch_and_commands_share_one_host_with_transient_configuration(tmp_path):
     async def scenario():
         data = tmp_path / "host-data"
         client_dir = tmp_path / "client"
@@ -97,7 +97,7 @@ def test_remote_watch_and_commands_share_one_host_and_persist_on_shutdown(tmp_pa
             assert watcher.returncode == 1
             assert "订阅连接已关闭" in error.decode("utf-8")
             assert list(client_dir.iterdir()) == []
-            assert await command("-d", data, "ctx/get", CONFIG) == {"count": 2}
+            assert await command("-d", data, "ctx/get", CONFIG) == {}
         finally:
             for process in processes:
                 if process.returncode is None:

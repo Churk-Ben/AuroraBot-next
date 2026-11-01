@@ -12,6 +12,7 @@ from aurora_core.lifecycle import Lifecycle, LifecycleComponent
 from aurora_core.persistence import ContextPersistence
 from aurora_core.storage import StorageService
 
+from .configuration import initialize_host_config
 from .declarations import CONFIG, Command, CommandContext
 from .execution import execute_command
 
@@ -39,6 +40,7 @@ async def execute(
         storage = StorageService(data_dir)
         hooks = HookConnections(registry)
         try:
+            initialize_host_config(storage.configuration_directory())
             components = () if factory is None else factory(registry=registry, ctx=ctx, hooks=hooks, storage=storage)
             if inspect.iscoroutine(components):
                 components.close()

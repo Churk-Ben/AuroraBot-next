@@ -4,16 +4,18 @@ import logging
 import sys
 from collections.abc import Iterable
 from importlib.metadata import version
-from typing import TextIO
+from typing import TextIO, cast
 
 from aurora_core.admission import AdmissionStatus, inspect_admissions
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import Plugin, load_plugins, register_plugins
+from aurora_core.ids import Id
 from aurora_core.lifecycle import install_lifecycle_slots
 from aurora_logging import configure_logging
 
 from . import host
 from .commands import discover_commands, install_commands
+from .configuration import read_host_config
 from .declarations import COMMANDS, CommandContext, read_command
 from .execution import execute_command
 from .parsing import parse_command, root_parser
@@ -28,6 +30,7 @@ async def run_cli(
         raise RuntimeError("标准输出不可用，请显式提供 output 文本流")
     parser = root_parser()
     options = parser.parse_args(argv)
+    requested_assembly = options.assembly
     if options.command[:1] == ["--"]:
         options.command = options.command[1:]
     if options.version:
@@ -41,6 +44,11 @@ async def run_cli(
     ):
         parser.error("--connect 不能与 --data-dir、--assembly、--config 或 --plugin 同时使用")
     registry = bootstrap()
+    if options.connect is None and options.data_dir is not None:
+        configured = read_host_config(options.data_dir)
+        options.plugin = options.plugin or cast(list[str], configured.get("plugins", []))
+        if options.assembly is None and "assembly" in configured:
+            options.assembly = Id(cast(str, configured["assembly"]))
     install_commands(registry)
     install_lifecycle_slots(registry)
     register_plugins(registry, load_plugins(explicit=(*discover_commands(), *plugins), enabled=options.plugin))
@@ -82,7 +90,7 @@ async def run_cli(
         return await remote.execute(options.connect, command.id, values, output)
     context = CommandContext(options.root.resolve(), output, registry, tuple(commands.values()))
     if not command.runtime:
-        if options.config is not None or options.assembly is not None:
+        if options.config is not None or requested_assembly is not None:
             parser.error("--config 和 --assembly 仅适用于运行期宿主命令")
         return await execute_command(command, context, values)
     if options.data_dir is None:
@@ -91,7 +99,7 @@ async def run_cli(
     if command.assembly_argument is not None:
         selected = values.pop(command.assembly_argument, None)
         if selected is not None:
-            if assembly is not None:
+            if requested_assembly is not None:
                 parser.error("命令的装配参数与 --assembly 不能同时使用")
             assembly = selected
     configure_logging(

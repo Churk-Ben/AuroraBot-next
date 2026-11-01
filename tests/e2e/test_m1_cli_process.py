@@ -41,7 +41,7 @@ def test_real_cli_interrupt_and_shutdown_status(tmp_path, fault):
     assert result.returncode == (1 if fault else 130), result.stderr
     events = [json.loads(line) for line in result.stdout.splitlines()]
     assert [event["value"] for event in events] == ["first", "second"]
-    assert [event["revision"] for event in events] == [1, 2]
+    assert events[1]["revision"] == events[0]["revision"] + 1
     if fault:
         assert "故障" in result.stderr
     if fault == "flush":
