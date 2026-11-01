@@ -7,7 +7,16 @@ from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
-from aurora_core.lifecycle import PREPARE, START, STOP, Lifecycle, LifecycleComponent, install_lifecycle_slots
+from aurora_core.lifecycle import (
+    CLEAN,
+    CONFIG,
+    PREPARE,
+    START,
+    STOP,
+    Lifecycle,
+    LifecycleComponent,
+    install_lifecycle_slots,
+)
 from aurora_core.registry import RegistryEntry
 
 
@@ -34,7 +43,7 @@ def test_dependencies_prepare_start_and_stop_in_order():
             LifecycleComponent("service", stop_accepting=lambda: calls.append("quiesce:service")),
         ]
         registry, _, hooks, lifecycle = environment(components)
-        for phase in (PREPARE, START, STOP):
+        for phase in (CONFIG, PREPARE, START, STOP, CLEAN):
             for instance in ("app", "service"):
                 handler(
                     registry,
@@ -47,6 +56,8 @@ def test_dependencies_prepare_start_and_stop_in_order():
         await lifecycle.stop()
         await lifecycle.stop()
         assert calls == [
+            "config:service",
+            "config:app",
             "prepare:service",
             "prepare:app",
             "start:service",
@@ -55,6 +66,8 @@ def test_dependencies_prepare_start_and_stop_in_order():
             "quiesce:service",
             "stop:app",
             "stop:service",
+            "clean:app",
+            "clean:service",
         ]
         assert lifecycle.state == "stopped"
 
@@ -325,5 +338,61 @@ def test_configuration_failure_does_not_prepare_components():
         assert lifecycle.state == "stopped"
         with pytest.raises(RuntimeError, match="关闭"):
             ctx.list()
+
+    asyncio.run(scenario())
+
+
+def test_failed_config_cleans_only_entered_components_without_prepare_or_stop():
+    async def scenario():
+        registry, _, hooks, lifecycle = environment(
+            [LifecycleComponent("a"), LifecycleComponent("b"), LifecycleComponent("c")]
+        )
+        calls = []
+
+        def fail():
+            raise ValueError("配置失败")
+
+        handler(registry, hooks, CONFIG, "b", fail)
+        for instance in ("a", "b", "c"):
+            for phase in (PREPARE, STOP, CLEAN):
+                handler(
+                    registry,
+                    hooks,
+                    phase,
+                    instance,
+                    lambda phase=phase, instance=instance: calls.append((phase, instance)),
+                )
+        with pytest.raises(ValueError, match="配置失败"):
+            await lifecycle.start()
+        assert calls == [(CLEAN, "b"), (CLEAN, "a")]
+
+    asyncio.run(scenario())
+
+
+def test_clean_failure_retries_without_repeating_stop_or_successful_clean_handlers():
+    async def scenario():
+        registry, _, hooks, lifecycle = environment(
+            [LifecycleComponent("service"), LifecycleComponent("app", ("service",))]
+        )
+        calls = []
+        failing = True
+
+        def clean():
+            if failing:
+                raise OSError("关闭失败")
+            calls.append("clean:app:last")
+
+        for instance in ("app", "service"):
+            handler(registry, hooks, STOP, instance, lambda instance=instance: calls.append("stop:" + instance))
+        handler(registry, hooks, CLEAN, "app", lambda: calls.append("clean:app:first"), name="first")
+        handler(registry, hooks, CLEAN, "app", clean, name="last")
+        handler(registry, hooks, CLEAN, "service", lambda: calls.append("clean:service"))
+        await lifecycle.start()
+        with pytest.raises(OSError):
+            await lifecycle.stop()
+        assert calls == ["stop:app", "stop:service", "clean:app:first"]
+        failing = False
+        await lifecycle.stop()
+        assert calls == ["stop:app", "stop:service", "clean:app:first", "clean:app:last", "clean:service"]
 
     asyncio.run(scenario())

@@ -16,25 +16,27 @@ from .persistence import ContextPersistence
 from .registry import DefinitionRegistry, RegistryEntry
 from .storage import StorageService
 
+CONFIG = Id("org.aurora.core:lifecycle/config")
 PREPARE = Id("org.aurora.core:lifecycle/prepare")
 START = Id("org.aurora.core:lifecycle/start")
 STOP = Id("org.aurora.core:lifecycle/stop")
+CLEAN = Id("org.aurora.core:lifecycle/clean")
 logger = logging.getLogger(__name__)
 
 
 def install_lifecycle_slots(registry: DefinitionRegistry) -> None:
-    """显式登记三个生命周期插槽，处理器均以无参数方式调用。"""
+    """登记 config、prepare、start、stop、clean 五个无参数生命周期插槽。"""
     registry.register_many(
         RegistryEntry(
             identity, "hook_slot", HookSlot(), "aurora_core", register_to=Id("org.aurora.core:registries/hook_slots")
         )
-        for identity in (PREPARE, START, STOP)
+        for identity in (CONFIG, PREPARE, START, STOP, CLEAN)
     )
 
 
 @dataclass(frozen=True)
 class LifecycleComponent:
-    """实例依赖与入口关闭动作；具体 prepare/start/stop 通过插槽连接提供。"""
+    """实例依赖与入口关闭动作；五个阶段的处理器通过插槽连接提供。"""
 
     instance_id: str
     depends_on: tuple[str, ...] = ()
@@ -64,10 +66,10 @@ def _ordered(components: Iterable[LifecycleComponent]) -> tuple[LifecycleCompone
 
 
 class Lifecycle:
-    """依赖先 prepare/start，依赖者先停止；同级按显式装配顺序启动。
+    """各阶段整体推进；依赖先 config/prepare/start，依赖者先 stop/clean。
 
     run 管理的工作由宿主收束，组件自行创建的任务由其 stop 处理器收束。
-    停止失败保留依赖及状态供重试；成功组件和成功 stop handler 不重复执行。
+    全部 stop 完成后才 clean；收尾失败保留依赖及状态供重试，已完成处理器不重复执行。
     timeout 限制异步处理和等待，不抢占同步阻塞代码。
     """
 
@@ -92,8 +94,10 @@ class Lifecycle:
         self._state: Literal["new", "starting", "running", "stopping", "failed", "stopped"] = "new"
         self._loop: asyncio.AbstractEventLoop | None = None
         self._attempted: set[str] = set()
+        self._configured: set[str] = set()
         self._quiesced: set[str] = set()
         self._stopped: set[str] = set()
+        self._cleaned: set[str] = set()
         self._finished_handlers: set[HookConnection] = set()
         self._work: set[asyncio.Task[object]] = set()
         self._stop_task: asyncio.Task[None] | None = None
@@ -109,11 +113,11 @@ class Lifecycle:
 
     async def _phase(self, phase: Id, component: LifecycleComponent) -> None:
         for connection in self._hooks.for_slot(phase, component.instance_id):
-            if phase == STOP and connection in self._finished_handlers:
+            if phase in (STOP, CLEAN) and connection in self._finished_handlers:
                 continue
             async with asyncio.timeout(self._timeout):
                 await self._hooks.invoke(connection)
-            if phase == STOP:
+            if phase in (STOP, CLEAN):
                 self._finished_handlers.add(connection)
 
     async def start(self, *, configure: Callable[[], object] | None = None) -> None:
@@ -132,6 +136,9 @@ class Lifecycle:
                 await self._persistence.start()
                 self._persistence_started = True
             self._ctx.configure(configuration)
+            for component in self._components:
+                self._configured.add(component.instance_id)
+                await self._phase(CONFIG, component)
             if configure is not None:
                 async with asyncio.timeout(self._timeout):
                     await invoke_callable(configure)
@@ -185,8 +192,12 @@ class Lifecycle:
             for component in components:
                 if component.instance_id not in self._stopped:
                     await self._phase(STOP, component)
-                    self._hooks.disconnect_instance(component.instance_id)
                     self._stopped.add(component.instance_id)
+            for component in reversed(self._components):
+                if component.instance_id in self._configured and component.instance_id not in self._cleaned:
+                    await self._phase(CLEAN, component)
+                    self._hooks.disconnect_instance(component.instance_id)
+                    self._cleaned.add(component.instance_id)
             if self._persistence is not None and self._persistence_started:
                 await self._persistence.close()
             self._hooks.close()
