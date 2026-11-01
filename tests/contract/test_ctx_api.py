@@ -1,6 +1,7 @@
 """验证 HTTP/WS 与进程内 ctx 的语义、暴露边界和订阅释放。"""
 
 import asyncio
+import json
 from dataclasses import replace
 
 import pytest
@@ -12,6 +13,7 @@ from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import StateKey, install_context
 from aurora_core.ids import Id
 from aurora_core.registry import RegistryEntry
+from aurora_core.snapshots import JsonSnapshotStore
 
 PUBLIC = Id("dev.api:state/public")
 PRIVATE = Id("dev.api:state/private")
@@ -151,6 +153,39 @@ def test_invalid_requests_and_browser_requests_do_not_mutate_state():
             async with session.post(url + "/operations/invoke", json={}) as r:
                 assert r.status == 404
             assert ctx.list() == ()
+        ctx.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("surrogate", [chr(0xD800), chr(0xDFFF)])
+@pytest.mark.parametrize("field", ["value", "object_key", "location"])
+def test_surrogates_are_rejected_before_commit_and_snapshot_remains_writable(tmp_path, surrogate, field):
+    async def scenario():
+        registry, ctx, _, _ = make_host()
+        ctx.set(PUBLIC, "正常状态😀")
+        before = ctx.snapshot()
+        changes = []
+        ctx.subscribe(changes.append)
+        payload = {"key": str(PUBLIC), "value": surrogate}
+        if field == "object_key":
+            payload["value"] = {surrogate: "内容"}
+        elif field == "location":
+            payload["value"] = "内容"
+            payload["location"] = {"scope": surrogate}
+        async with (
+            serve(registry, keys=[PUBLIC], port=0) as url,
+            ClientSession() as session,
+            session.post(
+                url + "/ctx/set", data=json.dumps(payload), headers={"Content-Type": "application/json"}
+            ) as response,
+        ):
+            assert response.status == 400
+            assert (await response.json())["error"]["code"] == "invalid_request"
+        assert ctx.snapshot() == before and changes == []
+        store = JsonSnapshotStore(tmp_path / "ctx.json")
+        store.save(ctx.snapshot())
+        assert store.load() == before.records
         ctx.close()
 
     asyncio.run(scenario())

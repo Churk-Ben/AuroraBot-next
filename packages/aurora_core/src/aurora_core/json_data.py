@@ -6,7 +6,13 @@ import math
 
 def _validate_json(value: object, ancestors: set[int] | None = None) -> None:
     """仅接收可无损往返的 JSON 数据类型，拒绝对象、元组、非字符串键和循环。"""
-    if value is None or type(value) in (str, bool, int):
+    if type(value) is str:
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError("JSON 字符串必须可编码为 UTF-8") from None
+        return
+    if value is None or type(value) in (bool, int):
         return
     if type(value) is float:
         if not math.isfinite(value):
@@ -23,6 +29,8 @@ def _validate_json(value: object, ancestors: set[int] | None = None) -> None:
         if isinstance(value, dict):
             if any(type(key) is not str for key in value):
                 raise TypeError("JSON 对象的键必须为字符串")
+            for key in value:
+                _validate_json(key)
             items = value.values()
         else:
             items = value
@@ -48,7 +56,7 @@ def encode_json(value: object, *, indent: int | None = None) -> str:
 
 
 def decode_json(content: str) -> object:
-    """解码并拒绝重复字段及非有限数。"""
+    """解码并拒绝重复字段、非有限数及不能编码为 UTF-8 的字符串。"""
     value = json.loads(content, object_pairs_hook=_unique_object)
     _validate_json(value)
     return value

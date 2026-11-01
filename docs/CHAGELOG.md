@@ -2,6 +2,12 @@
 
 ## 2026-11-01
 
+### JSON 提交前拒绝无法编码为 UTF-8 的字符串
+
+- 共用 JSON 编解码校验字符串值和对象键的 UTF-8 可编码性，拒绝孤立代理字符。HTTP `/ctx/set` 在提交状态前返回 400，保留原值、修订和订阅状态，避免单项非法数据阻断完整快照保存。合法中文、补充平面字符及 JSON 转义中的合法代理对继续往返。
+- 新增高低代理字符、嵌套值、对象键和 location 的回归，验证非法 API 请求不修改状态，正常状态仍可保存并恢复。三项审查修复共新增 23 项测试；完整检查中的 531 项 Python 测试、9 项工具链测试通过，修正新测试的类型与 lint 问题后相关 98 项测试复验通过，Python/TypeScript 类型检查通过。
+- `uv run --locked aurora check --lint` 复验仅剩本文档原有 ConfigSchema 示例与 `aurorabot-design-v0.2.3.md` 原有代码块的 Ruff 格式问题；其余格式、lint 与类型检查通过。本次未修改这两处历史内容，供应商 SDK 仍有 1 项 Pydantic ReadOnly 提示。
+
 ### 批量配置通知保持提交顺序
 
 - EventBus 提供同类型事件的整批入队与派发；Context.configure 在全部配置提交后一次入队全部变更，监听器重入 set、configure 或 delete 时，新通知排在本批之后，修订序号与提交顺序一致。
