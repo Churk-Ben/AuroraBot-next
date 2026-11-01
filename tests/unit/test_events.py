@@ -42,6 +42,40 @@ def test_reentrant_publication_keeps_fifo_order():
     assert received == [1, 2]
 
 
+def test_batch_is_queued_before_reentrant_publication():
+    bus = EventBus()
+    received, late, nested_sequences = [], [], []
+
+    def first(event):
+        if event.payload == 1:
+            bus.subscribe(late.append)
+            nested_sequences.append(bus.publish(CHANGED, 3))
+
+    bus.subscribe(first)
+    bus.subscribe(received.append)
+    assert bus.publish_many(CHANGED, (1, 2)) == (1, 2)
+    assert [(event.sequence, event.payload) for event in received] == [(1, 1), (2, 2), (3, 3)]
+    assert nested_sequences == [3]
+    assert [event.payload for event in late] == [3]
+
+
+def test_failed_batch_copy_does_not_publish_or_consume_sequences():
+    bus = EventBus()
+    received = []
+    bus.subscribe(received.append)
+
+    class CannotCopy:
+        def __deepcopy__(self, memo):
+            raise ValueError("无法复制")
+
+    with pytest.raises(ValueError, match="无法复制"):
+        bus.publish_many(CHANGED, (1, CannotCopy()))
+    assert received == []
+    assert bus.publish_many(CHANGED, ()) == ()
+    assert bus.publish(CHANGED, 2) == 1
+    assert [event.payload for event in received] == [2]
+
+
 def test_unsubscribe_skips_pending_callbacks_and_does_not_cross_buses():
     bus = EventBus()
     received = []

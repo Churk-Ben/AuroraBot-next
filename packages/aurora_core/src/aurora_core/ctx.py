@@ -133,8 +133,7 @@ class Context:
             self._validating = False
         self._values.update(pending)
         self._revision += len(changes)
-        for change in changes:
-            self._events.publish(CTX_CHANGED, change)
+        self._events.publish_many(CTX_CHANGED, changes)
 
     def _check_open(self) -> None:
         if get_ident() != self._owner:

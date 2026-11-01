@@ -65,16 +65,23 @@ class EventBus:
 
     def publish(self, event_type: Id, payload: object) -> int:
         """复制载荷后发布，返回序号；重入发布在当前事件通知完成后派发。"""
+        return self.publish_many(event_type, (payload,))[0]
+
+    def publish_many(self, event_type: Id, payloads: tuple[object, ...]) -> tuple[int, ...]:
+        """整批复制并入队后派发，返回各事件序号；重入发布排在本批之后。"""
         self._check_open()
         if not isinstance(event_type, Id):
             raise TypeError("事件类型必须为 Id")
-        snapshot = deepcopy(payload)
-        self._sequence += 1
-        sequence = self._sequence
+        snapshots = tuple(deepcopy(payload) for payload in payloads)
+        sequences = tuple(range(self._sequence + 1, self._sequence + len(snapshots) + 1))
         handles = tuple(key for key, (kind, _) in self._listeners.items() if kind is None or kind == event_type)
-        self._pending.append((Event(event_type, sequence, snapshot), handles))
+        self._pending.extend(
+            (Event(event_type, sequence, snapshot), handles)
+            for sequence, snapshot in zip(sequences, snapshots, strict=True)
+        )
+        self._sequence += len(snapshots)
         if self._dispatching:
-            return sequence
+            return sequences
         self._dispatching = True
         try:
             while self._pending:
@@ -94,7 +101,7 @@ class EventBus:
         finally:
             self._pending.clear()
             self._dispatching = False
-        return sequence
+        return sequences
 
     def close(self) -> None:
         """幂等释放订阅和待派发事件，关闭后拒绝新订阅与发布。"""

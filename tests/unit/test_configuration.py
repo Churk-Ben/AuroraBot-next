@@ -167,6 +167,38 @@ def test_configure_validates_all_records_before_commit_and_notification():
     assert ctx.snapshot(persistent_only=True).records == ()
 
 
+@pytest.mark.parametrize("action", ["set", "configure", "delete"])
+def test_configure_queues_all_changes_before_reentrant_writes(action):
+    registry = bootstrap()
+    for key in (CONFIG, SECOND):
+        registry.register(RegistryEntry(key, "state_key", StateKey(persistent=False), "测试插件"))
+    ctx = Context(registry)
+    changes, mirror = [], {}
+
+    def write(change):
+        if change.address.key == CONFIG:
+            if action == "configure":
+                ctx.configure((StateRecord(StateAddress(SECOND), "新值"),))
+            elif action == "delete":
+                ctx.delete(SECOND)
+            else:
+                ctx.set(SECOND, "新值")
+
+    def observe(change):
+        changes.append(change)
+        if change.action == "delete":
+            mirror.pop(change.address)
+        else:
+            mirror[change.address] = change.value
+
+    ctx.subscribe(write)
+    ctx.subscribe(observe)
+    ctx.configure((StateRecord(StateAddress(CONFIG), {}), StateRecord(StateAddress(SECOND), "旧值")))
+    assert [change.revision for change in changes] == [1, 2, 3]
+    assert changes[1].value == "旧值" and changes[2].previous == "旧值"
+    assert mirror == {record.address: record.value for record in ctx.snapshot().records}
+
+
 def test_template_states_require_explicit_non_persistence(tmp_path, package):
     name = package({"config.toml": ""})
     registry = definitions(name)
