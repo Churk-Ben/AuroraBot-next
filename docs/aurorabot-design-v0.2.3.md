@@ -181,7 +181,7 @@ list 返回已赋值的精确地址并排序；缺失 get 抛 KeyError，已登�
 
 需要恢复的数据在运行期间异步自动落盘。正常退出前完成待写入数据及停止过程中最后变更的落盘，再释放相关内存。
 
-当前持久化保存全部 ctx，并要求严格 JSON 数据；Context.set 本身只执行已配置的状态校验，不保证值一定能落盘。运行时服务对象、连接、函数与任务由装配持有，不进入 ctx。凭证通过运行期参数注入。模型配置与角色绑定使用 `aurora_config` 的非持久配置状态与 `org.aurora.model_adapter:state/config`、`state/bindings`，启动时重建客户端；不建立独立的运行时对象管理器或完整状态分类系统。
+当前持久化保存 persistent 状态，并要求严格 JSON 数据；Context.set 本身只执行已配置的状态校验，不保证值一定能落盘。运行时服务对象、连接、函数与任务由装配持有，不进入 ctx。凭证通过运行期参数注入。模型配置与角色绑定使用 `aurora_config` 的非持久配置状态与 `org.aurora.model_adapter:state/config`、`state/bindings`，启动时重建客户端；不建立独立的运行时对象管理器或完整状态分类系统。
 
 ContextPersistence 默认每 0.5 秒合并写入，临时文件写完后替换正式快照；宿主先恢复，再执行 config 阶段，之后 configure 与 prepare/start。异步写入不承诺崩溃零丢失，正常退出由宿主保证最终 flush。业务保留策略由应用决定；controller 清理终态调用，示例清理中间值及历史结果，core 不裁剪完整快照。
 
@@ -319,17 +319,17 @@ control 的 ExecutionPlug/ExecutionSlot 在连接时交换双方 StateBinding �
 
 ### 7.5 生命周期与逐步断开
 
-prepare/start/stop 沿用既有生命周期插槽。正常退出类似插排逐步断开连接：
+core 定义 config → prepare → start → stop → clean 五个生命周期插槽。各阶段整体推进：所有 config 完成后才进入 prepare，所有 prepare 完成后才进入 start。config 由配置服务加载和校验，prepare 创建资源，start 开放入口。正常退出按以下顺序执行：
 
 1. 停止接收新的工作。
 2. 让在途工作完成或按组件约定停止，逐步结束工作组件。
-3. 完成会产生最后 ctx 变更的停止处理，再结束这些写入来源。
+3. 全部 stop 完成后执行 clean，关闭组件资源、解除连接并完成最后状态写入。
 4. 在存储仍可用时完成最终落盘。
 5. 关闭存储并释放剩余资源与内存。
 
 关闭顺序依据实际依赖确定，不机械地要求所有资源统一按反向表格顺序关闭。最终落盘是宿主应保证的收尾步骤，不完全依赖某个可禁用 stop handler 的优先级，也不要求每个内置收尾动作拥有公共 ID。
 
-当前生命周期按显式依赖 prepare/start，依赖者先停止；启动失败清理已创建资源。Lifecycle.run 跟踪根调用，组件自行创建的任务由所有者收束。停止或最终落盘失败报告错误并保留可重试资源，不能假报正常退出；新增 HTTP 客户端和工具任务时再验证其取消与关闭边界。
+生命周期按显式依赖执行 config/prepare/start，按反向依赖执行 stop/clean；启动失败清理已进入阶段的组件，包含部分配置或准备失败的组件。成功的 stop/clean 处理器不在重试时重复执行。Lifecycle.run 跟踪根调用，组件自行创建的任务由所有者收束。停止或最终落盘失败报告错误并保留可重试资源，不能假报正常退出；新增 HTTP 客户端和工具任务时再验证其取消与关闭边界。
 
 ### 7.6 默认 ReAct 与扩展
 

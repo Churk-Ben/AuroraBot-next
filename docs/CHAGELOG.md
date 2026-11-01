@@ -2,6 +2,17 @@
 
 ## 2026-11-01
 
+### 五阶段生命周期与独立配置服务
+
+- core 提供 config、prepare、start、stop、clean 五个生命周期插槽。各启动阶段整体推进，依赖先执行；全部 stop 完成后按反向依赖 clean，最后由宿主保存业务状态并关闭存储和 ctx。配置或准备部分失败也进入清理，成功的 stop/clean 处理器不在重试时重复执行。
+- `aurora_config` 提供 ConfigSchema、ConfigSpec、ConfigTemplate、config_entries 和 configuration_component。配置以 config 类型登记到 `org.aurora.config:registries/configs`，`org.aurora.config:handlers/load` 在 config 阶段完成模板收集、全部文件校验、关联校验和原子注入。core 不依赖配置包、JSON Schema 库或 TOML 加载实现。
+- ConfigSchema 使用 JSON Schema Draft 2020-12 描述类型、必填、未知字段、枚举及范围，并支持 aurora-id 格式；整数严格拒绝布尔值和浮点数，不自动转换字符串类型。properties、additionalProperties 和 items 中的 default 统一补齐，错误报告文件与字段位置，不输出字段值，不获取外部 schema。声明的 check 只承担业务约束。
+- ConfigSpec.check 在全部配置结构通过后接收配置状态映射，用于跨文件关系校验。config_entries 同时登记配置与非持久状态；运行期 ctx/set 复用结构和单项业务校验，关联关系在 config 阶段验证。TOML 保持持久来源，运行期覆盖不写回文件。
+- 模型 profiles、bindings、默认 Bot 和 CLI 使用统一配置声明。模型适配与默认 Bot 插件声明依赖 aurora_config；CLI 内置启用配置插件并装配服务，host.toml 在插件发现前复用同一读取和校验方法。程序化宿主显式启用配置插件，并将 configuration_component(registry, ctx, hooks, storage) 加入生命周期组件；需要在 config 处理器读取配置的组件依赖 aurora_config 实例。
+- Bot 的 stop 收束 AgentRuntime，clean 关闭工具、模型并解除实例绑定。默认 Bot 与巡检示例复用插件结构声明、提供各自的 config.tomls 模板；core 计数器在 clean 解除订阅，独立 agent 在 clean 关闭模型。默认 Bot 示例配置位于 org.aurora.bot/bot.toml，内置 Bot 模板仍为 org.aurora.bot/config.toml；框架不迁移或删除用户文件。
+- 完整 `uv run --locked aurora check` 通过：507 项 Python 测试、9 项工具链测试，格式、lint 和 Python/TypeScript 类型检查通过；供应商 SDK 保留 1 项 Pydantic ReadOnly 提示。验证包含五阶段顺序、失败清理与重试、clean 后最终落盘、默认值隔离、严格类型、跨配置原子拒绝及 core 无配置包时独立运行。
+- 工作区 wheel 构建通过。干净 control 环境仅安装 core/control 并完成组合执行；干净 agent 环境未安装 bot/CLI/API，完成模型工具往返和重启恢复。实际安装的配置包完成生命周期注入，模型适配 wheel 提供 TOML 模板，配置状态未进入快照。构建和安装验收目录为 `build/config-lifecycle-*`，未调用真实模型服务。
+
 ### 文档基线 v0.2.3
 
 - 设计文档与公共 ID 目录升版为 v0.2.3，同步 control、agent、bot 的包职责、命名空间、依赖方向、模型适配器状态与 M2 完成情况；补充 `aurora_config` 的配置声明、校验、模板与 config 阶段边界；旧版本号只保留在修订记录中。
@@ -47,25 +58,34 @@
 - 模型 profiles、角色 bindings、默认 bot 和 CLI 均提供包内模板；profile 的协议、地址、凭证引用与能力继续独立。默认 bot 示例、持续巡检示例及 M2 验收脚本使用 TOML 文件准备配置。
 - 完整 `uv run --locked aurora check` 通过：475 项 Python 测试、9 项工具链测试，格式、lint、Python/TypeScript 类型检查通过；SDK 保留 1 项 Pydantic ReadOnly 提示。覆盖普通包与压缩包资源、模板冲突、已有文件保留、无效配置原子拒绝、prepare 顺序、配置不落盘、业务状态恢复及宿主选项优先级。工作区 wheel 构建成功，bot、CLI、模型适配包中的模板资源已核对。
 
-插件在注册 state_key 时声明配置来源，例如包内 `config.tomls/options.toml`：
+插件通过配置接收方声明配置来源，例如包内 `config.tomls/options.toml`：
 
 ```python
-from aurora_core.configuration import ConfigTemplate
-from aurora_core.ctx import StateKey
+from aurora_config import ConfigSchema, ConfigSpec, ConfigTemplate, config_entries
+from aurora_core import Id
 
-definition = StateKey(
-    validate_options,
-    persistent=False,
-    config=ConfigTemplate("my_plugin", "config.tomls/options.toml"),
+entries = config_entries(
+    Id("dev.example:configs/options"),
+    ConfigSpec(
+        state=Id("dev.example:state/options"),
+        template=ConfigTemplate("my_plugin", "config.tomls/options.toml"),
+        schema=ConfigSchema({
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"enabled": {"type": "boolean", "default": True}},
+        }),
+    ),
+    provider="my_plugin",
 )
 ```
 
-将 definition 注册到 `dev.example:state/options` 后，文件路径为 `data/config/dev.example/options.toml`；prepare 中通过 `ctx.get(Id("dev.example:state/options"))` 读取。单文件使用 `ConfigTemplate("my_plugin")`。发布插件时须将 TOML 文件包含在包资源中；未声明的文件不参与加载。
+将 entries 放入插件清单并声明 `requires=("aurora_config",)` 后，文件路径为 `data/config/dev.example/options.toml`；prepare 中通过 `ctx.get(Id("dev.example:state/options"))` 读取。单文件使用 `ConfigTemplate("my_plugin")`。发布插件时须将 TOML 文件包含在包资源中；未声明的文件不参与加载。
 
 本地初始化可执行 `uv run --locked aurora --data-dir data ctx list`，生成宿主与 CLI 配置。将 `data/config/host.toml` 的 plugins 设置为：
 
 ```toml
 plugins = [
+  "aurora_config",
   "aurora_model_adapter",
   "aurora_agent.model",
   "aurora_agent.react",

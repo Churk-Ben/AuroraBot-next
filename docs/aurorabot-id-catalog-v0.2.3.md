@@ -84,7 +84,7 @@ resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，
 
 ### 3.2 操作、生命周期与基础契约
 
-当前 ctx 六个操作、三个生命周期插槽与 ctx/changed 事件已实现；hook/failed 事件和本表四个 schema ID 仍为规划。实际 ctx 与插件声明通过 Python 类型表达，不以规划 schema 已登记为前提。
+当前 ctx 六个操作、五个生命周期插槽与 ctx/changed 事件已实现；hook/failed 事件和本表四个 schema ID 仍为规划。实际 ctx 与插件声明通过 Python 类型表达，不以规划 schema 已登记为前提。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
@@ -94,9 +94,12 @@ resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，
 | `org.aurora.core:operations/ctx/list` | `operation` | 枚举共享 ctx 状态项；API 对外暴露另行配置 |
 | `org.aurora.core:operations/ctx/subscribe` | `operation` | 订阅 ctx 变化 |
 | `org.aurora.core:operations/ctx/unsubscribe` | `operation` | 取消订阅 |
-| `org.aurora.core:lifecycle/prepare` | `hook_slot` | 完成预配置、启动前装配 |
+| `org.aurora.core:lifecycle/config` | `hook_slot` | 加载、校验并注入启动配置 |
+| `org.aurora.core:lifecycle/prepare` | `hook_slot` | 按配置创建资源、完成启动前装配 |
 | `org.aurora.core:lifecycle/start` | `hook_slot` | 启动已装配能力 |
-| `org.aurora.core:lifecycle/stop` | `hook_slot` | 停止并释放能力 |
+| `org.aurora.core:lifecycle/stop` | `hook_slot` | 停止接收并收束在途工作 |
+| `org.aurora.core:lifecycle/clean` | `hook_slot` | 关闭资源并解除连接 |
+| `org.aurora.config:handlers/load` | `hook_handler` | 在 config 阶段执行全部配置校验与注入 |
 | `org.aurora.core:events/ctx/changed` | `event` | ctx 状态发生变化 |
 | `org.aurora.core:events/hook/failed` | `event` | hook 处理器执行失败 |
 | `org.aurora.core:schemas/plugin_manifest` | `schema` | 插件身份、依赖与注册项；对外暴露需求单独表达 |
@@ -119,6 +122,7 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | ID | kind | 用途或映射 |
 | --- | --- | --- |
 | `org.aurora.cli:registries/commands` | `registry` | 接收内置及第三方命令 |
+| `org.aurora.cli:configs/default` | `config` | CLI 扩展配置声明，目标为 CLI config 状态 |
 | `org.aurora.cli:schemas/command` | `schema` | 参数、帮助信息、执行目标 |
 | `org.aurora.cli:commands/help` | `command` | 展示命令帮助 |
 | `org.aurora.cli:commands/about` | `command` | 展示工作区与环境信息 |
@@ -149,12 +153,14 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.model_adapter:schemas/model_response` | `schema` | 已实现 | 统一模型响应 |
 | `org.aurora.model_adapter:schemas/model_chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
 | `org.aurora.model_adapter:schemas/model_capabilities` | `schema` | 已实现 | streaming、tool_calls 能力声明 |
+| `org.aurora.model_adapter:configs/profiles` | `config` | 已实现 | profile 模板、结构与状态关系 |
+| `org.aurora.model_adapter:configs/bindings` | `config` | 已实现 | 角色绑定模板、结构与 profile 引用校验 |
 | `org.aurora.model_adapter:state/config` | `state_key` | 已实现 | 适配器选择与连接配置；来源为包内 TOML 模板 |
 | `org.aurora.model_adapter:state/bindings` | `state_key` | 已实现 | 逻辑模型角色与服务实例的可恢复绑定描述；来源为包内 TOML 模板 |
 
-插件入口为 `aurora_model_adapter`，登记 adapters、model_client、四个模型 schema 与两个模型配置状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
+插件入口为 `aurora_model_adapter`，依赖 aurora_config，登记 adapters、model_client、四个模型 schema、两个配置声明及其非持久状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
 
-模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 默认完整 JSON 快照，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
+模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 
 ## 6. 控制、Agent 与 Bot 定义（已实现）
 
@@ -232,20 +238,22 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | `org.aurora.bot:operations/run/submit` | `operation` | `aurora_bot.assembly` |
 | `org.aurora.bot:operations/run/activate` | `operation` | `aurora_bot.assembly` |
 | `org.aurora.bot:operations/run/cancel` | `operation` | `aurora_bot.assembly` |
+| `org.aurora.bot:configs/default` | `config` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/config` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/agents` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/messages` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/run` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/react_work` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_model` | `hook_handler` | `aurora_bot.assembly` |
-| `org.aurora.bot:handlers/assembly/stop_model` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/clean_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_bot` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/start_bot` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/stop_bot` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/clean_bot` | `hook_handler` | `aurora_bot.assembly` |
 
 `state/config` 的来源为 bot 的 TOML 模板，不进入快照。`state/agents` 保存实例级 inbox/progress，`state/messages` 保存上下文，`state/run` 保存最近运行状态，`state/react_work` 保存按 run_id 定位的工作数据。实例以 instance_id 隔离。
 
-运行操作和命令均使用 `run/submit`、`run/activate`、`run/cancel`，要求显式 instance_id。运行管理服务按实例绑定 AgentRuntime；CLI 命令通过公共操作分发，不要求 bot 导入 CLI 实现。默认装配的资源在 prepare 创建，在执行收尾后关闭。
+运行操作和命令均使用 `run/submit`、`run/activate`、`run/cancel`，要求显式 instance_id。运行管理服务按实例绑定 AgentRuntime；CLI 命令通过公共操作分发，不要求 bot 导入 CLI 实现。默认装配的资源在 prepare 创建，stop 收束运行，clean 关闭工具与模型并解绑实例。
 
 ### 6.4 扩展边界
 

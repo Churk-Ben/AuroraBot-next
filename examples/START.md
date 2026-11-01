@@ -70,7 +70,7 @@ uv run --locked python examples/default_bot/main.py --data-dir build/bot-demo --
 uv run --locked python examples/default_bot/main.py --data-dir build/bot-demo --profile secondary --text "再次见面"
 ```
 
-无输入时只启动装配，不自动激活。提交文本后，假模型调用回显工具。`--profile` 保存模型角色绑定，后续启动继续使用该选择。配置位于 `<data-dir>/config/`，模型 profile、角色绑定和 bot 配置分开保存；业务状态保存在 ctx 快照中。
+无输入时只启动装配，不自动激活。提交文本后，假模型调用回显工具。`--profile` 保存模型角色绑定，后续启动继续使用该选择。配置由包内 `config.tomls/` 模板生成，位于 `<data-dir>/config/`，模型 profile、角色绑定和 bot 配置分开保存；业务状态保存在 ctx 快照中。示例的 bot 配置文件为 `org.aurora.bot/bot.toml`。
 
 bot 提供 `org.aurora.bot:assemblies/default`、运行操作和 CLI 命令。它分配的消息、引导和运行状态地址归属 bot；注入这些地址的 agent 组件定义归属 `org.aurora.agent`。
 
@@ -97,7 +97,7 @@ uv run --locked aurora --connect http://127.0.0.1:10270 ctx set dev.example.work
 
 ## 插件发现与定义目录
 
-插件发现分组为 `aurora.plugins`，依赖插件必须显式列出。定义查询不创建模型客户端：
+插件发现分组为 `aurora.plugins`，依赖插件必须显式列出；CLI 内置启用 aurora_config 并装配配置服务，程序化宿主需显式启用和装配。定义查询不创建模型客户端：
 
 ```powershell
 uv run --locked aurora --plugin aurora_control --plugin aurora_agent.model --plugin aurora_model_adapter id list
@@ -107,6 +107,7 @@ uv run --locked aurora --plugin aurora_control --plugin aurora_agent.model --plu
 
 ```toml
 plugins = [
+  "aurora_config",
   "aurora_model_adapter",
   "aurora_agent.model",
   "aurora_agent.react",
