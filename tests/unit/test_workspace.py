@@ -9,6 +9,7 @@ import pytest
     "name",
     [
         "aurora_core",
+        "aurora_config",
         "aurora_control",
         "aurora_agent",
         "aurora_model_adapter",

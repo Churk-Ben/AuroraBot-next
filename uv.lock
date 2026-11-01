@@ -12,6 +12,7 @@ members = [
     "aurora-api",
     "aurora-bot",
     "aurora-cli",
+    "aurora-config",
     "aurora-control",
     "aurora-core",
     "aurora-logging",
@@ -257,6 +258,7 @@ version = "0.1.0"
 source = { editable = "packages/aurora_bot" }
 dependencies = [
     { name = "aurora-agent" },
+    { name = "aurora-config" },
     { name = "aurora-control" },
     { name = "aurora-core" },
     { name = "aurora-model-adapter" },
@@ -265,6 +267,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aurora-agent", editable = "packages/aurora_agent" },
+    { name = "aurora-config", editable = "packages/aurora_config" },
     { name = "aurora-control", editable = "packages/aurora_control" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
@@ -276,6 +279,7 @@ version = "0.1.0"
 source = { editable = "packages/aurora_cli" }
 dependencies = [
     { name = "aurora-api" },
+    { name = "aurora-config" },
     { name = "aurora-core" },
     { name = "aurora-logging" },
     { name = "rich" },
@@ -285,10 +289,28 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aurora-api", editable = "packages/aurora_api" },
+    { name = "aurora-config", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-logging", editable = "packages/aurora_logging" },
     { name = "rich", specifier = ">=14,<15" },
     { name = "tomlkit", specifier = ">=0.13,<1" },
+]
+
+[[package]]
+name = "aurora-config"
+version = "0.1.0"
+source = { editable = "packages/aurora_config" }
+dependencies = [
+    { name = "aurora-core" },
+    { name = "jsonschema" },
+    { name = "referencing" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aurora-core", editable = "packages/aurora_core" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+    { name = "referencing", specifier = ">=0.36,<1" },
 ]
 
 [[package]]
@@ -323,12 +345,14 @@ name = "aurora-model-adapter"
 version = "0.1.0"
 source = { editable = "packages/aurora_model_adapter" }
 dependencies = [
+    { name = "aurora-config" },
     { name = "aurora-core" },
     { name = "litellm", extra = ["mcp"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-config", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "litellm", extras = ["mcp"], specifier = ">=1.106.6,<1.107" },
 ]
