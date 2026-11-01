@@ -3,7 +3,8 @@
 import asyncio
 
 import pytest
-from aurora_bot.control import (
+from aurora_bot.react import PHASE_IDS, AgentBusyError, ReActAgent, plugin
+from aurora_control import (
     ExecutionPlug,
     ExecutionRequest,
     InstanceStateBinding,
@@ -11,7 +12,6 @@ from aurora_bot.control import (
     StateBinding,
     component_entries,
 )
-from aurora_bot.react import PHASE_IDS, AgentBusyError, ReActAgent, plugin
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import register_plugins

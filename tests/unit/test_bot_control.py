@@ -3,7 +3,7 @@
 import asyncio
 
 import pytest
-from aurora_bot.control import (
+from aurora_control import (
     CONTROL_STATE,
     Branch,
     ExecutionPlug,

@@ -2,6 +2,12 @@
 
 ## 2026-11-01
 
+### 独立控制组件包
+
+- `aurora_control` 提供执行身份、状态绑定、执行连接及 Serial、Branch、While、Parallel 四种组合，仅依赖 `aurora_core`。使用执行契约不要求启用控制组件插件。
+- 控制插件由 `aurora-control` 分发包提供，发现入口保持 `aurora_bot.control`，公共 ID 与状态地址保持稳定；`aurora_bot.control` 及其子模块提供相同类型的兼容导出。
+- 仓库组件、示例与测试使用 `aurora_control` 导入。控制流、实例身份、宿主关闭及包边界相关 41 项测试通过，覆盖禁止导入 bot、agent、模型适配和可选宿主时的控制流执行。
+
 ### 插件 TOML 配置与启动注入
 
 - TOML 是配置的持久来源。带 StorageService 的宿主在发现后收集配置、恢复运行状态，再原子校验并注入全部配置，随后执行各组件的 prepare/start。装配工厂只构造组件，prepare 可读取完整配置并创建资源。

@@ -21,7 +21,7 @@ dev = [
 ]
 
 [tool.coverage.run]
-source = ["aurora_core", "aurora_cli", "aurora_bot", "aurora_api", "aurora_model_adapter", "aurora_logging", "aurora_world"]
+source = ["aurora_core", "aurora_control", "aurora_cli", "aurora_bot", "aurora_api", "aurora_model_adapter", "aurora_logging", "aurora_world"]
 
 [tool.coverage.report]
 fail_under = 20
@@ -39,6 +39,7 @@ include = ["packages/*/src", "tests", "examples"]
 exclude = ["**/__pycache__", "**/node_modules", ".venv", "build", "dist"]
 extraPaths = [
     "packages/aurora_core/src",
+    "packages/aurora_control/src",
     "packages/aurora_model_adapter/src",
     "packages/aurora_bot/src",
     "packages/aurora_cli/src",
@@ -50,6 +51,7 @@ extraPaths = [
 [tool.uv.workspace]
 members = [
     "packages/aurora_core",
+    "packages/aurora_control",
     "packages/aurora_model_adapter",
     "packages/aurora_bot",
     "packages/aurora_cli",
@@ -60,6 +62,7 @@ members = [
 
 [tool.uv.sources]
 aurora-core = { workspace = true }
+aurora-control = { workspace = true }
 aurora-model-adapter = { workspace = true }
 aurora-bot = { workspace = true }
 aurora-cli = { workspace = true }

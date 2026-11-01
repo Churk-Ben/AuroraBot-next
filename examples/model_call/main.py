@@ -8,7 +8,9 @@ from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from uuid import uuid4
 
-from aurora_bot.control import (
+from aurora_bot.model import ModelCall
+from aurora_bot.model import plugin as model_plugin
+from aurora_control import (
     CONTROL_STATE,
     ExecutionPlug,
     ExecutionRequest,
@@ -18,8 +20,6 @@ from aurora_bot.control import (
     component_entries,
     plugin,
 )
-from aurora_bot.model import ModelCall
-from aurora_bot.model import plugin as model_plugin
 from aurora_core import Id, entry_from, hook_handler
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateChange, StateKey

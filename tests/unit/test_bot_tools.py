@@ -4,8 +4,8 @@ import asyncio
 from typing import cast
 
 import pytest
-from aurora_bot.control import ExecutionPlug, ExecutionRequest, StateBinding, component_entries
 from aurora_bot.tools import TOOLS, ToolBatchState, ToolExecutor, ToolRejected, ToolSpec, plugin
+from aurora_control import ExecutionPlug, ExecutionRequest, StateBinding, component_entries
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import register_plugins

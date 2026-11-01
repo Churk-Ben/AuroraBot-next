@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
+from aurora_control import ExecutionRequest
 from aurora_core.json_data import encode_json
 from aurora_model_adapter import JsonValue
 
-from .control import ExecutionRequest
 from .react import AgentBusyError
 
 if TYPE_CHECKING:

@@ -4,7 +4,9 @@ import asyncio
 from uuid import UUID
 
 import pytest
-from aurora_bot.control import (
+from aurora_bot.model import ModelCall
+from aurora_bot.model import plugin as model_plugin
+from aurora_control import (
     CONTROL_STATE,
     Branch,
     Controller,
@@ -17,8 +19,6 @@ from aurora_bot.control import (
     component_entries,
     plugin,
 )
-from aurora_bot.model import ModelCall
-from aurora_bot.model import plugin as model_plugin
 from aurora_core.admission import inspect_admissions
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context

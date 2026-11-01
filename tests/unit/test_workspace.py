@@ -7,7 +7,16 @@ import pytest
 
 @pytest.mark.parametrize(
     "name",
-    ["aurora_core", "aurora_model_adapter", "aurora_bot", "aurora_cli", "aurora_api", "aurora_logging", "aurora_world"],
+    [
+        "aurora_core",
+        "aurora_control",
+        "aurora_model_adapter",
+        "aurora_bot",
+        "aurora_cli",
+        "aurora_api",
+        "aurora_logging",
+        "aurora_world",
+    ],
 )
 def test_workspace_packages_import(name):
     assert import_module(name).__name__ == name

@@ -10,12 +10,12 @@ import tomli_w
 from aurora_bot.assembly import DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import CONFIG
-from aurora_bot.control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_bot.model import plugin as model_plugin
 from aurora_bot.react import plugin as react_plugin
 from aurora_bot.react_defaults import plugin as defaults_plugin
 from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_bot.tools import plugin as tools_plugin
+from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
 from aurora_core.discovery import register_plugins

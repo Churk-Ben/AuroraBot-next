@@ -4,6 +4,7 @@ import os
 from collections.abc import Callable
 from typing import cast
 
+from aurora_control import ExecutionRequest, InstanceStateBinding, StateBinding
 from aurora_core import entry_from, hook_handler
 from aurora_core.configuration import ConfigTemplate
 from aurora_core.ctx import Context, StateKey
@@ -29,7 +30,6 @@ from .assembly_config import (
     validate_json,
 )
 from .cli import command_entries
-from .control import ExecutionRequest, InstanceStateBinding, StateBinding
 from .model import ModelCall
 from .operations import RUN_CONTROL, RunOperations
 from .react import AgentBusyError, ReActAgent

@@ -3,9 +3,9 @@
 import asyncio
 
 import pytest
-from aurora_bot.control import CONTROL_STATE, ExecutionRequest, ExecutionSlot, Serial, StateBinding, plugin
 from aurora_bot.model import ModelCall
 from aurora_bot.model import plugin as model_plugin
+from aurora_control import CONTROL_STATE, ExecutionRequest, ExecutionSlot, Serial, StateBinding, plugin
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import register_plugins

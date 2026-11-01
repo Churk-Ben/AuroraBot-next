@@ -9,6 +9,15 @@ from dataclasses import dataclass
 from typing import Literal, NotRequired, Protocol, TypedDict, cast
 from uuid import uuid4
 
+from aurora_control import (
+    ExecutionLink,
+    ExecutionPlug,
+    ExecutionRequest,
+    ExecutionSlot,
+    StateBinding,
+    component_entries,
+    execution_slot_entry,
+)
 from aurora_core.bootstrap import REGISTRY_DIRECTORY
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
@@ -20,16 +29,6 @@ from aurora_core.storage import StorageService
 from aurora_model_adapter import JsonValue, ToolCall, ToolDefinition
 from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry
-
-from .control import (
-    ExecutionLink,
-    ExecutionPlug,
-    ExecutionRequest,
-    ExecutionSlot,
-    StateBinding,
-    component_entries,
-    execution_slot_entry,
-)
 
 TOOLS = Id("org.aurora.bot:registries/tools")
 BEFORE_CALL = Id("org.aurora.bot:tools/before_call")

@@ -11,6 +11,7 @@ members = [
     "aurora-api",
     "aurora-bot",
     "aurora-cli",
+    "aurora-control",
     "aurora-core",
     "aurora-logging",
     "aurora-model-adapter",
@@ -233,6 +234,7 @@ name = "aurora-bot"
 version = "0.1.0"
 source = { editable = "packages/aurora_bot" }
 dependencies = [
+    { name = "aurora-control" },
     { name = "aurora-core" },
     { name = "aurora-model-adapter" },
     { name = "jsonschema" },
@@ -241,6 +243,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-control", editable = "packages/aurora_control" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
     { name = "jsonschema", specifier = ">=4.26.0" },
@@ -267,6 +270,17 @@ requires-dist = [
     { name = "rich", specifier = ">=14,<15" },
     { name = "tomlkit", specifier = ">=0.13,<1" },
 ]
+
+[[package]]
+name = "aurora-control"
+version = "0.1.0"
+source = { editable = "packages/aurora_control" }
+dependencies = [
+    { name = "aurora-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
 
 [[package]]
 name = "aurora-core"

@@ -4,13 +4,7 @@ import asyncio
 from typing import Literal, TypedDict, cast
 from uuid import uuid4
 
-from aurora_core.ctx import Context
-from aurora_core.discovery import Plugin
-from aurora_core.hooks import HookConnections
-from aurora_core.ids import Id
-from aurora_model_adapter import JsonValue
-
-from .control import (
+from aurora_control import (
     ExecutionPlug,
     ExecutionRequest,
     ExecutionSlot,
@@ -20,6 +14,11 @@ from .control import (
     component_entries,
     execution_slot_entry,
 )
+from aurora_core.ctx import Context
+from aurora_core.discovery import Plugin
+from aurora_core.hooks import HookConnections
+from aurora_core.ids import Id
+from aurora_model_adapter import JsonValue
 
 type Phase = Literal["prepare", "infer", "act", "observe", "finish", "error"]
 type Decision = Literal["act", "continue", "finish"]

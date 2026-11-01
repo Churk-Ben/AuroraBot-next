@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from uuid import uuid4
 
-from aurora_bot.control import (
+from aurora_control import (
     CONTROL_STATE,
     Branch,
     ExecutionLink,
