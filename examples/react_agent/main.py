@@ -1,4 +1,4 @@
-"""离线主动 ReAct 示例：正式默认阶段、本地工具、运行中引导和跨激活上下文。"""
+"""独立 Agent 示例：运行调度、本地工具、运行中引导和跨激活上下文。"""
 
 import argparse
 import asyncio
@@ -6,14 +6,14 @@ import json
 import math
 from pathlib import Path
 from typing import cast
-from uuid import uuid4
 
 from aurora_agent.model import ModelCall
 from aurora_agent.model import plugin as model_plugin
-from aurora_agent.react import Guidance, ReActAgent
+from aurora_agent.react import ReActAgent
 from aurora_agent.react import plugin as react_plugin
 from aurora_agent.react_defaults import ReActContext, ReActDefaults
 from aurora_agent.react_defaults import plugin as defaults_plugin
+from aurora_agent.runtime import AgentRuntime
 from aurora_agent.tools import TOOLS, ToolExecutor, ToolSpec
 from aurora_agent.tools import plugin as tools_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, InstanceStateBinding, StateBinding, component_entries
@@ -53,18 +53,18 @@ async def run(args: argparse.Namespace) -> None:
     install_lifecycle_slots(registry)
     registry.register(RegistryEntry(STATE, "state_key", StateKey(), "react_example"))
     ctx, hooks = Context(registry), HookConnections(registry)
-    request = ExecutionRequest(uuid4().hex)
+    request = ExecutionRequest("maintenance")
 
     def fixed(name):
-        return InstanceStateBinding(STATE, (("instance_id", "bot"), ("name", name)))
+        return InstanceStateBinding(STATE, (("instance_id", "agent"), ("name", name)))
 
     def transient(name):
-        return StateBinding(STATE, (("instance_id", "bot"), ("name", name)))
+        return StateBinding(STATE, (("instance_id", "agent"), ("name", name)))
 
     agent = ReActAgent(
         ctx,
         hooks,
-        instance_id="bot",
+        instance_id="agent",
         inbox=fixed("inbox"),
         progress=fixed("progress"),
         runtime=fixed("runtime"),
@@ -148,6 +148,22 @@ async def run(args: argparse.Namespace) -> None:
     )
     defaults.connect()
 
+    executing = False
+
+    async def execute(execution: ExecutionRequest) -> None:
+        nonlocal executing
+        executing = True
+        try:
+            await agent.execute(execution)
+        finally:
+            executing = False
+
+    runtime = AgentRuntime(get_agent=lambda: agent, execute=execute, is_executing=lambda: executing)
+
+    @hook_handler("dev.example.react:handlers/stop_agent", slot=STOP)
+    async def stop_agent() -> None:
+        await runtime.close()
+
     @hook_handler("dev.example.react:handlers/close", slot=STOP)
     async def close() -> None:
         await client.aclose()
@@ -163,33 +179,25 @@ async def run(args: argparse.Namespace) -> None:
                 ctx.delete(address.key, location=dict(address.location))
         agent.inbox.set(ctx, request, agent.pending(request))
 
-    entry = entry_from(close, provider="react_example")
-    registry.register(entry)
-    hooks.connect(STOP, entry.id, slot_instance="model", handler_instance="model")
+    for owner, handler in (("agent", stop_agent), ("model", close)):
+        entry = entry_from(handler, provider="react_example")
+        registry.register(entry)
+        hooks.connect(STOP, entry.id, slot_instance=owner, handler_instance=owner)
     storage = StorageService(args.data_dir)
     host = Lifecycle(
         ctx,
         hooks,
-        [LifecycleComponent("model"), LifecycleComponent("bot", depends_on=("model",))],
+        [
+            LifecycleComponent("model"),
+            LifecycleComponent("agent", depends_on=("model",), stop_accepting=runtime.stop_accepting),
+        ],
         persistence=ContextPersistence(ctx, storage.snapshot_store()),
         storage=storage,
     )
     await host.start()
     subscriptions = []
     try:
-
-        def submit(payload: str) -> None:
-            try:
-                incoming = cast(list[Guidance], agent.inbox.get(ctx, request))
-            except KeyError:
-                incoming = []
-            try:
-                progress = cast(int, agent.progress.get(ctx, request))
-            except KeyError:
-                progress = 0
-            sequence = max([progress, *(item["sequence"] for item in incoming)]) + 1
-            agent.inbox.set(ctx, request, [*incoming, {"sequence": sequence, "id": uuid4().hex, "payload": payload}])
-
+        runtime.start()
         guided = False
 
         def guide(change: StateChange) -> None:
@@ -202,13 +210,16 @@ async def run(args: argparse.Namespace) -> None:
                 and change.value.get("text") == "准备调用工具"
             ):
                 guided = True
-                submit(args.guide)
+                runtime.submit(args.guide)
                 print("\n已接纳新的引导通知。", flush=True)
 
         subscriptions.extend((ctx.subscribe(observe, key=STATE), ctx.subscribe(guide, key=STATE)))
-        submit(args.text)
+        receipt = runtime.submit(args.text)
+        request = ExecutionRequest(receipt.run.run_id)
         print(f"运行 ID: {request.run_id}", flush=True)
-        await host.run(agent.execute, request)
+        result = await receipt.run.wait()
+        if result.status != "completed":
+            raise RuntimeError(f"激活未完成：{result.status}，{result.error}")
         print("激活状态: completed", flush=True)
     finally:
         for subscription in subscriptions:

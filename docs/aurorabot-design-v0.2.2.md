@@ -1,13 +1,13 @@
 # AuroraBot 初期设计文档 v0.2.2
 
 版本：v0.2.2  
-设计版本日期：2026-10-29；实现对齐：2026-10-30，代码基线 `4eb4d6e`。
+设计版本日期：2026-10-29；执行包职责与命名对齐：2026-11-01。
 
 状态：架构基线与当前实现说明；规划部分不代表已交付。
 
 配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
 
-当前 M0、M1 与 M2.1 已完成；bot 提供四类控制组件与 ModelCall，三个离线示例见 [启动指南](../examples/START.md)。默认装配、绑定恢复、LiteLLM、对话运行与 ReAct 工具循环仍待实现；API、client 与界面仍为骨架。任务状态见 [计划](plan.md)，接续边界见 [M2 交接](m2-handoff.md)。
+控制组件由 aurora_control 提供，ReAct、模型调用、工具执行与运行管理由 aurora_agent 提供，aurora_bot 负责默认装配。五条可运行示例见 [启动指南](../examples/START.md)，执行定义见 [公共 ID 目录第 6 节](aurorabot-id-catalog-v0.2.2.md#6-控制agent-与-bot-定义已实现)。本文其余规划部分保留设计语境，当前验收范围见 [变更记录](CHAGELOG.md)。
 
 ## 1. 项目概述
 
@@ -47,7 +47,9 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | --- | --- | --- |
 | `aurora_core` | 内存 ID 登记表、共享 ctx 与持久化基础、事件订阅、插槽连接、最小调用及生命周期 | 不实现 bot、模型、工具或具体流程控制业务 |
 | `aurora_cli` | 启动前 ctx 预配置、命令发现、argv 解析、命令交互 | 不重复实现 ctx 或 bot 业务语义；缺席不影响无 CLI 的装配 |
-| `aurora_bot` | 默认装配及默认插件，包含 ReAct、对话、工具、多模型、模型间通信和 MCP 扩展 | 不硬依赖 CLI/API 实现，不直接依赖具体模型 SDK |
+| `aurora_control` | 执行身份、状态绑定、连接契约与四种控制组合 | 仅依赖 core，不依赖 agent 或模型 |
+| `aurora_agent` | ReAct、模型调用、工具执行、默认阶段与运行调度 | 不依赖 bot、CLI 或 API；资源与地址由宿主提供 |
+| `aurora_bot` | TOML 配置、默认装配、资源所有权、运行操作及命令 | 不硬依赖 CLI/API 实现，不直接依赖具体模型 SDK |
 | `aurora_api` | client 与后端 ctx 交互所需的 HTTP/WS 传输、端点、事件信封及实际需要的契约导出 | 不作为插件接入总线，不预设任意 operation 的远端分发器 |
 | `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
 
@@ -77,7 +79,7 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | --- | --- |
 | `org.aurora.cli:commands/help` | help 命令入口 |
 | `org.aurora.bot:prompts/soul` | soul 提示词资源 |
-| `org.aurora.bot:react/prepare` | ReAct prepare 插槽 |
+| `org.aurora.agent:react/prepare` | ReAct prepare 插槽 |
 
 命名空间使用点分隔；域和路径段使用小写 `snake_case`，段内允许数字。不得包含空段、空格、前后斜杠、`.` 或 `..` 路径段。跨组件引用使用完整 ID；交互短名只能在明确上下文中解析，歧义时报错。
 
@@ -230,7 +232,7 @@ commands、hook_slots、resources 等逻辑注册表可以基于总表提供分�
 id: dev.example.memory:handlers/inject_context
 kind: hook_handler
 register_to: org.aurora.core:registries/hook_handlers
-slot: org.aurora.bot:react/prepare
+slot: org.aurora.agent:react/prepare
 ```
 
 此示例只表达关系，ReAct 目标插槽仍为规划入口；不要求特殊连接补齐所有元数据。正式公共接口可以声明双方的输入输出；具体兼容性由插槽提供方判断。
@@ -282,7 +284,7 @@ bot 的 ExecutionPlug/ExecutionSlot 在连接时交换双方 StateBinding 与可
 
 前序遍历可以帮助理解普通顺序组合，不能统一决定所有控制组件的行为。控制组件自行决定子调用、ctx 更新和终止，公共 ID、发现顺序、表格行序均不决定执行顺序。调用结构、共享服务和生命周期依赖分别表达，不要求所有关系构成严格树。
 
-当前 `aurora_bot.control` 插件提供 Controller 基类与四类控制组件：
+当前 `aurora_control` 插件提供 Controller 基类与四类控制组件：
 
 | 组件 | 行为 |
 | --- | --- |
@@ -293,7 +295,7 @@ bot 的 ExecutionPlug/ExecutionSlot 在连接时交换双方 StateBinding 与可
 
 循环体需要多步骤时接入 Serial；Controller 基类不独立执行。每次调用的控制状态按定义、实例、运行和调用定位，终态通知后删除，不累计历史或调用树。根调用可交给 Lifecycle.run，控制子任务在该调用内收束。
 
-当前代码装配显式登记组件类或局部执行函数，再建立实例连接；普通辅助函数无需登记。默认 bot 装配格式仍待 M2.2 确定，不提前冻结完整装配语言或任意执行图。
+当前代码装配显式登记组件类或局部执行函数，再建立实例连接；普通辅助函数无需登记。默认 bot 通过 DefaultAssembly 和 TOML 配置选择模型、工具与状态地址，不提供完整装配语言或任意执行图。
 
 ### 7.4 排序与运行控制
 
@@ -317,7 +319,7 @@ prepare/start/stop 沿用既有生命周期插槽。正常退出类似插排逐�
 
 ### 7.6 默认 ReAct 与扩展
 
-ReAct 尚待实现。规划由 bot 提供 prepare、infer、act、observe、finish、error 插槽，默认处理器分别完成提示词构建、模型调用、工具执行、观察记录、结果收束和错误报告。当前 ModelCall 是独立组件，其定义为 `org.aurora.bot:handlers/model_call`；它与规划中 handlers/react/call_model 的装配关系尚未确定。
+aurora_agent 提供 prepare、infer、act、observe、finish、error 插槽。ReActDefaults 将上下文构建、ModelCall、响应解释、ToolExecutor 与观察接纳显式连接到工作阶段；finish/error 可不连接处理器。ModelCall 的组件定义为 `org.aurora.agent:handlers/model_call`。
 
 默认过程准备输入并推理，需要工具时执行动作、接纳观察并继续推理，得到结果或达到终止条件后收束。循环和终止由装配的控制组件负责；处理器列表不构成可执行流程。完成、取消和失败保持不同运行状态。
 
@@ -333,7 +335,7 @@ ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 
 
 模型数据使用 TypedDict 表达普通 JSON。文本按 text chunk 增量输出；工具名称与 JSON 对象参数由适配层组装成完整 ToolCall 后输出，bot 不接收半截 JSON。ResponseBuffer 只保存累计结果，要求唯一且最后的 finish，缺失结束片段明确失败。结束原因区分 stop、tool_calls、length、content_filter，不将模型响应结束等同于对话完成。
 
-`aurora_bot.model` 的 ModelCall 从约定 ctx 地址读取请求，在同一输出地址更新 status、execution_id、text、tool_calls、finish_reason。失败或取消保留已收到的部分文本并标记 failed/cancelled，错误继续传播，不保存片段历史。完整响应接口在返回前不提供部分文本。
+`aurora_agent.model` 的 ModelCall 从约定 ctx 地址读取请求，在同一输出地址更新 status、execution_id、text、tool_calls、finish_reason。失败或取消保留已收到的部分文本并标记 failed/cancelled，错误继续传播，不保存片段历史。完整响应接口在返回前不提供部分文本。
 
 单次响应流由调用组件关闭；共享客户端由创建它的装配在所有调用结束后关闭。同一输出地址须串行调用，组件不保证共享客户端任意并发安全。ModelCall 的 completed 只表示该模型请求完成，工具执行与下一轮推理由后续装配实现。连接配置与绑定恢复继续讨论，不增加独立配置／秘密／对象管理子系统。
 

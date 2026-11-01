@@ -1,6 +1,6 @@
 # M2 最小 bot：实现交接
 
-核对日期：2026-10-30。代码基线：`4eb4d6e`（明确组件层级定义并分离实例与执行身份）。
+本文保留 M2 早期设计交接语境，不能作为当前待办清单。当前执行包定义见 [公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)，可运行入口见 [示例指南](../examples/START.md)，交付与验收范围见 [变更记录](CHAGELOG.md)。
 
 ## 1. 从哪里继续
 
@@ -13,8 +13,8 @@ M0、M1 和 M2.1 已完成。当前可用的是微内核、CLI 基础宿主、�
 1. [AGENTS.md](../AGENTS.md)：协作与编码规范。
 2. 本文件与 [计划](plan.md)：当前进度、接续任务和决策点。
 3. [设计文档](aurorabot-design-v0.2.2.md)：第 4、5、7、8 节的已实现边界。
-4. [公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)：第 5 节模型协议与第 6.0 节当前 bot 组件；后续 bot 表格为规划。
-5. [示例指南](../examples/START.md)：计数器、控制组件和假模型的离线启动方式。
+4. [公共 ID 目录](aurorabot-id-catalog-v0.2.2.md)：第 5 节模型协议与第 6 节 control、agent、bot 定义。
+5. [示例指南](../examples/START.md)：core、control、独立 agent、默认 bot 与持续宿主的启动方式。
 6. [变更记录](CHAGELOG.md)：按日期及条目上下文阅读，历史描述不覆盖当前接口。
 
 接手时先检查工作区和最新提交，保留用户改动，不重新实现已交付切片。
@@ -44,12 +44,12 @@ M0、M1 和 M2.1 已完成。当前可用的是微内核、CLI 基础宿主、�
 
 ### 2.2 控制接口与状态
 
-源码：[control/execution.py](../packages/aurora_bot/src/aurora_bot/control/execution.py)、[control/components.py](../packages/aurora_bot/src/aurora_bot/control/components.py)。
+源码：[control/execution.py](../packages/aurora_control/src/aurora_control/execution.py)、[control/components.py](../packages/aurora_control/src/aurora_control/components.py)。
 
 - `ExecutionSlot(Serial.definition_id, hooks, instance_id="root")` 创建串行组件的插槽；Serial(ctx, slot) 要求插槽与自身定义匹配。
 - `ExecutionPlug(definition_id, execute, instance_id="worker", states=...)` 暴露执行和地址；slot.connect(plug, priority=...) 返回两端地址与 schema 的握手信息。
 - StateBinding(key, location=...) 在显式位置上加入 run_id，不自动加入 definition_id、instance_id 或 execution_id。需要实例隔离的业务地址由装配明确填写；同一运行中的重复调用可以更新同一地址。
-- 控制状态使用 `org.aurora.bot:state/control`，按 definition_id、instance_id、run_id、execution_id 定位，携带父调用及当前选择/迭代信息。
+- 控制状态使用 `org.aurora.control:state/control`，按 definition_id、instance_id、run_id、execution_id 定位，携带父调用及当前选择/迭代信息。
 - 控制状态只覆盖在途调用。完成、失败、取消时先发布终态变化，再删除本次地址，不保存调用树或历史。需要记录过程的订阅者自行收集。
 - 控制组件没有脱离根调用的后台任务；根调用可交给 Lifecycle.run 跟踪。业务状态保留策略由装配负责。
 
@@ -80,9 +80,9 @@ Controller 是公共基类定义，不是可独立运行的第五种控制流程
 
 插件入口为 aurora_model_adapter，登记 adapters、model_client 及四个模型 schema，共六项定义。LiteLLM 与 state/config、state/bindings 仍为规划。
 
-### 3.2 aurora_bot.model
+### 3.2 aurora_agent.model
 
-源码：[model.py](../packages/aurora_bot/src/aurora_bot/model.py)。
+源码：[model.py](../packages/aurora_agent/src/aurora_agent/model.py)。
 
 `ModelCall(ctx, client, *, instance_id=None, request_state, output_state, streaming=True)` 使用注入客户端，从 request_state 读取请求，在 output_state 更新同一个 ModelCallState。插头通过 states 的 input/output 交换地址。
 
@@ -90,7 +90,7 @@ Controller 是公共基类定义，不是可独立运行的第五种控制流程
 
 调用组件通过上下文管理关闭单次响应流，装配在全部调用结束后关闭共享 client。同一输出地址必须串行调用；不同 run 可分开定位，但客户端是否支持并发仍由其实现决定。
 
-插件入口为 aurora_bot.model，登记 ModelCall component 与其 /execute 两项定义。实际组件 ID 为 `org.aurora.bot:handlers/model_call`；它与规划中的 ReAct call_model 处理器的装配关系尚未确定。
+插件入口为 aurora_agent.model，登记 ModelCall component 与其 /execute 两项定义。实际组件 ID 为 `org.aurora.agent:handlers/model_call`；它与规划中的 ReAct call_model 处理器的装配关系尚未确定。
 
 ## 4. 宿主与存储边界
 
@@ -103,11 +103,11 @@ core 的关键接口与注意事项：
 - Lifecycle 恢复快照后执行 configure，再 prepare/start。Lifecycle.run 跟踪根调用；组件自行创建的任务由其所有者收束。
 - 关闭顺序为停止入口、等待/取消在途调用、组件最后写入、最终 flush、释放资源。停止或落盘失败报告错误并保留可重试资源，不假报正常退出。
 
-三个示例各自使用独立数据目录。控制与模型示例启动时清理恢复出的临时控制状态，收尾清理中间值和旧结果，只保留最新业务输出；这是示例保留策略，core 不提供自动裁剪。快照恢复不自动重建实例或续跑调用。
+五个示例各自使用独立数据目录。状态保留与裁剪由各示例明确，core 不提供自动裁剪。快照恢复不自动重建实例或续跑调用。
 
 CLI 基础能力：
 
-- 内置 commands/ 直接子包导出无参数 plugin()，自动发现；外部插件通过 aurorabot.plugins entry point 显式选择。
+- 内置 commands/ 直接子包导出无参数 plugin()，自动发现；外部插件通过 aurora.plugins entry point 显式选择。
 - main、commander、declarations、parsing、execution、host、presentation 分担入口、发现、声明、解析、执行、宿主和展示，不通过具体命令 ID 特判。
 - 命令绑定 operation 或 executor 二选一；runtime 声明是否需要宿主。passthrough 只在显式启用时保留原始 argv，不拼接 shell 字符串。
 - CLI 装配入口是同步工厂，关键字接收 registry、ctx、hooks、storage，返回 LifecycleComponent 可迭代对象；资源初始化在 prepare/start。这不冻结默认 bot 的装配格式。
@@ -141,8 +141,8 @@ uv sync --all-packages
 pnpm install --frozen-lockfile
 uv run aurora check
 pnpm typecheck:python
-uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_identity.py tests/unit/test_bot_control.py tests/unit/test_model_call.py tests/e2e/test_control_flow_example.py tests/e2e/test_model_call_example.py -q
-uv run aurora --plugin aurora_bot.control --plugin aurora_bot.model --plugin aurora_model_adapter id list
+uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_identity.py tests/unit/test_bot_control.py tests/unit/test_model_call.py tests/e2e/test_control_flow_example.py tests/e2e/test_react_defaults_example.py -q
+uv run aurora --plugin aurora_control --plugin aurora_agent.model --plugin aurora_model_adapter id list
 ```
 
 行为证据：
@@ -150,7 +150,7 @@ uv run aurora --plugin aurora_bot.control --plugin aurora_bot.model --plugin aur
 - [组件身份](../tests/unit/test_component_identity.py)：定义层级、实例隔离与展示引用。
 - [模型协议](../tests/contract/test_model_protocol.py)：流关闭、能力拒绝、结束和工具请求。
 - [控制组件](../tests/unit/test_bot_control.py)、[模型组件](../tests/unit/test_model_call.py)：组合、失败、取消、临时状态清理与部分文本。
-- [控制示例](../tests/e2e/test_control_flow_example.py)、[模型示例](../tests/e2e/test_model_call_example.py)：真实进程、退出码与最终快照。
+- [控制示例](../tests/e2e/test_control_flow_example.py)、[独立 Agent 示例](../tests/e2e/test_react_defaults_example.py)：真实进程、退出码与最终快照。
 - [宿主关闭](../tests/e2e/test_m1_shutdown.py)、[CLI 进程](../tests/e2e/test_m1_cli_process.py)：在途写入、最终落盘和重启恢复。
 
 检查范围与改动相称，真实模型冒烟与离线测试分别报告；没有实际连接时不宣称真实模型已验证。注释、docstring 和提交使用中文，提交以动词开头、小步交付；README.md、AGENTS.md 修改须先经用户确认，变更叙述集中在 docs/CHAGELOG.md。

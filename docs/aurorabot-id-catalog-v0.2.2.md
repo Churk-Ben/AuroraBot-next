@@ -1,18 +1,18 @@
 # AuroraBot 公共 ID 目录 v0.2.2
 
 版本：v0.2.2  
-设计版本日期：2026-10-29；实现对齐：2026-10-30，代码基线 `4eb4d6e`。
+设计版本日期：2026-10-29；执行包与插件命名对齐：2026-11-01。
 
 对应主文档：[设计文档](aurorabot-design-v0.2.2.md)。
 
-范围：保留十个包和应用的规划身份，补充当前组件与命令定义。模型条目逐项注明状态；bot 第 6.0 节已实现，第 6.1–6.5 节仍为规划；API、client、界面和静态站点条目仍为规划。目录中的存在不代表对象已连接、启用或接口字段冻结。
+范围：第 6 节列出 control、agent 和 bot 的实际插件定义；其他章节包含设计规划，按各节标注区分。目录中的存在不代表对象已连接、启用或接口字段冻结。
 
 ## 1. 使用规则
 
 - 格式为 `<namespace>:<domain>/<local_path>`，跨组件引用使用完整 ID，kind 显式说明对象类型。
 - 一个 ID 在同一环境、同一登记作用域中对应一个公开定义；具体实例和业务数据使用必要的实例、会话、运行、agent 标识区分，不建立内部命名空间访问隔离。
 - Python core 维护统一的 `Id → RegistryEntry` 内存表。登记项指向定义，状态值、事件实例和具体服务实例不与定义身份混为一项。
-- `component` 表示组件类或局部执行函数的定义。bot 通过 component_entries 显式声明其 `/execute` 插头和可选 `/children` 插槽；core 不从路径推断 kind 或运行时父子关系。
+- `component` 表示组件类或局部执行函数的定义。control 通过 component_entries 显式声明其 `/execute` 插头和可选 `/children` 插槽；core 不从路径推断 kind 或运行时父子关系。
 - bot 的 definition_id、instance_id、run_id、execution_id 分别表示定义、实例、业务运行和单次调用。`definition_id.instance_id` 只是展示引用，不是新的公共 ID；实例默认 UUID。
 - 注册表可以是总表上的分类视图及接入逻辑。存在于总表不意味着接收方存在、连接成功或对象已执行；前端和静态资源在各自环境管理。
 - `register_to` 表示接收方；`slot` 表示插槽目标；`operation` 表示一条调用绑定。组件实例连接另行表达，不由 ID 路径、同名或表格顺序推导。
@@ -29,6 +29,8 @@
 | --- | --- | --- |
 | `aurora_core` | `org.aurora.core` | Python 运行时 |
 | `aurora_cli` | `org.aurora.cli` | Python 运行时 |
+| `aurora_control` | `org.aurora.control` | Python 运行时 |
+| `aurora_agent` | `org.aurora.agent` | Python 运行时 |
 | `aurora_bot` | `org.aurora.bot` | Python 运行时 |
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
 | `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
@@ -67,7 +69,7 @@
 | 本节其余 core 注册表 | `org.aurora.core:registries/registries` |
 | `org.aurora.cli:registries/commands` | `org.aurora.core:registries/registries` |
 | `org.aurora.model_adapter:registries/adapters` | `org.aurora.core:registries/registries` |
-| `org.aurora.bot:registries/tools` | `org.aurora.core:registries/registries` |
+| `org.aurora.agent:registries/tools` | `org.aurora.core:registries/registries` |
 | `org.aurora.bot:registries/agents` | `org.aurora.core:registries/registries` |
 | `org.aurora.bot:registries/mcp_servers` | `org.aurora.core:registries/registries` |
 | `org.aurora.api:registries/endpoints` | `org.aurora.core:registries/registries` |
@@ -148,124 +150,100 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 
 模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 默认完整 JSON 快照，运行时对象由装配持有，凭证不写入 ctx；可恢复绑定格式仍待确定。
 
-## 6. aurora_bot
+## 6. 控制、Agent 与 Bot 定义（已实现）
 
-### 6.0 当前组件与执行端口（已实现）
+发现分组为 `aurora.plugins`。插件名称、公开定义和 Python 导入路径分别归属自己的包，运行时不提供旧名称别名。
 
-`aurora_bot.control` 登记 Controller 基类、四类控制组件及其端口和控制状态，共十六项；`aurora_bot.model` 登记 ModelCall 及执行端口，共两项。两者均支持同名 entry point 显式启用。
+### 6.1 aurora_control
 
-| ID | kind | 用途 |
+`aurora_control` 仅依赖 core，提供执行身份、状态绑定与连接契约。控制插件登记 Controller 基类、Serial、Branch、While、Parallel 及其端口和在途状态，共十六项；Controller 基类不作为独立流程执行。
+
+| ID | kind | 提供插件 |
 | --- | --- | --- |
-| `org.aurora.bot:handlers/control` | `component` | Controller 基类，不独立执行 |
-| `org.aurora.bot:handlers/control/execute` | `hook_handler` | Controller 基类执行入口 |
-| `org.aurora.bot:handlers/control/children` | `hook_slot` | Controller 基类子组件插槽 |
-| `org.aurora.bot:handlers/control/serial` | `component` | Serial 串行执行器 |
-| `org.aurora.bot:handlers/control/serial/execute` | `hook_handler` | Serial 执行插头 |
-| `org.aurora.bot:handlers/control/serial/children` | `hook_slot` | Serial 子组件插槽 |
-| `org.aurora.bot:handlers/control/branch` | `component` | Branch 分支选择器 |
-| `org.aurora.bot:handlers/control/branch/execute` | `hook_handler` | Branch 执行插头 |
-| `org.aurora.bot:handlers/control/branch/children` | `hook_slot` | Branch 候选子组件插槽 |
-| `org.aurora.bot:handlers/control/while` | `component` | While 条件循环器 |
-| `org.aurora.bot:handlers/control/while/execute` | `hook_handler` | While 执行插头 |
-| `org.aurora.bot:handlers/control/while/children` | `hook_slot` | While 唯一循环体插槽 |
-| `org.aurora.bot:handlers/control/parallel` | `component` | Parallel 并行执行器 |
-| `org.aurora.bot:handlers/control/parallel/execute` | `hook_handler` | Parallel 执行插头 |
-| `org.aurora.bot:handlers/control/parallel/children` | `hook_slot` | Parallel 子组件插槽 |
-| `org.aurora.bot:state/control` | `state_key` | 按定义、实例、运行和调用定位的在途状态，终态通知后删除 |
-| `org.aurora.bot:handlers/model_call` | `component` | ModelCall 模型调用组件 |
-| `org.aurora.bot:handlers/model_call/execute` | `hook_handler` | ModelCall 执行插头 |
+| `org.aurora.control:handlers/control` | `component` | `aurora_control` |
+| `org.aurora.control:handlers/control/execute` | `hook_handler` | `aurora_control` |
+| `org.aurora.control:handlers/control/children` | `hook_slot` | `aurora_control` |
+| `org.aurora.control:handlers/control/serial` | `component` | `aurora_control` |
+| `org.aurora.control:handlers/control/serial/execute` | `hook_handler` | `aurora_control` |
+| `org.aurora.control:handlers/control/serial/children` | `hook_slot` | `aurora_control` |
+| `org.aurora.control:handlers/control/branch` | `component` | `aurora_control` |
+| `org.aurora.control:handlers/control/branch/execute` | `hook_handler` | `aurora_control` |
+| `org.aurora.control:handlers/control/branch/children` | `hook_slot` | `aurora_control` |
+| `org.aurora.control:handlers/control/while` | `component` | `aurora_control` |
+| `org.aurora.control:handlers/control/while/execute` | `hook_handler` | `aurora_control` |
+| `org.aurora.control:handlers/control/while/children` | `hook_slot` | `aurora_control` |
+| `org.aurora.control:handlers/control/parallel` | `component` | `aurora_control` |
+| `org.aurora.control:handlers/control/parallel/execute` | `hook_handler` | `aurora_control` |
+| `org.aurora.control:handlers/control/parallel/children` | `hook_slot` | `aurora_control` |
+| `org.aurora.control:state/control` | `state_key` | `aurora_control` |
 
-component 直接登记到总表；执行插头、插槽与状态分别登记到 core 的 hook_handlers、hook_slots、state_keys。执行插头的 interface 引用自身组件 definition_id，实例连接校验实际端口归属；不存在供所有组件共用的通用执行端口。
+控制状态按定义、实例、运行与单次执行定位，终态通知后删除，不保存调用历史。`ExecutionRequest` 只携带身份，业务数据通过显式绑定的 ctx 地址交换。
 
-业务数据通过握手约定的 ctx 地址交换，执行只传递 ExecutionRequest。ModelCall 输出由装配指定状态地址，不新增固定的模型输出 state_key。它只完成一次模型调用，与第 6.3 节规划的 ReAct call_model 处理器关系待装配明确。
+### 6.2 aurora_agent
 
-**第 6.1–6.5 节均为规划，尚未实现。** 模型层已有 ToolCall 数据类型不表示 bot 工具注册表、工具执行器或对话运行已存在。
+agent 包依赖 control、core 与 model_adapter。ReAct 循环、模型调用、工具执行和默认阶段分别提供插件。`aurora_agent.react_defaults` 要求同时启用 `aurora_agent.react`、`aurora_agent.model` 与 `aurora_agent.tools`。
 
-### 6.1 装配、对话与提示词
-
-| ID | kind | 用途 |
+| ID | kind | 提供插件 |
 | --- | --- | --- |
-| `org.aurora.bot:assemblies/default` | `assembly` | 默认插件、资源和服务绑定清单 |
-| `org.aurora.bot:operations/conversation/send` | `operation` | 提交一轮用户输入 |
-| `org.aurora.bot:operations/conversation/cancel` | `operation` | 请求取消指定运行 |
-| `org.aurora.bot:commands/chat` | `command` | CLI 对话入口 |
-| `org.aurora.bot:commands/cancel` | `command` | CLI 取消入口 |
-| `org.aurora.bot:prompts/soul` | `resource` | 基础身份与行为提示词 |
-| `org.aurora.bot:prompts/react` | `resource` | 默认 ReAct 提示词模板 |
-| `org.aurora.bot:schemas/message` | `schema` | 统一对话消息 |
-| `org.aurora.bot:schemas/run_input` | `schema` | 一次运行的输入 |
-| `org.aurora.bot:schemas/run_result` | `schema` | 一次运行的结果 |
+| `org.aurora.agent:handlers/model_call` | `component` | `aurora_agent.model` |
+| `org.aurora.agent:handlers/model_call/execute` | `hook_handler` | `aurora_agent.model` |
+| `org.aurora.agent:handlers/react_agent` | `component` | `aurora_agent.react` |
+| `org.aurora.agent:handlers/react_agent/execute` | `hook_handler` | `aurora_agent.react` |
+| `org.aurora.agent:react/prepare` | `hook_slot` | `aurora_agent.react` |
+| `org.aurora.agent:react/infer` | `hook_slot` | `aurora_agent.react` |
+| `org.aurora.agent:react/act` | `hook_slot` | `aurora_agent.react` |
+| `org.aurora.agent:react/observe` | `hook_slot` | `aurora_agent.react` |
+| `org.aurora.agent:react/finish` | `hook_slot` | `aurora_agent.react` |
+| `org.aurora.agent:react/error` | `hook_slot` | `aurora_agent.react` |
+| `org.aurora.agent:registries/tools` | `registry` | `aurora_agent.tools` |
+| `org.aurora.agent:handlers/react/execute_tools` | `component` | `aurora_agent.tools` |
+| `org.aurora.agent:handlers/react/execute_tools/execute` | `hook_handler` | `aurora_agent.tools` |
+| `org.aurora.agent:handlers/react/execute_tools/children` | `hook_slot` | `aurora_agent.tools` |
+| `org.aurora.agent:tools/before_call` | `hook_slot` | `aurora_agent.tools` |
+| `org.aurora.agent:tools/after_call` | `hook_slot` | `aurora_agent.tools` |
+| `org.aurora.agent:handlers/react/build_prompt` | `component` | `aurora_agent.react_defaults` |
+| `org.aurora.agent:handlers/react/build_prompt/execute` | `hook_handler` | `aurora_agent.react_defaults` |
+| `org.aurora.agent:handlers/react/interpret_response` | `component` | `aurora_agent.react_defaults` |
+| `org.aurora.agent:handlers/react/interpret_response/execute` | `hook_handler` | `aurora_agent.react_defaults` |
+| `org.aurora.agent:handlers/react/record_observation` | `component` | `aurora_agent.react_defaults` |
+| `org.aurora.agent:handlers/react/record_observation/execute` | `hook_handler` | `aurora_agent.react_defaults` |
 
-bot 命令声明的目标是 `org.aurora.cli:registries/commands`，分别绑定本包 send 和 cancel；它们在 bot 命名空间声明，不需要导入 CLI 实现。CLI 缺席时保留未连接状态并告警。
+各 component 的 `/execute` 入口登记为 hook_handler，interface 指向自身组件。ReAct 的 prepare/infer/act/observe/finish/error 是具名插槽，连接属于具体实例。默认连接依次执行上下文构建、ModelCall、响应解释、ToolExecutor 和观察接纳；finish/error 可没有处理器。
 
-这些是保留的规划入口，不规定 TUI/Panel 必须经它们交互。消息提交与取消如何关联 bot 执行不在本版展开，既不预设输入状态触发，也不以保留 operation ID 推导通用远端调用。
+AgentRuntime 提供提交、等待和取消，接入宿主显式提供的 agent 获取、执行与占用查询。运行句柄保留在进程内。agent 不规定全局消息、inbox 或运行状态地址，宿主通过 StateBinding 和 InstanceStateBinding 提供这些地址。
 
-装配清单是一种可加载描述，保留 `assembly` kind，可由 resources 接收。M2 先确定默认装配实际需要的实例与连接格式，不要求提前增加独立 assembly schema ID。
+### 6.3 aurora_bot
 
-### 6.2 ReAct 插槽
+bot 负责默认产品装配、配置、资源所有权和运行入口。定义使用 `org.aurora.bot`，其运行状态地址由本装配分配，不属于 agent 的固定状态协议。
 
-| ID | kind | 用途 |
+| ID | kind | 提供插件 |
 | --- | --- | --- |
-| `org.aurora.bot:react/prepare` | `hook_slot` | 准备上下文与模型输入 |
-| `org.aurora.bot:react/infer` | `hook_slot` | 执行模型推理 |
-| `org.aurora.bot:react/act` | `hook_slot` | 执行模型请求的工具动作 |
-| `org.aurora.bot:react/observe` | `hook_slot` | 接纳动作结果，更新本轮上下文 |
-| `org.aurora.bot:react/finish` | `hook_slot` | 收束运行并生成结果 |
-| `org.aurora.bot:react/error` | `hook_slot` | 处理运行失败 |
+| `org.aurora.bot:commands/run/submit` | `command` | `aurora_bot.assembly` |
+| `org.aurora.bot:commands/run/activate` | `command` | `aurora_bot.assembly` |
+| `org.aurora.bot:commands/run/cancel` | `command` | `aurora_bot.assembly` |
+| `org.aurora.bot:assemblies/default` | `assembly` | `aurora_bot.assembly` |
+| `org.aurora.bot:services/run_control` | `service` | `aurora_bot.assembly` |
+| `org.aurora.bot:operations/run/submit` | `operation` | `aurora_bot.assembly` |
+| `org.aurora.bot:operations/run/activate` | `operation` | `aurora_bot.assembly` |
+| `org.aurora.bot:operations/run/cancel` | `operation` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/config` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/agents` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/messages` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/run` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/react_work` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/prepare_model` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/stop_model` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/prepare_bot` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/start_bot` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:handlers/assembly/stop_bot` | `hook_handler` | `aurora_bot.assembly` |
 
-插槽登记到 `org.aurora.core:registries/hook_slots`。表格顺序不构成可执行流程，循环与终止条件由 bot 装配的控制组件实现；顺序、并行、选择和循环由插件提供。双方按需描述接口，由插槽提供方判断兼容性；描述不同但兼容或没有正式 schema 的特殊连接均可成立。
+`state/config` 的来源为 bot 的 TOML 模板，不进入快照。`state/agents` 保存实例级 inbox/progress，`state/messages` 保存上下文，`state/run` 保存最近运行状态，`state/react_work` 保存按 run_id 定位的工作数据。实例以 instance_id 隔离。
 
-### 6.3 ReAct 默认处理器
+运行操作和命令均使用 `run/submit`、`run/activate`、`run/cancel`，要求显式 instance_id。运行管理服务按实例绑定 AgentRuntime；CLI 命令通过公共操作分发，不要求 bot 导入 CLI 实现。默认装配的资源在 prepare 创建，在执行收尾后关闭。
 
-以下对象的 kind 均为 `hook_handler`，登记到 `org.aurora.core:registries/hook_handlers`，通过 `slot` 连接。它们属于默认插件实现，可以与 bot 装配同包发布；命名空间不强制物理目录或发布包一一对应。
+### 6.4 扩展边界
 
-| ID | 接入插槽 | 职责 |
-| --- | --- | --- |
-| `org.aurora.bot:handlers/react/build_prompt` | `org.aurora.bot:react/prepare` | 构建模型输入 |
-| `org.aurora.bot:handlers/react/call_model` | `org.aurora.bot:react/infer` | 调用注入的模型服务 |
-| `org.aurora.bot:handlers/react/execute_tools` | `org.aurora.bot:react/act` | 执行工具请求 |
-| `org.aurora.bot:handlers/react/record_observation` | `org.aurora.bot:react/observe` | 记录观察结果 |
-| `org.aurora.bot:handlers/react/finalize` | `org.aurora.bot:react/finish` | 收束结果 |
-| `org.aurora.bot:handlers/react/report_error` | `org.aurora.bot:react/error` | 报告运行失败 |
-
-### 6.4 工具、多模型与 MCP
-
-工具能力按最小 bot 路径逐步接入；多模型、agent 通信和 MCP 属于后续扩展。
-
-| ID | kind | 用途 |
-| --- | --- | --- |
-| `org.aurora.bot:registries/tools` | `registry` | 可供 bot 调用的工具 |
-| `org.aurora.bot:tools/before_call` | `hook_slot` | 工具调用前的校验与扩展 |
-| `org.aurora.bot:tools/after_call` | `hook_slot` | 工具结果处理 |
-| `org.aurora.bot:schemas/tool_definition` | `schema` | 工具名称、参数和结果契约 |
-| `org.aurora.bot:schemas/tool_call` | `schema` | 具体工具调用请求 |
-| `org.aurora.bot:schemas/tool_result` | `schema` | 工具调用结果 |
-| `org.aurora.bot:registries/agents` | `registry` | 多模型参与者定义 |
-| `org.aurora.bot:multi_model/select` | `hook_slot` | 选择参与推理的模型或 agent |
-| `org.aurora.bot:multi_model/aggregate` | `hook_slot` | 汇总并行推理结果 |
-| `org.aurora.bot:operations/agents/send` | `operation` | 向指定 agent 发送消息 |
-| `org.aurora.bot:agents/on_message` | `hook_slot` | 接收并处理 agent 消息 |
-| `org.aurora.bot:schemas/agent_message` | `schema` | agent 间消息信封 |
-| `org.aurora.bot:registries/mcp_servers` | `registry` | MCP 服务装配描述 |
-| `org.aurora.bot:services/mcp_runtime` | `service` | MCP 连接与服务生命周期 |
-| `org.aurora.bot:schemas/mcp_server` | `schema` | MCP 服务配置与能力描述 |
-
-### 6.5 状态与事件
-
-| ID | kind | 用途 |
-| --- | --- | --- |
-| `org.aurora.bot:state/config` | `state_key` | bot 配置 |
-| `org.aurora.bot:state/messages` | `state_key` | 当前会话的消息记录 |
-| `org.aurora.bot:state/run` | `state_key` | 当前运行状态 |
-| `org.aurora.bot:state/agents` | `state_key` | agent 运行状态 |
-| `org.aurora.bot:events/run/started` | `event` | 运行开始 |
-| `org.aurora.bot:events/run/completed` | `event` | 运行完成 |
-| `org.aurora.bot:events/run/cancelled` | `event` | 运行取消 |
-| `org.aurora.bot:events/run/failed` | `event` | 运行失败 |
-| `org.aurora.bot:events/message/delta` | `event` | 对话输出增量 |
-| `org.aurora.bot:events/tool/completed` | `event` | 工具调用完成 |
-
-状态定义与具体值分开；事件类型与每次发布的事件实例分开。一次运行的终态区分完成、取消与失败。
+多 agent 通信、多模型聚合、MCP 和额外消息传输属于后续扩展，未实现的规划名称不作为已登记定义列出。具体定义以所选插件的 `id list` 输出为准，名称存在不代表组件已连接或执行。
 
 ## 7. aurora_api
 
@@ -365,19 +343,19 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 
 ## 13. 关键引用关系
 
-下表包含规划关系，是否已实现以各包条目的状态为准；当前 bot 组件的真实登记关系见第 6.0 节。
+下表包含规划关系，是否已实现以各包条目的状态为准；执行包的实际登记关系见第 6 节。
 
 | 声明方 | 关系 | 目标 |
 | --- | --- | --- |
 | 各 Python 逻辑注册表 | 目录登记 | `org.aurora.core:registries/registries`；自举按第 3.1 节处理 |
-| bot chat/cancel 命令 | `register_to` | `org.aurora.cli:registries/commands`；CLI 缺席时未连接并告警 |
-| bot chat 命令 | 一条操作绑定 | `org.aurora.bot:operations/conversation/send` |
-| bot cancel 命令 | 一条操作绑定 | `org.aurora.bot:operations/conversation/cancel` |
+| bot run 命令 | `register_to` | `org.aurora.cli:registries/commands`；CLI 缺席时未连接并告警 |
+| bot submit 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/submit` |
+| bot cancel 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/cancel` |
 | bot 命令与 CLI 接收方 | 可使用的描述 | `org.aurora.cli:schemas/command`；不要求导入 CLI 实现 |
 | bot conversation 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
 | bot conversation 端点 | 规划操作绑定 | bot conversation/send 与 conversation/cancel；不作为界面必经入口 |
 | ReAct 默认处理器 | `register_to` | `org.aurora.core:registries/hook_handlers` |
-| 提示词构建处理器 | `slot` | `org.aurora.bot:react/prepare` |
+| 提示词构建处理器 | `slot` | `org.aurora.agent:react/prepare` |
 | 模型调用处理器 | 注入服务 | `org.aurora.model_adapter:services/model_client` |
 | LiteLLM 适配器 | `register_to` | `org.aurora.model_adapter:registries/adapters` |
 | ctx 传输端点与 client | 共用动作身份和语义 | 第 3.2 节的 core ctx 操作 ID |
@@ -395,7 +373,7 @@ TUI 与 Panel 使用同一个 client ctx interface，各自处理输入、反馈
 id: dev.example.memory:handlers/inject_context
 kind: hook_handler
 register_to: org.aurora.core:registries/hook_handlers
-slot: org.aurora.bot:react/prepare
+slot: org.aurora.agent:react/prepare
 ```
 
 ```yaml

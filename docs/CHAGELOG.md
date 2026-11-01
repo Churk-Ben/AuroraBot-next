@@ -2,6 +2,13 @@
 
 ## 2026-11-01
 
+### 示例入口与独立运行管理
+
+- 示例提供 core 计数器、control 控制流、独立 agent、默认 bot 和持续巡检宿主五条路径，完整启动方式见 [示例指南](../examples/START.md)。真实模型验收统一使用 `scripts/accept_m2.py` 的 TOML profile 与 CLI 流程。
+- 独立 agent 示例使用 AgentRuntime 提交输入、接纳流式期间引导并等待结果；宿主关闭时停止提交、等待 runtime 收尾，再关闭模型并保存状态。模型失败、部分输出和取消语义由模型组件测试覆盖。
+- 公共 ID 目录第 6 节按实际插件清单列出 control、agent 和 bot 定义，源码链接与示例命令使用当前包路径。
+- 完整 `uv run --locked aurora check` 通过：488 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型检查。干净 wheel 环境验证新插件入口、独立控制流、agent 调度、模型工具往返和恢复；bot wheel 不包含执行组件兼容模块。变更文档中的 54 项相对链接检查通过。
+
 ### 执行包命名空间与插件发现
 
 - 控制组件、端口与控制状态归属 `org.aurora.control`，agent 组件、ReAct 阶段、工具注册表及工具钩子归属 `org.aurora.agent`。bot 默认配置、装配、运行操作、命令和装配分配的状态地址归属 `org.aurora.bot`。
@@ -53,10 +60,10 @@ definition = StateKey(
 ```toml
 plugins = [
   "aurora_model_adapter",
-  "aurora_bot.model",
-  "aurora_bot.react",
-  "aurora_bot.tools",
-  "aurora_bot.react_defaults",
+  "aurora_agent.model",
+  "aurora_agent.react",
+  "aurora_agent.tools",
+  "aurora_agent.react_defaults",
   "aurora_bot.assembly",
 ]
 # 完成模型配置后，可设置默认装配。
@@ -168,10 +175,10 @@ PowerShell 下可使用独立数据目录准备最小 DeepSeek 配置；已有�
 ```powershell
 $botPlugins = @(
   '--plugin', 'aurora_model_adapter',
-  '--plugin', 'aurora_bot.model',
-  '--plugin', 'aurora_bot.react',
-  '--plugin', 'aurora_bot.tools',
-  '--plugin', 'aurora_bot.react_defaults',
+  '--plugin', 'aurora_agent.model',
+  '--plugin', 'aurora_agent.react',
+  '--plugin', 'aurora_agent.tools',
+  '--plugin', 'aurora_agent.react_defaults',
   '--plugin', 'aurora_bot.assembly'
 )
 $botData = @('--data-dir', 'build/cli-bot')
@@ -188,12 +195,12 @@ uv run --locked --env-file .env aurora @botPlugins @botData --assembly org.auror
 - `aurora_bot.assembly` 在插件发现阶段登记三个 operation：`org.aurora.bot:operations/run/submit`、`org.aurora.bot:operations/run/activate`、`org.aurora.bot:operations/run/cancel`，统一接入 core 的 operations 注册表。CLI `id list` 可在启动装配前枚举这些定义。
 - 每次插件构建持有独立的 `org.aurora.bot:services/run_control` 运行分发服务。DefaultAssembly 启动时按 bot 配置的 instance_id 绑定 runtime，停止并完成工具清理后解除自身绑定。相同实例身份禁止覆盖；尚未启动、已解除绑定或未知实例明确报错，不隐式选择默认 bot。服务及 runtime 引用不进入 ctx。
 - 所有操作要求显式关键字 `instance_id`。submit 接收 payload 和可选 sequence，返回既有 Submission；activate 返回 RunHandle；cancel 接收 run_id，等待匹配运行的清理并返回布尔值。运行句柄是进程内对象，CLI/API 传输回执时须显式转换，登记 operation 不自动开放远程分发。
-- 调用示例：`await invoke_operation(registry, Id("org.aurora.bot:operations/run/cancel"), run_id, instance_id="main")`。提交和激活分别以对应 ID 调用；运行、等待与取消语义沿用 BotRuntime。此命名表达 bot 激活，不绑定到尚未确定的 conversation 端点。
+- 调用示例：`await invoke_operation(registry, Id("org.aurora.bot:operations/run/cancel"), run_id, instance_id="main")`。提交和激活分别以对应 ID 调用；运行、等待与取消语义由 AgentRuntime 提供。此命名表达 bot 激活，不绑定到尚未确定的 conversation 端点。
 - 完整 `uv run --locked aurora check` 通过：423 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查；操作模块、装配和相关测试的 basedpyright 检查为 0 错误、0 警告。新增用例覆盖发现阶段枚举、按 ID 调用、实例选择、重复绑定失败清理、停止拒绝与解绑；SDK 保留 1 项 Pydantic ReadOnly 提示。
 
 ### M2.4：单 bot 的激活、引导提交与取消入口
 
-- DefaultAssembly.runtime 提供单一调度所有者 BotRuntime。宿主启动后可调用 `submit(payload, sequence=...)` 提交 JSON 引导，返回 Submission（sequence、guidance_id、run）；`activate()` 显式激活已有输入或空输入。两者同步返回，不等待推理。普通 ctx 写入和宿主启动不自动触发运行，恢复输入须显式接纳。
+- DefaultAssembly.runtime 提供单一调度所有者 AgentRuntime。宿主启动后可调用 `submit(payload, sequence=...)` 提交 JSON 引导，返回 Submission（sequence、guidance_id、run）；`activate()` 显式激活已有输入或空输入。两者同步返回，不等待推理。普通 ctx 写入和宿主启动不自动触发运行，恢复输入须显式接纳。
 - `await receipt.run.wait()` 返回 RunResult（run_id、completed/cancelled/failed、可选错误类型）。取消等待者不取消 bot。活动阶段的提交和重复 activate 共用当前句柄及 run_id；finish 阶段和终态通知期间的输入取得后续激活句柄，等待当前激活完成清理。每次成功激活结束后复查 pending，覆盖结束边界上的输入。
 - 引导 ID 自动生成，sequence 缺省取 progress 与 pending 最大序号加一。调用方可显式提供严格递增序号以拒绝重放；重复或过期序号在写入前报错，相同文本使用新序号表示新引导。序号约束沿用恢复的 inbox/progress，运行句柄不持久化。inbox 写入通知期间的同步重入提交明确拒绝，订阅方可调度到下一事件循环轮次。
 - `await assembly.runtime.cancel(run_id)` 仅处理匹配的当前或待执行句柄，并等待清理；未知或已完成的身份返回 False。重复取消只发出一次任务取消请求，取消方自身退出不打断 bot 清理。取消待执行激活不取消其前驱。失败或取消停止自动后续激活，尚未消费的输入保留；关联的待执行句柄以 cancelled 或 failed/PreviousRunFailed 收束，下一次显式 activate/submit 可接纳保留输入。
@@ -206,7 +213,7 @@ uv run --locked --env-file .env aurora @botPlugins @botData --assembly org.auror
 ### DeepSeek 真实模型验收
 
 - LiteLLM 工厂支持 `deepseek/` 模型，通过实例自有 AsyncHTTPHandler 管理连接，默认端点为 `https://api.deepseek.com`，允许显式配置 base_url。请求指定 `thinking={"type":"disabled"}`；当前公共消息协议不保存 reasoning_content，DeepSeek 工具往返使用[官方非思考模式](https://api-docs.deepseek.com/guides/tool_calls/)。
-- 项目根 `.env` 的 `DEEPSEEK_API_KEY` 仅在运行期读取，文件由 Git 忽略。可重复执行的流式冒烟命令：`uv run --locked --env-file .env python examples/litellm_model/main.py --model deepseek/deepseek-flash --credential-env DEEPSEEK_API_KEY`；示例本身不自动搜索或加载 dotenv，配置文件由启动方显式指定。
+- 真实模型验收入口为 `scripts/accept_m2.py`，通过 TOML profile、默认装配和 CLI 验证流式与完整响应的工具往返；使用独立的新数据目录，凭证从指定环境变量读取。运行方式见 [示例指南](../examples/START.md#真实模型验收)。
 - DeepSeek 官方模型列表接口鉴权成功。真实 `deepseek-flash` 流式请求输出“Aurora 连接成功。”；正式 DefaultAssembly 的流式、非流式激活分别完成一次本地 echo 工具调用、观察回填及后续推理，均以 completed 收束并输出“验收成功”。两种装配关闭后重新启动，消息与引导消费位置恢复一致，快照不含运行期密钥。
 - 真实验收快照位于忽略目录 `build/deepseek-smoke-5ff05490/{stream,complete}/framework/ctx.json`。本次共执行一次简短文本请求和两次工具往返；真实模型取消与超时未重复调用，相关路径由既有离线测试覆盖。M2.3 的真实模型连接与工具往返已有验收证据，M2 的后续运行入口与 CLI 整体验收继续推进。
 - 完整 `uv run --locked aurora check` 通过：405 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。SDK 的 Pydantic 类型加载产生 1 项 ReadOnly 限定符提示，测试无失败。
@@ -218,7 +225,7 @@ uv run --locked --env-file .env aurora @botPlugins @botData --assembly org.auror
 - 文本逐段交付，工具按 index 汇集名称与参数，完整严格 JSON 对象通过验证后才输出 ToolCall。重复工具 ID、非法参数、缺失或无效结束片段明确失败；usage 与 SDK 尾部空片段不作为业务内容。请求中的工具描述、assistant 工具请求和 tool 结果转换为 SDK 格式，不修改调用方输入。
 - SDK 请求、读取和关闭错误转换为 ModelError，供应商超时转换为标准 TimeoutError，取消保持 CancelledError。错误摘要只包含异常类型，不复制供应商请求或凭证。响应流在正常结束、提前退出、消费方异常、取消与超时时关闭；宿主最终关闭客户端。SDK 重试与响应缓存显式禁用。
 - 离线验收使用真实 LiteLLM/OpenAI SDK 与模拟 HTTP/SSE，覆盖 OpenAI 与 Anthropic 流式响应、工具往返、能力拒绝、参数错误、取消及资源释放；正式 DefaultAssembly 分别验证流式与非流式工具循环、终态、凭证不落盘和重启恢复。
-- `examples/litellm_model/main.py` 提供显式真实连接冒烟入口：`uv run python examples/litellm_model/main.py --model openai/gpt-4o-mini --credential-env AURORA_MODEL_API_KEY`。需事先在该环境变量中提供密钥；兼容网关可附加 `--base-url`，`--text` 选择输入，`--timeout` 设置总时限。输出为统一片段及最终 JSON，不保存密钥或模型配置。
+- 真实模型验收入口为 `scripts/accept_m2.py`，通过 TOML profile、默认装配和 CLI 验证流式与完整响应的工具往返；使用独立的新数据目录，凭证从指定环境变量读取。运行方式见 [示例指南](../examples/START.md#真实模型验收)。
 - 真实供应商连接尚未执行；本条仅验收适配器与默认装配的离线路径，M2 整体验收仍待真实模型连接及后续运行入口切片。
 - 完整 `uv run --locked aurora check` 通过：401 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。SDK 的 Pydantic 类型加载产生 1 项 ReadOnly 限定符提示，测试无失败；真实连接示例的帮助入口验证通过。
 
@@ -242,7 +249,7 @@ uv run python examples/live_workshop/main.py
 uv run python examples/live_workshop/main.py -l DEBUG -d build/workshop-two serve --port 10271
 ```
 
-终端二持续看报告；watch 仅推送订阅后的变化，已有报告用 get 读取。将 key 换成 `org.aurora.bot:state/run` 可观察 bot 阶段，换成 `org.aurora.bot:state/control` 可观察控制组件：
+终端二持续看报告；watch 仅推送订阅后的变化，已有报告用 get 读取。将 key 换成 `org.aurora.bot:state/run` 可观察 bot 阶段，换成 `org.aurora.control:state/control` 可观察控制组件：
 
 ```powershell
 uv run aurora --connect http://127.0.0.1:10270 ctx watch --key dev.example.workshop:state/reports
@@ -297,12 +304,12 @@ uv run python examples/live_workshop/main.py id list
 - cadence 提供执行插槽，ReActAgent 提供执行插头；连接握手交换 ctx 地址与可选 schema，执行只传递运行和调用身份。每个 agent 实例由一个调度所有者串行管理激活；运行中通过持续输入接纳引导。ReActAgent 的执行入口等待本次激活收束，调用完成由等待确定。
 - 持续输入采用 inbox、progress、runtime 三类地址角色：cadence 写入带标识与顺序的引导；ReActAgent 记录已纳入上下文的位置及当前运行状态。progress 表达已接纳，不代表已完成对应要求。inbox 与消费位置按 agent 实例定位，跨激活保留；单次推理、动作等数据可沿用按 run_id 定位的绑定。保留与裁剪策略由装配明确，不由 core 自动推断。
 - ReActAgent 在推理前接纳引导，在结束前检查待处理输入；调度所有者在执行返回后复查输入，覆盖结束边界上的变化。ctx 订阅仅通知后续变更，没有历史回放承诺；需要逐条处理的世界消息应保存可读取的记录，消费方维护位置，不能仅依赖不断覆盖的最新值或瞬时事件。
-- 接口草案：org.aurora.bot:handlers/react_agent 为 component，其 /execute 为 hook_handler；沿用 org.aurora.bot:react/{prepare,infer,act,observe,finish,error} 六个 hook_slot。prepare 在每次推理前准备上下文与引导，infer 形成行动或结束决定，act 执行工具，observe 接纳结果，finish 收束本次激活且允许无输出，error 处理失败。阶段连接属于具体 agent 实例，执行顺序由 bot 组件负责。
+- 接口草案：org.aurora.agent:handlers/react_agent 为 component，其 /execute 为 hook_handler；沿用 org.aurora.agent:react/{prepare,infer,act,observe,finish,error} 六个 hook_slot。prepare 在每次推理前准备上下文与引导，infer 形成行动或结束决定，act 执行工具，observe 接纳结果，finish 收束本次激活且允许无输出，error 处理失败。阶段连接属于具体 agent 实例，执行顺序由 bot 组件负责。
 - 实施顺序：先交付可再次激活、运行中接纳引导的 ReActAgent 最小组件与离线行为验收，再接入基本工具往返、默认装配与恢复、真实模型和 CLI 整体验收。world、cadence 的完整插件、唤醒工具与子代理属于后续切片；阶段入口和持续输入先以显式进程内装配验证。达到本切片验收不代表整个 M2 完成。
 
 ### 实现与验证记录
 
-- aurora-world 初始化为 Python 3.12+、Hatchling 构建的独立工作区包，源码位于 packages/aurora_world/src/aurora_world，仅依赖 aurora-core；统一安装包包含 aurora-world，uv workspace/source、覆盖率和 Pyright 路径均接入。aurorabot.plugins 的 aurora_world entry point 返回同名插件清单，当前不登记世界状态、来源插槽或生命周期处理器，具体行为由后续功能提供。
+- aurora-world 初始化为 Python 3.12+、Hatchling 构建的独立工作区包，源码位于 packages/aurora_world/src/aurora_world，仅依赖 aurora-core；统一安装包包含 aurora-world，uv workspace/source、覆盖率和 Pyright 路径均接入。aurora.plugins 的 aurora_world entry point 返回同名插件清单，当前不登记世界状态、来源插槽或生命周期处理器，具体行为由后续功能提供。
 - 初始化验收通过 uv sync --all-packages、8 项工作区导入/安装依赖测试、Ruff 检查与格式检查、Python 类型检查及插件发现；uv build --package aurora-world 成功构建源码包与 wheel。本次未重跑完整业务测试。
 
 - examples/default_bot/main.py 通过正式 DefaultAssembly 和本地模型/工具工厂演示配置恢复。`uv run python examples/default_bot/main.py --data-dir build/default-demo` 只启动和关闭；增加 `--text "你好"` 明确写入引导并激活一次，`--activate` 使用已有输入激活，`--profile secondary` 在启动前更新并保存模型角色绑定。首次缺失的配置由示例 configure 填入，后续沿用恢复值；工厂、实例和连接每次重新创建。
@@ -317,23 +324,23 @@ uv run python examples/live_workshop/main.py id list
 - ToolSpec 可显式提供异步 ToolFactory。工厂接收 ctx、宿主 storage、分配的 instance_id、input/output 地址及工具 JSON 配置，返回 ToolInstance(plug, aclose)。工厂返回前的失败或取消由工厂释放部分资源；成功返回后的资源由装配负责关闭。工具沿用装配分配的身份和工作地址，共享 storage 仍由宿主关闭。
 
 - examples/react_agent/main.py 使用正式 ReActAgent、ReActDefaults、ModelCall 和 ToolExecutor，显式装配本地加法工具与 FakeModel。运行 `uv run python examples/react_agent/main.py --data-dir build/react-demo --guide "保留当前计算进度"` 可观察工具往返和流式期间引导；`--tool-error` 演示失败观察，`--tool-delay 0.2 --timeout 0.01` 演示超时，`--text "无需行动"` 演示无行动结束。同一数据目录重复运行保留上下文与消费位置，Ctrl+C 保存取消状态和待接纳工具结果；示例清理已消费 inbox 与中间值，只保留最近模型输出和恢复所需工具批次。
-- 本切片完整 uv run aurora check 通过：339 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查；4 项新增真实进程测试验证正常/失败/超时工具往返、引导、重启恢复与 SIGINT 后结果接纳。CLI 显式启用 aurora_bot.react、aurora_bot.model、aurora_bot.tools、aurora_bot.react_defaults 可枚举新增组件与端口。真实模型连接未验证；正式默认装配资源、模型工厂与绑定恢复、cadence/world 以及 CLI 对话仍待后续切片，M2 尚未整体完成。
+- 本切片完整 uv run aurora check 通过：339 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查；4 项新增真实进程测试验证正常/失败/超时工具往返、引导、重启恢复与 SIGINT 后结果接纳。CLI 显式启用 aurora_agent.react、aurora_agent.model、aurora_agent.tools、aurora_agent.react_defaults 可枚举新增组件与端口。真实模型连接未验证；正式默认装配资源、模型工厂与绑定恢复、cadence/world 以及 CLI 对话仍待后续切片，M2 尚未整体完成。
 
-- aurora_bot.react_defaults 提供 ReActDefaults，将 build_prompt、ModelCall、interpret_response、ToolExecutor 与 record_observation 显式连接到 ReActAgent 的 prepare/infer/act/observe 阶段。三个默认处理器以 component 及 /execute 插头登记；模型和工具继续使用各自的组件定义。默认连接要求工作阶段为空，连接失败撤销本次新增连接；客户端仍由宿主持有并关闭。
+- aurora_agent.react_defaults 提供 ReActDefaults，将 build_prompt、ModelCall、interpret_response、ToolExecutor 与 record_observation 显式连接到 ReActAgent 的 prepare/infer/act/observe 阶段。三个默认处理器以 component 及 /execute 插头登记；模型和工具继续使用各自的组件定义。默认连接要求工作阶段为空，连接失败撤销本次新增连接；客户端仍由宿主持有并关闭。
 - 默认上下文以实例级 ReActContext 保存 messages、guidance_sequence 和 pending，消息与引导位置整项提交。prepare 按序接纳输入并准备模型可见工具清单；工具失败观察仍进入下一轮推理。模型文本仅保留为内部上下文，不自动发送给用户；无工具且 stop 可正常结束，length/content_filter 或不一致的结束原因明确失败。
 - 工具请求与其全部结果成组回填。中断后的 pending 在下一次激活时接纳已保存结果，其余结果标为 interrupted；不复用其他 turn_id 的输出，不自动重跑动作，也不假定中断时没有副作用。完成的工具结果在 after_call 扩展失败时仍保留，后续工具不继续执行。上下文、inbox 和恢复所需工具记录的裁剪由装配明确。
 - 10 项默认阶段测试覆盖成功/失败工具观察、流式期间引导、无行动结束、prepare 去重、取消后的结果接纳、旧批次隔离与不完整模型响应；工具测试共 15 项。完整检查结果与离线示例见下条。
 
 - 工具失败策略：未知工具、参数错误、工具执行异常和超时均作为结构化观察交回 bot，由模型决定后续行动；取消继续传播并等待清理。基础执行器不自动重试动作，扩展处理器故障和装配错误仍明确失败。
-- aurora_bot.tools 提供 tools 注册表、ToolSpec 和 ToolExecutor。ToolSpec 将模型可见的名称、描述及参数 schema 关联到组件定义，装配显式连接工具实例；模型只看到已连接工具，同一执行器拒绝重复模型名称。工具以 ExecutionPlug 接入，通过 input 读取完整 ToolCall，在 output 写入 JSON 结果；临时工作地址由执行器清理，持久业务数据另存。
+- aurora_agent.tools 提供 tools 注册表、ToolSpec 和 ToolExecutor。ToolSpec 将模型可见的名称、描述及参数 schema 关联到组件定义，装配显式连接工具实例；模型只看到已连接工具，同一执行器拒绝重复模型名称。工具以 ExecutionPlug 接入，通过 input 读取完整 ToolCall，在 output 写入 JSON 结果；临时工作地址由执行器清理，持久业务数据另存。
 - 工具参数使用 jsonschema 的 Draft 2020-12 校验与本地 referencing Registry，不获取外部 schema；format 仅为注释。批次按 turn_id 关联推理，调用 id 在批次内唯一；按顺序执行并逐个保存结果，before_call 可通过 ToolRejected 拒绝动作，after_call 观察已保存结果。超时覆盖前置处理和工具执行，以及后置处理；同步阻塞和忽略取消的插件不承诺强制抢占。
 - 工具批次保留 completed/failed/cancelled 状态与逐项结果；批次 completed 表示处理结束，各项仍可为失败。取消保留已完成结果、标记当前取消及后续未执行项，不消费旧输出。14 项工具测试覆盖连接、参数、结果隔离、拒绝、失败、超时、取消、临时值清理和本地 schema 引用；Ruff 与 Python 类型检查通过。
 
-- aurora_bot.react 插件提供 ReActAgent component、/execute 插头与六个 react 阶段插槽。调用通过显式连接执行，保持同一激活的 run_id，各阶段子调用生成独立 execution_id。prepare/infer 必须连接；infer 经 decision 地址明确选择 act、continue 或 finish；act 要求 act/observe 连接，finish 可无处理器、无对外输出。组件不持有后台任务，不订阅 world；宿主通过 Lifecycle.run 管理根调用。
+- aurora_agent.react 插件提供 ReActAgent component、/execute 插头与六个 react 阶段插槽。调用通过显式连接执行，保持同一激活的 run_id，各阶段子调用生成独立 execution_id。prepare/infer 必须连接；infer 经 decision 地址明确选择 act、continue 或 finish；act 要求 act/observe 连接，finish 可无处理器、无对外输出。组件不持有后台任务，不订阅 world；宿主通过 Lifecycle.run 管理根调用。
 - inbox、progress、runtime 使用实例级地址；引导包含跨激活严格递增的 sequence、唯一 id 和 payload。prepare 读取 batch 快照并将其纳入可保留的上下文，成功后推进消费位置；失败不确认该批输入，处理器按引导 id 避免重试重复。新输入在下一次 prepare 接纳，finish 开始后的输入保留为 pending，由调度所有者在返回后复查。batch/decision 按运行定位并在收尾时删除，runtime 保留最近激活的 completed/cancelled/failed 状态；其他上下文、模型输出和输入裁剪由装配负责。
 - 同一 ReActAgent 实例的重入执行明确拒绝，不改动在途运行；取消传播并等待当前处理器收尾。循环上限、缺少阶段、无效决策与异常输入明确失败；error 处理器失败时同时保留执行和错误处理异常。既有 ModelCall 可直接连接 infer 插槽，由后续阶段处理器将模型结果解释为控制决定。
 - 本切片新增 18 项组件行为测试与 3 项离线集成测试。真实宿主、FakeModel、ModelCall 和测试内本地加法工具完成工具往返、流式期间引导、无行动结束、上下文与消费进度恢复、模型/工具失败及资源关闭验证；本地工具仅为测试装配，通用工具组件、默认 ReAct 处理器、正式装配、cadence/world 与真实供应商适配仍待后续实现，不承诺重启透明续跑。
-- 完整 uv run aurora check 通过：310 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查。uv run aurora --plugin aurora_bot.react id list 可列出组件与六个阶段插槽；本切片未连接真实模型。
+- 完整 uv run aurora check 通过：310 项 Python 测试、9 项工具链测试及格式、lint、Python/TypeScript 类型和工作区入口检查。uv run aurora --plugin aurora_agent.react id list 可列出组件与六个阶段插槽；本切片未连接真实模型。
 
 - bot 的 InstanceStateBinding 使用装配显式指定的固定地址，跨 run_id 共享实例状态；StateBinding 继续按 run_id 定位单次运行数据。ExecutionSlot 可通过 slot_id 指定具名阶段端口，execution_slot_entry 声明接收 ExecutionPlug 的插槽；握手、组件身份校验和调用语义沿用现有执行接口。
 
@@ -350,14 +357,14 @@ uv run python examples/live_workshop/main.py id list
 - 计划、M2 交接、设计文档、公共 ID 目录与示例指南以 4eb4d6e 为实现基线：M0/M1/M2.1 完成，控制与模型组件可用，默认装配、真实适配、对话运行和 ReAct 工具循环仍待实现。文档列出组件定义、实例与调用身份、ctx 数据握手、临时状态清理、模型流与客户端关闭责任，以及当前插件入口和启动命令；公共 ID 目录逐段区分已实现定义与规划入口。
 - 文档核对通过 34 个本地链接与 24 项模型/bot 已实现 ID、kind 对照，所列插件目录命令可执行；模型协议、组件身份、控制、ModelCall 和两个相关示例共 45 项测试通过。本轮仅修改文档，未重新运行完整 aurora check。
 
-- 控制组件采用统一层级定义：org.aurora.bot:handlers/control 及其 serial、branch、while、parallel 子路径登记为 component，各定义的 /execute 为执行插头，/children 为子组件插槽。component 登记项指向组件类或局部执行函数，提供者由装配显式声明；component_entries 负责生成本插件约定的端口声明，core 仍按完整 ID 与显式 kind 寻址。
+- 控制组件采用统一层级定义：org.aurora.control:handlers/control 及其 serial、branch、while、parallel 子路径登记为 component，各定义的 /execute 为执行插头，/children 为子组件插槽。component 登记项指向组件类或局部执行函数，提供者由装配显式声明；component_entries 负责生成本插件约定的端口声明，core 仍按完整 ID 与显式 kind 寻址。
 - ExecutionPlug 与 ExecutionSlot 显式携带 definition_id，连接使用双方实际端口 ID，并校验执行插头的定义归属；控制器须匹配自身的插槽定义。同一插槽内的子实例标识唯一，避免分支选择歧义。组件定义、执行入口和插槽共用路径层级，不从路径推导运行时父子关系。
 - 实例标识默认使用 UUID，可显式指定非空字符串；展示引用采用 definition_id.instance_id，内部保留独立字段，不将复合展示字符串交给 Id 解析。组件多次取得插头保留同一个实例身份，每次子调用继续使用独立 execution_id。控制状态按定义、实例、运行和调用定位，终态后清理；运行期实例不会因恢复快照而自动重建。
-- ModelCall 的组件身份为 org.aurora.bot:handlers/model_call，执行入口为其 /execute；aurora_bot.model 插件可通过显式清单或同名 entry point 启用。示例显式登记局部业务组件与提供者，通过 ctx 地址握手交换数据，并使用各组件自己的执行入口。
+- ModelCall 的组件身份为 org.aurora.agent:handlers/model_call，执行入口为其 /execute；aurora_agent.model 插件可通过显式清单或同名 entry point 启用。示例显式登记局部业务组件与提供者，通过 ctx 地址握手交换数据，并使用各组件自己的执行入口。
 - 装配使用 ExecutionSlot(Serial.definition_id, hooks, instance_id="root") 与 ExecutionPlug(definition_id, execute, instance_id="worker")，省略 instance_id 时自动分配身份；ModelCall(ctx, client, ...) 采用相同规则。本轮完整 aurora check 通过 256 项 Python 测试、9 项工具链测试及格式/lint/类型检查；安装后的 CLI 能通过两个 bot entry point 展示组件与端口目录。
 
 - bot 的 ModelCall 组件通过连接约定的 ctx 地址读取 ModelRequest，在单一输出位置更新文本、完整工具请求、结束原因和调用状态。取消或失败保留已收到的文本并标记 cancelled/failed，错误继续传播；只关闭单次响应流，ModelClient 由创建它的宿主关闭。同一输出地址须串行调用，业务数据保留策略由装配负责。
-- examples/model_call/main.py 提供准备输入、假模型推理和结果读取的串行装配，支持流式/完整响应、模拟失败和 Ctrl+C；退出后快照只保留最近一次输出。模型数据使用 Python TypedDict 表达普通 JSON，地址内容可按局部约定或 StateKey 校验器约定；不新增全局契约匹配机制、模型片段历史或 controller 调用历史。
+- `examples/react_agent/main.py` 演示模型调用、工具观察和运行管理；单次 ModelCall 的流式/完整响应、部分输出和取消语义由 `tests/unit/test_model_call.py` 验证。模型数据使用 TypedDict 表达普通 JSON，运行期资源由宿主管理。
 
 - model_adapter 提供普通 JSON 数据形式的消息、工具定义、完整工具请求、模型请求/响应与流式片段，以及 ModelClient/ModelFactory 协议。complete 返回完整响应；stream 通过 async with 消费文本增量、完整工具请求及唯一结束片段，缺失结束片段明确失败。结束原因区分 stop、tool_calls、length 和 content_filter，不将响应结束等同于业务完成。
 - 调用方拥有单次响应流，提前结束、失败、超时或取消均通过上下文收尾；宿主在全部调用结束后关闭 ModelClient。能力不足明确拒绝，不自动降级；配置描述与运行期 api_key 分开，公共数据不包含 SDK 类型。FakeModel 以可配置响应脚本离线验证上述边界，工厂可创建相互独立的实例。
@@ -368,11 +375,11 @@ uv run python examples/live_workshop/main.py id list
 
 - 示例按应用放在 examples/core_counter/ 与 examples/control_flow/，入口均为 main.py；examples/START.md 提供安装、启动、参数、预期输出、取消和数据目录说明。控制示例通过循环计数、奇偶分支、并行计算与结果汇总展示四类控制组件，打印真实 ctx 通知；每次启动创建独立运行，结束或取消后由宿主保存快照。
 
-- aurora_bot.control 提供内置控制插件，可通过显式 Plugin 清单或同名 aurorabot.plugins 入口启用。Serial、Branch、While、Parallel 组件复用 core 的实例连接和单次调用，可相互嵌套；core 不承担业务流程控制。
+- aurora_control 提供内置控制插件，可通过显式 Plugin 清单或同名 aurora.plugins 入口启用。Serial、Branch、While、Parallel 组件复用 core 的实例连接和单次调用，可相互嵌套；core 不承担业务流程控制。
 - 控制连接在握手时交换双方的 ctx 地址描述和可选 schema，由插槽实例的 accept 判断兼容性；描述不同但被接收时记录 warning，无 schema 时允许使用代码约定。执行请求仅携带 run_id、execution_id 和父调用标识，业务输入输出由各组件自行读取和更新 ctx，不通过执行参数或返回值传递。
 - StateBinding 将实例业务位置按 run_id 定位；同一运行的重复调用可更新同一位置，需要调用历史的组件自行增加 execution_id 定位。地址不构成写权限边界，也不保证共享业务状态的并发安全。每次子调用生成独立 execution_id，控制完成由等待调用确定，ctx 变化订阅用于观察状态。
 - Serial 按 priority 和连接顺序依次等待，失败或取消终止后续调用；Branch 从 ctx 读取条件并选择一个子实例，None 跳过，未知实例报错；While 先判断条件，执行唯一循环体，达到显式上限且仍需继续时失败；Parallel 按显式并发上限运行，失败或取消时取消其他任务并等待清理，再传播异常。
-- 当前控制插件登记 org.aurora.bot:control/children（hook_slot）、org.aurora.bot:handlers/control/execute（hook_handler）和 org.aurora.bot:state/control（state_key）。在途控制状态按实例、运行和调用定位，提供父调用标识及选择或迭代信息；终态通知后删除，不保留调用历史。每次根调用使用新的 ExecutionRequest，不提供重复请求去重或崩溃续跑。
+- 当前控制插件登记 org.aurora.control:handlers/control/children（hook_slot）、org.aurora.control:handlers/control/execute（hook_handler）和 org.aurora.control:state/control（state_key）。在途控制状态按实例、运行和调用定位，提供父调用标识及选择或迭代信息；终态通知后删除，不保留调用历史。每次根调用使用新的 ExecutionRequest，不提供重复请求去重或崩溃续跑。
 - 根执行可交给 Lifecycle.run 管理；控制组件没有脱离根调用的后台任务，正常关闭完成任务清理与最终状态写入后由宿主持久化。离线用例覆盖地址握手、兼容与拒绝、四类控制行为、嵌套、并发限制、父/子取消、组合结果恢复以及宿主关闭后的清理写入恢复。此切片不包含 ModelClient、ReAct 默认装配或 CLI 对话入口。
 
 - id/list（亦可写作 id list）按完整 ID 排序展示当前定义总表的 ID、kind 与 provider，包含 core 自举、CLI 内置定义及已启用插件声明。命令身份为 org.aurora.cli:commands/id/list，通过命令包自动发现；无需数据目录，不构造 ctx 或启动装配，因此不包含 prepare/start 阶段动态登记的定义。
@@ -442,7 +449,7 @@ def plugin():
 - M1.7 提供 `aurora` 与 `python -m aurora_cli` 入口。`help`、`ctx` 和 `--help` 展示帮助；状态命令支持 `ctx get/set/delete/list/watch` 或 `ctx/get` 等路径，跨命名空间命令使用完整 ID，短名上下文由 `--namespace` 指定，歧义明确报错。全局选项放在命令之前，运行期命令须显式提供 `--data-dir`。
 - CLI 命令表接收普通映射声明：`help` 描述用途，`operation` 引用完整操作 ID，`arguments` 描述参数。参数支持 `name`、`type`、`option`、`required`，类型包括 string、integer、json、id、location；位置参数必填，可选命名参数省略时保留目标函数默认值。接收方拒绝不支持的声明并告警，业务插件无需导入 CLI 类型。
 - get/set/delete/list 通过既有 core operation 执行，结果输出 JSON；set 值使用严格 JSON，拒绝重复字段及非有限数。`--location` 使用字符串键值对 JSON，list/watch 省略时不筛选位置，空对象表示全局地址。watch 输出后续变更的逐行 JSON，取消或输出失败时释放订阅。
-- `--plugin NAME` 显式启用已安装的 `aurorabot.plugins` 入口，可重复指定。`run ASSEMBLY_ID` 启动选定装配；其他命令通过 `--assembly ASSEMBLY_ID` 在同一宿主中启动组件。首版装配目标是同步工厂，以关键字接收 registry、ctx、hooks、storage，返回 LifecycleComponent 可迭代对象；工厂负责连接，资源初始化与任务启动放在 prepare/start。
+- `--plugin NAME` 显式启用已安装的 `aurora.plugins` 入口，可重复指定。`run ASSEMBLY_ID` 启动选定装配；其他命令通过 `--assembly ASSEMBLY_ID` 在同一宿主中启动组件。首版装配目标是同步工厂，以关键字接收 registry、ctx、hooks、storage，返回 LifecycleComponent 可迭代对象；工厂负责连接，资源初始化与任务启动放在 prepare/start。
 - `Lifecycle.start(configure=...)` 在完整快照恢复后、所有组件 prepare 前应用宿主配置。CLI 的 `--config JSON` 将对象整项写入 `org.aurora.cli:state/config`；省略时保留恢复值。配置失败进入启动清理路径，组件不会开始 prepare。
 - run/watch 等待至取消，Ctrl+C 通过生命周期停止组件并完成最终落盘；正常退出码为 0，参数解析错误为 2，运行或收尾失败为 1，正常处理中断为 130。CLI 操作当前进程的宿主，数据目录由该宿主独占；watch 不监听其他进程的快照文件。
 - 示例：`uv run aurora --data-dir build/cli-demo ctx set org.aurora.cli:state/config '{"name":"demo"}'`，随后执行 `uv run aurora --data-dir build/cli-demo ctx get org.aurora.cli:state/config` 可读取恢复值；`uv run aurora help` 查看命令目录。
@@ -456,7 +463,7 @@ def plugin():
 - 统一安装包仅提供依赖装配；命令行与服务入口随对应功能实现。
 - core 提供不可变 `Id`、公开定义登记项与唯一总表；批量登记检查通过后统一写入，显式替换要求目标存在。短名仅在明确的命名空间与域中解析，歧义时报错。
 - 宿主直接建立注册表目录与九个 core 分类注册表；resources 接收 resource、assembly、contract，并保留原 kind。
-- 插件发现使用 `aurorabot.plugins` entry point group。入口指向无参数工厂，返回同名 `Plugin`；宿主只发现显式启用的入口，同名显式清单优先。必需插件须同时选中，缺失、入口歧义和导入失败明确报错。
+- 插件发现使用 `aurora.plugins` entry point group。入口指向无参数工厂，返回同名 `Plugin`；宿主只发现显式启用的入口，同名显式清单优先。必需插件须同时选中，缺失、入口歧义和导入失败明确报错。
 - `register_plugins` 收集全部定义后原子登记；定义覆盖仅通过 `DefinitionRegistry.replace` 显式完成，不依赖发现顺序。
 - 接收方通过 `rejection_reason` 评估声明，自行决定接口兼容性；登记与插槽关系分别产生 accepted/unconnected/rejected 诊断。缺席 CLI/API 时保留声明并 warning，其他资源仍可寻址；accepted 仅表示声明被接收，不表示实例已连接或执行。
 - M0 验收覆盖 ID、原子登记、自举、插件发现、可选宿主诊断和工作区入口；后续 M1 实现 ctx、实例连接及生命周期。

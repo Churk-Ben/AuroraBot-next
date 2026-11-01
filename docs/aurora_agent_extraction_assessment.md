@@ -1,10 +1,10 @@
 # aurora_agent 拆包与 aurora_harness 独立化评估
 
-评估日期：2026-11-01。本文基于当前工作区实现，属于架构建议，不代表拆分已经实施或验收通过。
+评估日期：2026-11-01。本文说明 control、agent 与 bot 的职责边界，以及独立 harness 的后续工作；实现与验收记录见 [变更记录](CHAGELOG.md)。
 
 ## 1. 结论与目标
 
-建议在当前仓库中新增与 `aurora_bot` 平级的 `aurora_agent` 包，承载可复用的 agent 执行能力。先完成包边界和独立运行验证，再推进 `aurora_harness` 的产品装配与仓库独立化。
+`aurora_control` 与 `aurora_agent` 是与 `aurora_bot` 平级的独立包。control 承载执行契约和基础控制组合，agent 承载模型、工具、ReAct 和运行管理。独立 harness 的产品装配与仓库独立化建立在这两个包之上。
 
 当前实现已经具备拆分基础：ReAct、模型调用和工具执行通过 ctx、状态绑定与显式连接协作，主要依赖 `aurora_core` 和 `aurora_model_adapter`。需要重点处理的边界是运行调度、默认装配、资源所有权和恢复语义。
 
@@ -16,42 +16,44 @@
 
 | 实现位置 | 当前职责与边界 | 对拆分的意义 |
 | --- | --- | --- |
-| [react.py](../packages/aurora_bot/src/aurora_bot/react.py) | 六阶段 ReAct 循环；外部提供状态地址和阶段连接；执行入口等待一次激活收束 | 循环本身适合直接成为 agent 包的组件 |
-| [control/](../packages/aurora_bot/src/aurora_bot/control/) | 执行身份、状态绑定、执行连接，以及顺序、分支、循环、并行组件 | 是模型、工具和 ReAct 共用的执行基础 |
-| [model.py](../packages/aurora_bot/src/aurora_bot/model.py) | 使用注入的 ModelClient 完成一次模型调用，将流式输出和终态写入 ctx | 属于 agent 执行集成，模型协议继续由 adapter 提供 |
-| [tools.py](../packages/aurora_bot/src/aurora_bot/tools.py) | 工具定义、实例工厂、参数校验、执行钩子、超时和结构化结果 | 可作为独立 agent 的工具执行能力 |
-| [react_defaults.py](../packages/aurora_bot/src/aurora_bot/react_defaults.py) | 组织上下文、解释模型决定、接纳工具观察和处理未完成轮次 | 是可选的默认 agent 策略，不依赖消息平台 |
-| [runtime.py](../packages/aurora_bot/src/aurora_bot/runtime.py) | 提交引导、管理运行句柄、串行激活、取消和结束边界复查 | 职责可复用，但直接依赖 DefaultAssembly 的私有状态和方法 |
+| [react.py](../packages/aurora_agent/src/aurora_agent/react.py) | 六阶段 ReAct 循环；外部提供状态地址和阶段连接；执行入口等待一次激活收束 | 循环本身适合直接成为 agent 包的组件 |
+| [control/](../packages/aurora_control/src/aurora_control/) | 执行身份、状态绑定、执行连接，以及顺序、分支、循环、并行组件 | 是模型、工具和 ReAct 共用的执行基础 |
+| [model.py](../packages/aurora_agent/src/aurora_agent/model.py) | 使用注入的 ModelClient 完成一次模型调用，将流式输出和终态写入 ctx | 属于 agent 执行集成，模型协议继续由 adapter 提供 |
+| [tools.py](../packages/aurora_agent/src/aurora_agent/tools.py) | 工具定义、实例工厂、参数校验、执行钩子、超时和结构化结果 | 可作为独立 agent 的工具执行能力 |
+| [react_defaults.py](../packages/aurora_agent/src/aurora_agent/react_defaults.py) | 组织上下文、解释模型决定、接纳工具观察和处理未完成轮次 | 是可选的默认 agent 策略，不依赖消息平台 |
+| [runtime.py](../packages/aurora_agent/src/aurora_agent/runtime.py) | 提交引导、管理运行句柄、串行激活、取消和结束边界复查 | 通过显式执行入口连接宿主，不依赖 DefaultAssembly |
 | [assembly.py](../packages/aurora_bot/src/aurora_bot/assembly.py) | 配置读取、模型与工具创建、阶段连接、启动关闭、恢复修正和工作状态清理 | 同时承载产品装配和可复用的运行管理语义，需要按职责拆开 |
 | [operations.py](../packages/aurora_bot/src/aurora_bot/operations.py) | 按实例分发提交、激活和取消操作 | 分发机制可复用，公共操作 ID 与插件登记需要单独处理兼容 |
 
 `ReActAgent` 不创建后台调度任务，也不自动订阅 world。`ReActDefaults` 将模型文本保存为内部上下文，不自动发送用户消息。这些约束适用于聊天、后台任务和命令行等不同宿主，应继续保留。
 
-[ReAct 示例](../examples/react_agent/main.py) 和 [ReAct 集成测试](../tests/e2e/test_react_agent_integration.py) 已包含绕过 DefaultAssembly 的显式装配路径，可以作为独立使用验收的基础；它们目前仍从 `aurora_bot` 导入组件，尚不能证明安装层面的独立性。
+[ReAct 示例](../examples/react_agent/main.py) 使用独立 AgentRuntime 和 agent 组件完成显式装配。[包边界测试](../tests/e2e/test_package_boundaries.py) 验证无 bot 环境的插件发现、模型工具往返与恢复；安装层面的独立性由干净 wheel 环境验收。
 
 ## 3. 建议的包边界
 
 | 能力 | 建议归属 | 边界要求 |
 | --- | --- | --- |
-| `control/` | `aurora_agent` | 第一阶段整体迁入，避免留下对 bot 的反向依赖 |
+| 执行契约与四种控制组合 | `aurora_control` | 仅依赖 core，允许第三方插件单独使用 |
 | `react.py` | `aurora_agent` | 保留显式阶段连接和外部状态绑定 |
 | `model.py` | `aurora_agent` | 只负责将模型协议接入执行组件，不引入具体供应商 SDK |
 | `tools.py` | `aurora_agent` | 保留工具协议与执行机制；具体业务工具由应用或插件提供 |
 | `react_defaults.py` | `aurora_agent` 的可选默认实现 | 核心循环允许采用其他阶段实现 |
-| runtime 与运行回执类型 | 解耦后进入 `aurora_agent` | 不引用 DefaultAssembly 或 bot 私有成员 |
-| 实例运行操作分发 | 可复用部分进入 `aurora_agent` | bot 公共操作的兼容入口可以继续由 bot 提供 |
+| runtime 与运行回执类型 | `aurora_agent` | 不引用 DefaultAssembly 或 bot 私有成员 |
+| bot 实例运行操作分发 | `aurora_bot` | 通过公共操作使用通用 AgentRuntime |
 | 恢复修正与执行数据清理 | agent 装配辅助能力 | 状态地址和保留策略显式传入，不绑定 bot 的固定配置 |
 | 产品默认配置、凭证解析、默认装配、CLI 命令 | `aurora_bot`，由 harness 提供自己的装配 | 负责选择组件、资源与产品入口 |
 | 世界事件筛选、唤醒条件、消息路由和回复策略 | bot 或外围插件 | 通过引导入口、工具和连接使用 agent |
 
-`control/` 的能力比 ReAct 更通用，但当前没有必要同时增加 workflow 包。保持微内核只提供通用登记、状态、连接、调用和生命周期设施，执行策略留在 agent 层。以后出现独立消费者时，再评估控制组件是否需要单独发布。
+control 的职责独立于模型与 ReAct。第三方插件可以只依赖 control 组织普通业务执行，避免带入模型适配依赖。微内核继续提供通用登记、状态、连接、调用和生命周期设施；control 不扩展为持久任务调度平台。
 
 建议的直接依赖关系如下：
 
 ```text
 aurora_bot ────────┐
                   ├──→ aurora_agent ──→ aurora_model_adapter ──→ aurora_core
-aurora_harness ───┘            └──────────────────────────────→ aurora_core
+aurora_harness ───┘            └──→ aurora_control ────────────→ aurora_core
+
+第三方流程插件 ───────────────────→ aurora_control
 
 bot / harness 可直接使用 core 和 model_adapter 的宿主、配置及工厂设施。
 ```
@@ -62,9 +64,7 @@ bot / harness 可直接使用 core 和 model_adapter 的宿主、配置及工厂
 
 ### 4.1 调度器依赖明确的执行入口
 
-`BotRuntime` 当前直接读取 `DefaultAssembly._executing`，调用 `_activate()`，并通过装配访问 agent 和 ctx。仅移动文件无法消除这些依赖。
-
-建议根据现有调用点提取最小执行接口或注入明确的执行协作者，覆盖引导提交、待处理输入查询、激活和运行状态读取。接口应保留单实例单调度所有者约束，避免显式激活与 runtime 管理并行争用同一 agent。
+AgentRuntime 通过 `get_agent` 获取实例，通过 `execute` 等待一次激活及清理，通过 `is_executing` 查询完整执行期间的占用。DefaultAssembly 直接提供这些入口，独立宿主也可自行装配。接口保留单实例单调度所有者约束，避免显式激活与 runtime 管理并行争用同一 agent。
 
 运行管理需要保留以下语义：
 
@@ -92,19 +92,19 @@ DefaultAssembly 中的中断运行状态修正、pending 工具结果保留、�
 - 启动时不自动激活恢复出的输入；是否激活由宿主策略决定。
 - 清理不得删除其他实例的数据或后续恢复仍需要的工具结果。
 
-## 5. 迁移风险与兼容策略
+## 5. 命名与迁移边界
 
 | 风险 | 建议处理方式 |
 | --- | --- |
-| Python 导入路径迁移 | 更新仓库消费者；如需兼容外部插件，在 bot 中提供单向重导出，保持类对象身份一致 |
-| 公共 ID 与持久化地址迁移 | 第一阶段保留 `org.aurora.bot:*` ID；命名空间调整单独设计快照和配置迁移 |
+| Python 导入路径 | 执行契约使用 aurora_control，agent 能力使用 aurora_agent；不提供 bot 兼容导出 |
+| 公共 ID 与持久化地址 | control 和 agent 定义分别归属 org.aurora.control、org.aurora.agent；bot 装配分配的业务状态仍归属 bot |
 | 插件发现与依赖声明失配 | 同步核对 entry point、Plugin.name、requires 和显式启用列表 |
-| 新旧插件重复登记同一定义 | 兼容入口明确选择规则，避免同时启用两套定义清单 |
+| 重复插件入口 | 每个插件只提供规范名称，不提供旧名别名或重复定义 |
 | runtime 与装配职责交叉 | 用单一调度所有者和明确资源所有权约束接口，验证取消及关闭边界 |
 | 恢复逻辑在两个项目重复实现 | 提取共享辅助能力，宿主只提供地址、配置和策略 |
 | 工作区掩盖缺失依赖 | 构建并在无 bot 的干净环境中安装验证，不能只依赖 workspace 内测试 |
 
-当前 core 使用 `aurorabot.plugins` 作为发现分组。这个名称不要求安装 bot，可以在第一阶段保留；如未来需要调整品牌或发现协议，应单独处理所有插件的兼容。
+插件发现分组为 `aurora.plugins`，入口为 `aurora_control`、`aurora_agent.model`、`aurora_agent.react`、`aurora_agent.tools` 和 `aurora_agent.react_defaults`。运行时不映射旧 ID 或旧入口；带有旧控制状态地址的快照须离线转换或使用新的数据目录，不自动改写用户数据。
 
 当前插件发现只加载显式启用的入口，`requires` 用于验证依赖已启用，不会自动启用依赖。安装 `aurora-agent` 不能替代宿主对插件清单的选择。
 
@@ -114,7 +114,7 @@ DefaultAssembly 中的中断运行状态修正、pending 工具结果保留、�
 
 ### 阶段一：建立独立组件包
 
-新增 `packages/aurora_agent`，迁入控制、ReAct、模型调用、工具执行与默认阶段实现。保持行为和公共 ID 稳定，更新 bot 装配的导入及包依赖。
+分别建立 `packages/aurora_control` 和 `packages/aurora_agent`，将执行契约、四种控制组合与 agent 能力按职责归属，使用各自的命名空间和插件名称，更新 bot 装配的导入及包依赖。
 
 验收要求：
 
@@ -144,14 +144,14 @@ DefaultAssembly 中的中断运行状态修正、pending 工具结果保留、�
 - 使用离线模型完成至少一次模型—工具—模型闭环。
 - 验证运行中引导、取消、持久化恢复及资源关闭。
 - 默认路径不依赖 bot 配置文件、bot 装配或 bot CLI 命令。
-- 如保留旧公共 ID，定义由 agent 自身提供，不依靠 bot 插件补齐。
+- 插件和定义使用自身命名空间，不依靠 bot 插件补齐或通过别名转发。
 
 完成以上验收后，再确定 `aurora_harness` 的产品配置、交互入口、发布方式和仓库拆分。第一阶段无需同时引入多 agent 调度、通用 workflow 平台或新的恢复协议。
 
 ## 7. 收益、成本与决策建议
 
-收益主要体现在三个方面：bot 与 harness 共享一套执行及恢复语义；工具和 agent 扩展获得明确的依赖入口；未来独立发布可以沿已有包边界推进。
+收益主要体现在三个方面：bot 与 harness 共享执行语义；第三方流程插件与 agent 扩展获得明确的依赖入口；未来独立发布可以沿已有包边界推进。宿主级恢复和裁剪策略的共享仍需在 harness 装配中明确。
 
-组件迁移的改造范围相对明确，主要是导入、插件清单和包声明。运行管理与装配解耦的复杂度更高，集中在并发边界、关闭顺序、恢复数据保留和公共入口兼容。当前评估没有运行验收测试，也不据此承诺工期。
+组件迁移的改造范围相对明确，主要是导入、插件清单和包声明。运行管理与装配解耦的复杂度更高，集中在并发边界、关闭顺序、恢复数据保留和公共入口兼容。执行包的测试及安装验收见变更记录；独立 harness 的产品装配不据此承诺工期。
 
-建议批准按上述三阶段推进。每个阶段以可运行、可验证的边界收束；`aurora_agent` 的独立使用验收通过后，再确定 harness 的独立发布范围。
+后续工作集中在 harness 的产品装配、资源与恢复策略、交互入口和发布边界。执行包的独立使用验收是基础，不代表 harness 产品已经完成。

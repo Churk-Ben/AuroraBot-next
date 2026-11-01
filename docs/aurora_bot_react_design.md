@@ -10,7 +10,7 @@
 - cadence 提供执行插槽，ReActAgent 提供执行插头；连接握手交换 ctx 地址与可选 schema，执行只传递运行和调用身份。每个 agent 实例由一个调度所有者串行管理激活；运行中通过持续输入接纳引导。ReActAgent 的执行入口等待本次激活收束，调用完成由等待确定。
 - 持续输入采用 inbox、progress、runtime 三类地址角色：cadence 写入带标识与顺序的引导；ReActAgent 记录已纳入上下文的位置及当前运行状态。progress 表达已接纳，不代表已完成对应要求。inbox 与消费位置按 agent 实例定位，跨激活保留；单次推理、动作等数据可沿用按 run_id 定位的绑定。保留与裁剪策略由装配明确，不由 core 自动推断。
 - ReActAgent 在推理前接纳引导，在结束前检查待处理输入；调度所有者在执行返回后复查输入，覆盖结束边界上的变化。ctx 订阅仅通知后续变更，没有历史回放承诺；需要逐条处理的世界消息应保存可读取的记录，消费方维护位置，不能仅依赖不断覆盖的最新值或瞬时事件。
-- 接口草案：org.aurora.bot:handlers/react_agent 为 component，其 /execute 为 hook_handler；沿用 org.aurora.bot:react/{prepare,infer,act,observe,finish,error} 六个 hook_slot。prepare 在每次推理前准备上下文与引导，infer 形成行动或结束决定，act 执行工具，observe 接纳结果，finish 收束本次激活且允许无输出，error 处理失败。阶段连接属于具体 agent 实例，执行顺序由 bot 组件负责。
+- 接口草案：org.aurora.agent:handlers/react_agent 为 component，其 /execute 为 hook_handler；沿用 org.aurora.agent:react/{prepare,infer,act,observe,finish,error} 六个 hook_slot。prepare 在每次推理前准备上下文与引导，infer 形成行动或结束决定，act 执行工具，observe 接纳结果，finish 收束本次激活且允许无输出，error 处理失败。阶段连接属于具体 agent 实例，执行顺序由 bot 组件负责。
 - 实施顺序：先交付可再次激活、运行中接纳引导的 ReActAgent 最小组件与离线行为验收，再接入基本工具往返、默认装配与恢复、真实模型和 CLI 整体验收。world、cadence 的完整插件、唤醒工具与子代理属于后续切片；阶段入口和持续输入先以显式进程内装配验证。达到本切片验收不代表整个 M2 完成。
 
 
@@ -123,8 +123,8 @@ world ──变化通知──→ cadence
 
 | 候选 ID | kind | 语义 |
 |---|---|---|
-| org.aurora.bot:handlers/react_agent | component | ReActAgent 组件定义 |
-| org.aurora.bot:handlers/react_agent/execute | hook_handler | 执行一次激活，等待本次 loop 收束 |
+| org.aurora.agent:handlers/react_agent | component | ReActAgent 组件定义 |
+| org.aurora.agent:handlers/react_agent/execute | hook_handler | 执行一次激活，等待本次 loop 收束 |
 
 同一个定义可以创建多个实例。一次激活内部的推理、工具调用和引导处理共享当前 run_id，每次子调用使用独立 execution_id。运行中的引导保留当前运行身份；空闲后再次激活才创建新的运行。
 
@@ -132,7 +132,7 @@ world ──变化通知──→ cadence
 
 现有 ID 可以继续使用，但要按主动 bot 的语义明确职责：
 
-| 插槽 ID，前缀均为 org.aurora.bot: | 职责 |
+| 插槽 ID，前缀均为 org.aurora.agent: | 职责 |
 |---|---|
 | react/prepare | 在每次推理前准备上下文，纳入尚未处理的引导 |
 | react/infer | 调用模型，形成下一步行动或结束决定 |
