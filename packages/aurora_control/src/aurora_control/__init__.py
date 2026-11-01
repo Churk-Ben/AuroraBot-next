@@ -22,7 +22,7 @@ from .execution import (
 def plugin() -> Plugin:
     """登记控制组件定义、各自的执行与子组件端口，以及在途调用状态。"""
     return Plugin(
-        "aurora_bot.control",
+        "aurora_control",
         (
             *(
                 entry

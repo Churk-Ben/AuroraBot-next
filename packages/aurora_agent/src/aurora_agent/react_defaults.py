@@ -73,7 +73,7 @@ class ReActDefaults:
                 ("observe", "record_observation"),
             ):
                 plug = ExecutionPlug(
-                    Id(f"org.aurora.bot:handlers/react/{method}"),
+                    Id(f"org.aurora.agent:handlers/react/{method}"),
                     getattr(self, method),
                     {
                         **self.agent.states,
@@ -193,16 +193,16 @@ class ReActDefaults:
 
 def plugin() -> Plugin:
     return Plugin(
-        "aurora_bot.react_defaults",
+        "aurora_agent.react_defaults",
         tuple(
             entry
             for method in ("build_prompt", "interpret_response", "record_observation")
             for entry in component_entries(
-                Id(f"org.aurora.bot:handlers/react/{method}"),
+                Id(f"org.aurora.agent:handlers/react/{method}"),
                 ReActDefaults,
                 getattr(ReActDefaults, method),
                 provider="aurora_agent",
             )
         ),
-        requires=("aurora_bot.react", "aurora_bot.model", "aurora_bot.tools"),
+        requires=("aurora_agent.react", "aurora_agent.model", "aurora_agent.tools"),
     )

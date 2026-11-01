@@ -10,7 +10,7 @@ from aurora_core.hooks import HookConnection, HookConnections, HookSlot
 from aurora_core.ids import Id
 from aurora_core.registry import RegistryEntry
 
-CONTROL_STATE = Id("org.aurora.bot:state/control")
+CONTROL_STATE = Id("org.aurora.control:state/control")
 _logger = logging.getLogger(__name__)
 
 

@@ -24,7 +24,7 @@ type Phase = Literal["prepare", "infer", "act", "observe", "finish", "error"]
 type Decision = Literal["act", "continue", "finish"]
 
 PHASE_IDS: dict[Phase, Id] = {
-    name: Id(f"org.aurora.bot:react/{name}") for name in ("prepare", "infer", "act", "observe", "finish", "error")
+    name: Id(f"org.aurora.agent:react/{name}") for name in ("prepare", "infer", "act", "observe", "finish", "error")
 }
 
 
@@ -58,7 +58,7 @@ class ReActAgent:
     业务上下文和模型输出的保留由装配负责，本组件仅清理 batch/decision 临时地址。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/react_agent")
+    definition_id = Id("org.aurora.agent:handlers/react_agent")
 
     def __init__(
         self,
@@ -223,7 +223,7 @@ class ReActAgent:
 def plugin() -> Plugin:
     """登记 ReActAgent 与六个执行阶段；业务状态定义和阶段处理器由装配提供。"""
     return Plugin(
-        "aurora_bot.react",
+        "aurora_agent.react",
         (
             *component_entries(ReActAgent.definition_id, ReActAgent, ReActAgent.execute, provider="aurora_agent"),
             *(execution_slot_entry(slot_id, provider="aurora_agent") for slot_id in PHASE_IDS.values()),

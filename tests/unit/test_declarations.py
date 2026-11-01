@@ -66,7 +66,7 @@ def test_bound_method_keeps_its_instance():
 
 
 def test_handler_declaration_keeps_optional_slot_unconnected():
-    @hook_handler("dev.example:handlers/prepare", slot="org.aurora.bot:react/prepare", interface="双方约定")
+    @hook_handler("dev.example:handlers/prepare", slot="org.aurora.agent:react/prepare", interface="双方约定")
     def prepare(value):
         return value
 

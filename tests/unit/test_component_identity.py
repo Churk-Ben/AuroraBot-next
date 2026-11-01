@@ -49,7 +49,7 @@ def test_component_catalog_preserves_definitions_ports_and_providers(runtime):
         if component is not ModelCall:
             assert registry.get(Id(f"{component.definition_id}/children")).kind == "hook_slot"
     assert all(item.status == "accepted" for item in inspect_admissions(registry))
-    assert Branch.definition_id == Id("org.aurora.bot:handlers/control/branch")
+    assert Branch.definition_id == Id("org.aurora.control:handlers/control/branch")
 
 
 def test_auto_instances_share_definition_but_keep_targets_and_execution_ids(runtime):
@@ -91,8 +91,8 @@ def test_nested_controllers_use_their_own_ports(runtime):
     root = Serial(ctx, ExecutionSlot(Serial.definition_id, hooks))
     branch = Branch(ctx, ExecutionSlot(Branch.definition_id, hooks), lambda _: None)
     link = root.slot.connect(branch.plug)
-    assert link.connection.slot == Id("org.aurora.bot:handlers/control/serial/children")
-    assert link.connection.handler == Id("org.aurora.bot:handlers/control/branch/execute")
+    assert link.connection.slot == Id("org.aurora.control:handlers/control/serial/children")
+    assert link.connection.handler == Id("org.aurora.control:handlers/control/branch/execute")
     asyncio.run(root.execute(ExecutionRequest("run")))
     assert ctx.list(key=CONTROL_STATE) == ()
 

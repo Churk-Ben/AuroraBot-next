@@ -11,11 +11,11 @@ dependencies = [
     "referencing>=0.37.0",
 ]
 
-[project.entry-points."aurorabot.plugins"]
-"aurora_bot.model" = "aurora_agent.model:plugin"
-"aurora_bot.react" = "aurora_agent.react:plugin"
-"aurora_bot.tools" = "aurora_agent.tools:plugin"
-"aurora_bot.react_defaults" = "aurora_agent.react_defaults:plugin"
+[project.entry-points."aurora.plugins"]
+"aurora_agent.model" = "aurora_agent.model:plugin"
+"aurora_agent.react" = "aurora_agent.react:plugin"
+"aurora_agent.tools" = "aurora_agent.tools:plugin"
+"aurora_agent.react_defaults" = "aurora_agent.react_defaults:plugin"
 
 [build-system]
 requires = ["hatchling"]

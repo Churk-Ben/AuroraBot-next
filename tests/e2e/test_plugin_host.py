@@ -34,7 +34,7 @@ def create():
         "Metadata-Version: 2.1\nName: aurora-fixture-plugin\nVersion: 1.0\n", encoding="utf-8"
     )
     (distribution / "entry_points.txt").write_text(
-        "[aurorabot.plugins]\nfixture = aurora_fixture_plugin:create\n", encoding="utf-8"
+        "[aurora.plugins]\nfixture = aurora_fixture_plugin:create\n", encoding="utf-8"
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     registry = bootstrap()
@@ -76,7 +76,7 @@ def test_registration_acceptance_does_not_hide_missing_slot():
             object(),
             "example",
             register_to=Id("org.aurora.core:registries/hook_handlers"),
-            slot=Id("org.aurora.bot:react/prepare"),
+            slot=Id("org.aurora.agent:react/prepare"),
         )
     )
     results = inspect_admissions(registry)[-2:]

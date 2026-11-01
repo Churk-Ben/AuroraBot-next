@@ -5,7 +5,7 @@ description = "AuroraBot world inputs and shared environment state"
 requires-python = ">=3.12"
 dependencies = ["aurora-core>=0.1.0"]
 
-[project.entry-points."aurorabot.plugins"]
+[project.entry-points."aurora.plugins"]
 aurora_world = "aurora_world.plugin:plugin"
 
 [build-system]

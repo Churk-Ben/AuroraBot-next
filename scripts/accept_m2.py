@@ -19,10 +19,10 @@ from aurora_core.registry import RegistryEntry
 
 PLUGINS = (
     "aurora_model_adapter",
-    "aurora_bot.model",
-    "aurora_bot.react",
-    "aurora_bot.tools",
-    "aurora_bot.react_defaults",
+    "aurora_agent.model",
+    "aurora_agent.react",
+    "aurora_agent.tools",
+    "aurora_agent.react_defaults",
     "aurora_bot.assembly",
 )
 TOOL = Id("dev.acceptance.m2:tools/echo")

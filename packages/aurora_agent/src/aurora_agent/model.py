@@ -37,7 +37,7 @@ class ModelCall:
     completed 表示推理请求正常结束，业务是否完成仍须结合 finish_reason 判断。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/model_call")
+    definition_id = Id("org.aurora.agent:handlers/model_call")
 
     def __init__(
         self,
@@ -117,6 +117,6 @@ class ModelCall:
 def plugin() -> Plugin:
     """声明模型调用组件及执行入口；客户端与实例由装配创建。"""
     return Plugin(
-        "aurora_bot.model",
+        "aurora_agent.model",
         component_entries(ModelCall.definition_id, ModelCall, ModelCall.execute, provider="aurora_agent"),
     )

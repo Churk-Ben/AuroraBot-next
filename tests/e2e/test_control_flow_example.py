@@ -18,7 +18,7 @@ def test_control_flow_example_retains_only_latest_result(tmp_path):
                 "version": 1,
                 "entries": [
                     {
-                        "id": "org.aurora.bot:state/control",
+                        "id": "org.aurora.control:state/control",
                         "location": {"instance_id": "root", "run_id": "old", "execution_id": "old"},
                         "value": {"status": "running", "children": []},
                     },

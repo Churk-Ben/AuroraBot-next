@@ -10,7 +10,7 @@ dependencies = [
     "aurora-model-adapter>=0.1.0",
 ]
 
-[project.entry-points."aurorabot.plugins"]
+[project.entry-points."aurora.plugins"]
 "aurora_bot.assembly" = "aurora_bot.assembly:plugin"
 
 [build-system]

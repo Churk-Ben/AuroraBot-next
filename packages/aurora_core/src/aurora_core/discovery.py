@@ -6,7 +6,7 @@ from importlib.metadata import EntryPoint, entry_points
 
 from .registry import DefinitionRegistry, RegistryEntry
 
-ENTRY_POINT_GROUP = "aurorabot.plugins"
+ENTRY_POINT_GROUP = "aurora.plugins"
 
 
 @dataclass(frozen=True)

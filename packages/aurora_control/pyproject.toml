@@ -5,8 +5,8 @@ description = "Aurora execution contracts and control components"
 requires-python = ">=3.12"
 dependencies = ["aurora-core>=0.1.0"]
 
-[project.entry-points."aurorabot.plugins"]
-"aurora_bot.control" = "aurora_control:plugin"
+[project.entry-points."aurora.plugins"]
+"aurora_control" = "aurora_control:plugin"
 
 [build-system]
 requires = ["hatchling"]

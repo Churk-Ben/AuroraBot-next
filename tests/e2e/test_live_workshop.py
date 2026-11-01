@@ -132,7 +132,7 @@ async def cli_set(client, key, value):
 def test_automatic_cycles_controls_pause_and_persistent_reports(tmp_path):
     async def scenario():
         async with workshop(tmp_path, {"interval": 0.5, "delay": 0}) as (client, process, _):
-            async with client.watch(key="org.aurora.bot:state/control") as events:
+            async with client.watch(key="org.aurora.control:state/control") as events:
                 seen = set()
 
                 async def collect():
@@ -148,7 +148,7 @@ def test_automatic_cycles_controls_pause_and_persistent_reports(tmp_path):
                     await asyncio.gather(collector, return_exceptions=True)
             assert process.returncode is None
             assert {
-                "org.aurora.bot:handlers/control/" + name for name in ("serial", "while", "branch", "parallel")
+                "org.aurora.control:handlers/control/" + name for name in ("serial", "while", "branch", "parallel")
             } <= seen
             result = reports["recent"][-1]["result"]["value"]
             assert result == {"count": 3, "parity": "odd", "double": 6, "square": 9}
@@ -219,7 +219,7 @@ def test_interrupt_cancels_active_tool_and_restores_pending_observation(tmp_path
         entries = snapshot["entries"]
         runtime = next(item["value"] for item in entries if item["id"] == "org.aurora.bot:state/run")
         assert runtime["status"] == "cancelled"
-        assert not any(item["id"] in (PREFIX + "pipeline", "org.aurora.bot:state/control") for item in entries)
+        assert not any(item["id"] in (PREFIX + "pipeline", "org.aurora.control:state/control") for item in entries)
         async with workshop(tmp_path) as (client, _, _):
             await cli_set(client, PREFIX + "settings", {"automatic": False, "delay": 0})
             await cli_set(client, PREFIX + "request", {"text": "恢复后的任务", "steps": 1})

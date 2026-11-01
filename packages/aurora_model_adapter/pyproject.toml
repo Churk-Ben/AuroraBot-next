@@ -8,7 +8,7 @@ dependencies = [
     "litellm[mcp]>=1.106.6,<1.107",
 ]
 
-[project.entry-points."aurorabot.plugins"]
+[project.entry-points."aurora.plugins"]
 aurora_model_adapter = "aurora_model_adapter.plugin:plugin"
 
 [build-system]

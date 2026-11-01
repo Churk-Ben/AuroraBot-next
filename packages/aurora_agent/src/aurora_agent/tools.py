@@ -30,9 +30,9 @@ from aurora_model_adapter import JsonValue, ToolCall, ToolDefinition
 from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry
 
-TOOLS = Id("org.aurora.bot:registries/tools")
-BEFORE_CALL = Id("org.aurora.bot:tools/before_call")
-AFTER_CALL = Id("org.aurora.bot:tools/after_call")
+TOOLS = Id("org.aurora.agent:registries/tools")
+BEFORE_CALL = Id("org.aurora.agent:tools/before_call")
+AFTER_CALL = Id("org.aurora.agent:tools/after_call")
 _logger = logging.getLogger(__name__)
 
 
@@ -179,7 +179,7 @@ class ToolExecutor:
     工具不得留下未托管的后台任务；本组件不做自动重试或动作去重。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/react/execute_tools")
+    definition_id = Id("org.aurora.agent:handlers/react/execute_tools")
 
     def __init__(
         self,
@@ -334,7 +334,7 @@ class ToolExecutor:
 
 def plugin() -> Plugin:
     return Plugin(
-        "aurora_bot.tools",
+        "aurora_agent.tools",
         (
             RegistryEntry(TOOLS, "registry", ToolReceiver(), "aurora_agent", register_to=REGISTRY_DIRECTORY),
             *component_entries(

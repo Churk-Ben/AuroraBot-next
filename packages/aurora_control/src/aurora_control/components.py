@@ -16,7 +16,7 @@ class Controller:
     终态通过 ctx.subscribe 观察，随后删除本次状态；调用等待决定完成，不保留调用历史。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/control")
+    definition_id = Id("org.aurora.control:handlers/control")
 
     def __init__(self, ctx: Context, slot: ExecutionSlot) -> None:
         if slot.definition_id != self.definition_id:
@@ -74,7 +74,7 @@ class Controller:
 class Serial(Controller):
     """按连接顺序等待子组件，失败或取消立即终止后续调用。"""
 
-    definition_id = Id("org.aurora.bot:handlers/control/serial")
+    definition_id = Id("org.aurora.control:handlers/control/serial")
 
     async def _run(self, request: ExecutionRequest) -> None:
         for link in self.slot.links():
@@ -87,7 +87,7 @@ class Branch(Controller):
     选择结果仅为控制信息。返回未连接实例时明确失败，不默默回退。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/control/branch")
+    definition_id = Id("org.aurora.control:handlers/control/branch")
 
     def __init__(self, ctx: Context, slot: ExecutionSlot, select: Callable[[ExecutionRequest], str | None]) -> None:
         super().__init__(ctx, slot)
@@ -115,7 +115,7 @@ class While(Controller):
     每次迭代完成后让出事件循环以接收取消。达到上限且仍需继续时抛出异常。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/control/while")
+    definition_id = Id("org.aurora.control:handlers/control/while")
 
     def __init__(
         self,
@@ -153,7 +153,7 @@ class Parallel(Controller):
     并发指宿主事件循环中的异步工作，不将同步代码移到线程。
     """
 
-    definition_id = Id("org.aurora.bot:handlers/control/parallel")
+    definition_id = Id("org.aurora.control:handlers/control/parallel")
 
     def __init__(self, ctx: Context, slot: ExecutionSlot, *, concurrency: int) -> None:
         super().__init__(ctx, slot)

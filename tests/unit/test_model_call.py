@@ -41,8 +41,8 @@ def assemble(ctx, hooks, client, *, streaming=True):
     )
     slot = ExecutionSlot(Serial.definition_id, hooks, instance_id="root")
     link = slot.connect(component.plug)
-    assert link.connection.handler == Id("org.aurora.bot:handlers/model_call/execute")
-    assert component.plug.reference == "org.aurora.bot:handlers/model_call.model"
+    assert link.connection.handler == Id("org.aurora.agent:handlers/model_call/execute")
+    assert component.plug.reference == "org.aurora.agent:handlers/model_call.model"
     request = ExecutionRequest("run")
     link.plug.states["input"].set(ctx, request, {"messages": [{"role": "user", "content": "输入"}]})
     return Serial(ctx, slot), request, output_state

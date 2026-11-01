@@ -7,6 +7,7 @@ from typing import cast
 from aurora_agent.model import ModelCall
 from aurora_agent.react import AgentBusyError, ReActAgent
 from aurora_agent.react_defaults import ReActContext, ReActDefaults
+from aurora_agent.runtime import AgentRuntime
 from aurora_agent.tools import TOOLS, ToolExecutor, ToolInstance, ToolSpec
 from aurora_control import ExecutionRequest, InstanceStateBinding, StateBinding
 from aurora_core import entry_from, hook_handler
@@ -35,7 +36,6 @@ from .assembly_config import (
 )
 from .cli import command_entries
 from .operations import RUN_CONTROL, RunOperations
-from .runtime import BotRuntime
 
 ASSEMBLY = Id("org.aurora.bot:assemblies/default")
 
@@ -87,8 +87,17 @@ class DefaultAssembly:
         self._accepting = False
         self._executing = False
         self._last_request: ExecutionRequest | None = None
-        self.runtime = BotRuntime(self)
+        self.runtime = AgentRuntime(
+            get_agent=self._runtime_agent,
+            execute=self._activate,
+            is_executing=lambda: self._executing,
+        )
         self._run_operations: RunOperations | None = None
+
+    def _runtime_agent(self) -> ReActAgent:
+        if self.agent is None:
+            raise RuntimeError("默认 bot 尚未完成装配")
+        return self.agent
 
     def components(self) -> tuple[LifecycleComponent, ...]:
         """返回宿主生命周期组件，连接不创建模型、工具或任务。"""
@@ -372,9 +381,9 @@ def plugin() -> Plugin:
         ),
         requires=(
             "aurora_model_adapter",
-            "aurora_bot.model",
-            "aurora_bot.react",
-            "aurora_bot.tools",
-            "aurora_bot.react_defaults",
+            "aurora_agent.model",
+            "aurora_agent.react",
+            "aurora_agent.tools",
+            "aurora_agent.react_defaults",
         ),
     )
