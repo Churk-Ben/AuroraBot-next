@@ -1,9 +1,8 @@
 """按 bot 实例定位运行管理器；公共操作定义与运行实例分别管理。"""
 
+from aurora_agent.runtime import AgentRuntime, RunHandle, Submission
 from aurora_core import Id, operation
 from aurora_model_adapter import JsonValue
-
-from .runtime import BotRuntime, RunHandle, Submission
 
 RUN_CONTROL = Id("org.aurora.bot:services/run_control")
 RUN_SUBMIT = Id("org.aurora.bot:operations/run/submit")
@@ -19,9 +18,9 @@ class RunOperations:
     """
 
     def __init__(self) -> None:
-        self._runtimes: dict[str, BotRuntime] = {}
+        self._runtimes: dict[str, AgentRuntime] = {}
 
-    def bind(self, instance_id: str, runtime: BotRuntime) -> None:
+    def bind(self, instance_id: str, runtime: AgentRuntime) -> None:
         """由装配在启动时绑定，禁止相同实例身份覆盖既有目标。"""
         if not isinstance(instance_id, str) or not instance_id:
             raise ValueError("bot 实例身份必须为非空字符串")
@@ -29,12 +28,12 @@ class RunOperations:
             raise ValueError(f"bot 运行入口已经绑定：{instance_id}")
         self._runtimes[instance_id] = runtime
 
-    def unbind(self, instance_id: str, runtime: BotRuntime) -> None:
+    def unbind(self, instance_id: str, runtime: AgentRuntime) -> None:
         """仅解除指定所有者的绑定，清理失败重试不会删除其他实例。"""
         if self._runtimes.get(instance_id) is runtime:
             del self._runtimes[instance_id]
 
-    def _runtime(self, instance_id: str) -> BotRuntime:
+    def _runtime(self, instance_id: str) -> AgentRuntime:
         if not isinstance(instance_id, str) or not instance_id:
             raise ValueError("bot 实例身份必须为非空字符串")
         try:

@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import asdict
 from typing import Protocol, TextIO, cast
 
+from aurora_agent.runtime import RunHandle, Submission
 from aurora_core.ctx import StateChange
 from aurora_core.ids import Id
 from aurora_core.invocation import invoke_operation
@@ -12,7 +13,6 @@ from aurora_core.registry import DefinitionRegistry, RegistryEntry
 
 from .assembly_config import RUN, WORK
 from .operations import RUN_ACTIVATE, RUN_CANCEL, RUN_SUBMIT
-from .runtime import RunHandle, Submission
 
 
 class CommandContext(Protocol):

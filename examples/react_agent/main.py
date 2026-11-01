@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
-from aurora_bot.model import ModelCall
-from aurora_bot.model import plugin as model_plugin
-from aurora_bot.react import Guidance, ReActAgent
-from aurora_bot.react import plugin as react_plugin
-from aurora_bot.react_defaults import ReActContext, ReActDefaults
-from aurora_bot.react_defaults import plugin as defaults_plugin
-from aurora_bot.tools import TOOLS, ToolExecutor, ToolSpec
-from aurora_bot.tools import plugin as tools_plugin
+from aurora_agent.model import ModelCall
+from aurora_agent.model import plugin as model_plugin
+from aurora_agent.react import Guidance, ReActAgent
+from aurora_agent.react import plugin as react_plugin
+from aurora_agent.react_defaults import ReActContext, ReActDefaults
+from aurora_agent.react_defaults import plugin as defaults_plugin
+from aurora_agent.tools import TOOLS, ToolExecutor, ToolSpec
+from aurora_agent.tools import plugin as tools_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, InstanceStateBinding, StateBinding, component_entries
 from aurora_core import Id, entry_from, hook_handler
 from aurora_core.bootstrap import bootstrap

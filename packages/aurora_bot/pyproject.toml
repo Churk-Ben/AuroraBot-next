@@ -4,18 +4,13 @@ version = "0.1.0"
 description = "AuroraBot default composition and plugins"
 requires-python = ">=3.12"
 dependencies = [
+    "aurora-agent>=0.1.0",
     "aurora-core>=0.1.0",
     "aurora-control>=0.1.0",
     "aurora-model-adapter>=0.1.0",
-    "jsonschema>=4.26.0",
-    "referencing>=0.37.0",
 ]
 
 [project.entry-points."aurorabot.plugins"]
-"aurora_bot.model" = "aurora_bot.model:plugin"
-"aurora_bot.react" = "aurora_bot.react:plugin"
-"aurora_bot.tools" = "aurora_bot.tools:plugin"
-"aurora_bot.react_defaults" = "aurora_bot.react_defaults:plugin"
 "aurora_bot.assembly" = "aurora_bot.assembly:plugin"
 
 [build-system]

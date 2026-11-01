@@ -10,6 +10,7 @@ import pytest
     [
         "aurora_core",
         "aurora_control",
+        "aurora_agent",
         "aurora_model_adapter",
         "aurora_bot",
         "aurora_cli",

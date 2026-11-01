@@ -3,7 +3,7 @@
 import asyncio
 
 import pytest
-from aurora_bot.react import PHASE_IDS, AgentBusyError, ReActAgent, plugin
+from aurora_agent.react import PHASE_IDS, AgentBusyError, ReActAgent, plugin
 from aurora_control import (
     ExecutionPlug,
     ExecutionRequest,

@@ -4,10 +4,10 @@ import asyncio
 from typing import cast
 
 import pytest
-from aurora_bot.model import ModelCall, ModelCallState
-from aurora_bot.model import plugin as model_plugin
-from aurora_bot.react import Guidance, ReActAgent
-from aurora_bot.react import plugin as react_plugin
+from aurora_agent.model import ModelCall, ModelCallState
+from aurora_agent.model import plugin as model_plugin
+from aurora_agent.react import Guidance, ReActAgent
+from aurora_agent.react import plugin as react_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, InstanceStateBinding, StateBinding, component_entries
 from aurora_core import Id, entry_from, hook_handler
 from aurora_core.bootstrap import bootstrap

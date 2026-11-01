@@ -2,6 +2,15 @@
 
 ## 2026-11-01
 
+### 独立 Agent 执行包
+
+- `aurora_agent` 提供 ReActAgent、ModelCall、ToolExecutor、ReActDefaults 及 AgentRuntime，依赖 `aurora_control`、`aurora_core` 和 `aurora_model_adapter`；工具参数校验依赖由 agent 包声明。默认 bot 使用这些组件完成产品装配。
+- AgentRuntime 通过 `get_agent`、`execute`、`is_executing` 三个显式入口连接宿主；execute 须等待激活和清理完成，占用查询覆盖整个执行期间。BotRuntime 是默认装配的薄适配层，RunHandle、RunResult、Submission 使用 agent 包提供的同一类型。
+- 公开插件名称继续使用 `aurora_bot.model`、`aurora_bot.react`、`aurora_bot.tools`、`aurora_bot.react_defaults`，entry point 由 agent 分发包直接提供。独立 agent 环境无需安装 bot；公共 ID、状态地址和现有宿主插件清单保持有效，旧模块提供兼容导出。
+- 默认配置、凭证解析、实例资源装配、状态恢复与裁剪策略、bot 运行操作和 CLI 命令由 bot 提供。独立宿主可显式装配 agent 组件，并负责自己的资源关闭与状态保留策略。
+- `uv run --locked aurora check` 全部通过：483 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型检查；供应商 SDK 保留 1 项 Pydantic ReadOnly 提示。新增独立包边界、兼容类型身份、运行中引导、finish 边界、等待者取消及宿主清理等待验证。
+- 工作区 wheel 构建通过。干净 control 环境仅安装 core 和 control 即可执行四种控制组合；干净 agent 环境未安装 bot、CLI、API，完成运行调度、模型工具往返、引导接纳、取消收尾和重启恢复。验收使用 wheel 安装及隔离 Python 进程。
+
 ### 独立控制组件包
 
 - `aurora_control` 提供执行身份、状态绑定、执行连接及 Serial、Branch、While、Parallel 四种组合，仅依赖 `aurora_core`。使用执行契约不要求启用控制组件插件。

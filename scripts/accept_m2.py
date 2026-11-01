@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import tomli_w
-from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
+from aurora_agent.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_cli.commander import run_cli
 from aurora_control import ExecutionPlug, component_entries
 from aurora_core.discovery import Plugin

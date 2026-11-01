@@ -8,6 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "aurora-agent",
     "aurora-api",
     "aurora-bot",
     "aurora-cli",
@@ -215,6 +216,27 @@ wheels = [
 ]
 
 [[package]]
+name = "aurora-agent"
+version = "0.1.0"
+source = { editable = "packages/aurora_agent" }
+dependencies = [
+    { name = "aurora-control" },
+    { name = "aurora-core" },
+    { name = "aurora-model-adapter" },
+    { name = "jsonschema" },
+    { name = "referencing" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aurora-control", editable = "packages/aurora_control" },
+    { name = "aurora-core", editable = "packages/aurora_core" },
+    { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "referencing", specifier = ">=0.37.0" },
+]
+
+[[package]]
 name = "aurora-api"
 version = "0.1.0"
 source = { editable = "packages/aurora_api" }
@@ -234,20 +256,18 @@ name = "aurora-bot"
 version = "0.1.0"
 source = { editable = "packages/aurora_bot" }
 dependencies = [
+    { name = "aurora-agent" },
     { name = "aurora-control" },
     { name = "aurora-core" },
     { name = "aurora-model-adapter" },
-    { name = "jsonschema" },
-    { name = "referencing" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-agent", editable = "packages/aurora_agent" },
     { name = "aurora-control", editable = "packages/aurora_control" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
-    { name = "jsonschema", specifier = ">=4.26.0" },
-    { name = "referencing", specifier = ">=0.37.0" },
 ]
 
 [[package]]
