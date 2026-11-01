@@ -42,6 +42,7 @@ export function planChecks(options: CheckOptions): CheckTask[] {
   }
   if (test) {
     pnpm('run', 'test');
+    pnpm('--filter', '@aurorabot/tui', 'test:terminal');
     uv('pytest', ...(options.coverage ? ['--cov', '--cov-report=term-missing'] : []));
   }
   return tasks;

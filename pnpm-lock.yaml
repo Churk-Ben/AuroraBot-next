@@ -355,6 +355,16 @@ importers:
       '@opentui/core':
         specifier: 'catalog:'
         version: 0.8.1(typescript@6.0.3)(web-tree-sitter@0.25.10)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@vben/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
 
   apps/docsite: {}
 

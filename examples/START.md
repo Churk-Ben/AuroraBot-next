@@ -14,7 +14,7 @@ pnpm exec node --version
 pnpm exec uv run --locked aurora check
 ```
 
-项目支持的 Node 范围为 `>=26.4.0 <27`，`.node-version` 也固定为 26.13.0。终端里的裸 `node` 仍可能指向系统版本；通过 `pnpm exec` 或 pnpm 脚本使用项目运行时。OpenTUI 原生渲染还需要 `--experimental-ffi`，TUI 界面与启动入口尚待交付。
+项目支持的 Node 范围为 `>=26.4.0 <27`，`.node-version` 也固定为 26.13.0。终端里的裸 `node` 仍可能指向系统版本；通过 `pnpm exec` 或 pnpm 脚本使用项目运行时。OpenTUI 原生渲染需要 `--experimental-ffi`，TUI 启动脚本已包含该参数。
 
 以下五个示例使用本地数据和假模型，无需模型密钥、外部模型服务或前端。每个示例使用独立数据目录。
 
@@ -90,7 +90,17 @@ bot 提供 `org.aurora.bot:assemblies/default`、运行操作和 CLI 命令。�
 uv run --locked python examples/default_bot/main.py --data-dir build/bot-api --serve --port 10270
 ```
 
-另一个终端的 Node 客户端使用共享包（在工作区执行）：
+另开一个交互终端，在仓库根目录启动 TUI：
+
+```powershell
+pnpm --filter @aurorabot/tui start --connect http://127.0.0.1:10270 --instance main
+```
+
+顶部“交流 / 状态”页签可点击，或使用 Tab、F1、F2 切换。交流页按运行分组，模型文本显示为过程输出；Enter 发送，Shift+Enter 或 Alt+Enter 换行，也支持粘贴多行文本。运行中发送消息会追加引导。Ctrl+T 展开工具参数与结果，Ctrl+X 取消当前运行，点击“停止此运行”可指定目标。状态页只读展示后端开放的 ctx，可按 ID 或 location 筛选。
+
+PgUp/PgDn 翻阅，F3 回到底部。向上滚动时新输出不抢占位置；切页保留草稿、滚动位置和工具展开状态。结果不确定时 F5 核对，F4 明确重试最近一条未确认请求，保持原身份；重启后旧请求不自动重放。Ctrl+C 只退出 TUI，后端继续运行；在后端终端按 Ctrl+C 才关闭宿主。界面保留本次连接观察到的运行活动，断线期间不补发历史事件；配置编辑和本地偏好持久化尚未实现。
+
+也可以使用共享 Node 客户端（在工作区执行）：
 
 ```ts
 import { CtxClient } from '@aurorabot/client';

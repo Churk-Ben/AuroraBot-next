@@ -14,7 +14,8 @@ describe('工作区检查选项', () => {
 
   it('测试及覆盖率选择不启动 lint', () => {
     const tasks = planChecks({ coverage: true });
-    expect(tasks).toHaveLength(2);
+    expect(tasks).toHaveLength(3);
+    expect(tasks.some(({ args }) => args.includes('test:terminal'))).toBe(true);
     expect(tasks.find(({ tool }) => tool === 'uv')?.args).toContain('--cov');
     expect(planChecks({ lint: true }).some(({ args }) => args.includes('pytest'))).toBe(false);
   });
