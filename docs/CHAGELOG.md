@@ -2,6 +2,17 @@
 
 ## 2026-11-01
 
+### M3.6：直接交流端点、运行回执与客户端联通
+
+- bot 的 `aurora_bot.assembly` 登记 `org.aurora.bot:endpoints/conversation`，复用同一 RunOperations 和 AgentRuntime。API 新增 `aurora_api` 插件及 `org.aurora.api:registries/endpoints` 接收方，结构协议不引入 bot/API 双向导入；只在 `serve(..., endpoints=[...])` 或 CLI `serve --endpoints` 显式选择后开放。沿用本机回环、Origin/Host 检查与独立 ctx 白名单，不提供任意 operation 转发。
+- 提供 POST `/conversation/info`、`/conversation/submit`、`/conversation/query`、`/conversation/cancel`。客户端先取得 session_id 和 instance_ids；提交携带 session_id、instance_id、request_id、text，回执关联 guidance_id、sequence、run_id 和 accepted=true。空闲提交启动运行，运行中提交追加引导，finish/清理边界提交关联下一次运行；接纳不等于完成。
+- 请求去重作用域为 session_id/instance_id/request_id。同身份同文本返回原回执，异文返回 409 request_conflict；不同身份的同文属于新引导。回执最多保留 4096 条，满额返回 429 receipt_limit，不通过淘汰身份允许旧请求重新执行。回执仅存内存，重启后旧会话统一返回 409 session_expired；客户端不自动重放 HTTP 动作，不承诺跨重启去重。
+- query 返回关联句柄的 pending/completed/cancelled/failed 与异常类型，pending 覆盖排队、执行及清理，不根据残留 ctx 推断结束。取消限定 instance_id/run_id，等待收尾；未知或已结束返回 cancelled=false，取消期间新引导返回 409 busy。API 关闭、客户端关闭与 HTTP 等待取消不隐式停止 bot。失败的原回执仍可核对，重复提交不会重试业务。
+- `CtxClient.conversation` 提供 info、submit、query、cancel，共用 HTTP 超时、主动关闭和错误处理；响应校验拒绝会话、实例、请求和运行身份错配。契约生成显式合并 API ctx 描述与 bot 直接交流描述，保留 API 独立导出；info/query 不伪造 operation ID。生成 JSON 与 TS 类型/绑定同步更新。
+- `examples/default_bot/main.py --serve` 提供无需世界插件、网络模型或凭证的常驻演示；启动及客户端代码见[示例指南](../examples/START.md)。更新[计划](plan.md)、[架构](aurorabot-design-v0.2.3.md)和[公共 ID](aurorabot-id-catalog-v0.2.3.md)，接续 M3.7 OpenTUI。新增接收方与端点 ID，无旧 ID 重命名、配置或快照迁移；README.md 和 AGENTS.md 保持不变。
+- 新增 6 项 Python 场景及 11 项 TS 测试，覆盖重复/冲突、实例隔离、运行中引导、结束边界、清理期间查询与取消、失败/关闭、API 断开、宿主重启和真实 Node/Python bot 联通。完整 `uv run --locked aurora check` 通过：555 项 Python、59 项 TS/工具链测试，以及格式、lint 和 Python/TS 类型检查；供应商 SDK 保留既有 1 项 Pydantic ReadOnly 提示，未调用真实模型。
+- 全部 11 个 wheel 构建通过，产物位于 `build/m3.6-wheels`。四个隔离环境使用实际 wheel 验证 API 无 bot/agent/模型/CLI、control 无 agent/模型、agent 无 bot/CLI/API、bot 无 CLI/API；插件发现、直接交流声明及 bot 模板资源通过。文档 50 条相对链接和 git diff 空白检查通过。
+
 ### 确定直接交流路径并纳入 M4-W 世界输入规划
 
 - D10 确定面对面交流由 bot 产品入口向目标实例的既有 AgentRuntime 提交引导；首版默认 Panel/TUI/CLI 使用此路径，外部消息与环境变化经 world/cadence 接入。路由按交流性质配置，不把平台永久绑定到某条路径；直接交流不要求先进入 world。两条路径共用一个调度所有者，运行中保留当前 loop，接纳不等于完成，关闭界面不取消后端运行。

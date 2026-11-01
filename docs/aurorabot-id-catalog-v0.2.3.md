@@ -20,7 +20,7 @@
 - 描述不同但兼容时可以连接，按需要告警；缺少接收方时保留未连接声明并 warning，不因可选 CLI/API 缺席阻断整个插件加载。
 - 公共覆盖、实现选择和处理器替换由显式装配表达，不依赖加载顺序。
 - client 实现统一 ctx 接口及既有 ctx 操作 ID 入口，不创建同义动作 ID；插件在进程内访问 ctx，TUI/Panel 通过 client 访问同一后端。
-- 界面不承担后端插件装配。D10 已确定直接交流经 bot 的专用入口复用 run 操作；世界输入经 world/cadence 向同一 AgentRuntime 提交。传输回执及具体绑定随 M3.6 实现，不创建 conversation/send、conversation/cancel 同义操作。
+- 界面不承担后端插件装配。直接交流经 bot 的专用入口复用 run 操作，M3.6 已实现传输回执与绑定，不创建 conversation/send、conversation/cancel 同义操作；world/cadence 向同一 AgentRuntime 提交的路径仍属 M4-W 规划。
 - 参与执行连接的局部组件也应显式登记；普通私有辅助函数无需登记，不要求各阶段一次性实现全部规划。
 
 ## 2. 命名空间总表
@@ -276,7 +276,7 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 
 ### 7.1 传输契约与基础端点
 
-下表为规划身份，尚未登记。当前实现直接提供本机 `POST /ctx/get`、`/ctx/list`、`/ctx/set`、`/ctx/delete` 与 `WS /ctx/watch`，绑定既有 core ctx 操作 ID。公开数据描述位于 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py)，不提供任意 operation 转发或全量登记表导出。
+下表除 endpoints 注册表已由 `aurora_api` 插件登记，其余仍为规划身份。当前实现直接提供本机 `POST /ctx/get`、`/ctx/list`、`/ctx/set`、`/ctx/delete` 与 `WS /ctx/watch`，绑定既有 core ctx 操作 ID，并接收宿主显式选择的产品端点。公开数据描述位于 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py)，不提供任意 operation 转发或全量登记表导出。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
@@ -300,9 +300,9 @@ core 负责进程内事件和 ctx 变化订阅，client 封装界面所需订阅
 
 | ID | kind | 注册目标与操作绑定 |
 | --- | --- | --- |
-| `org.aurora.bot:endpoints/conversation` | `endpoint` | 规划的直接交流传输入口；由 API 接收专用绑定，复用既有 run/submit 与 run/cancel 操作 |
+| `org.aurora.bot:endpoints/conversation` | `endpoint` | 已由 aurora_bot.assembly 登记；由 API 显式开放，复用既有 run/submit 与 run/cancel 操作 |
 
-此 ID 属于 bot 命名空间，仍未实现或登记。D10 已确定直接交流经产品入口提交给目标实例，API 仅承担传输；M3.6 明确 URL、回执、重复请求及取消关联，并同步生成契约。该路径不依赖 world/cadence，不提供任意 operation 远端转发；API 缺席时适用可选接收方约定，不阻断进程内运行。
+此 ID 属于 bot 命名空间，登记至 `org.aurora.api:registries/endpoints`。M3.6 提供 POST `/conversation/info`、`/conversation/submit`、`/conversation/query`、`/conversation/cancel`，回执关联 session_id、instance_id、request_id、guidance_id、sequence、run_id；查询区分接纳与运行终态。重复请求和重启边界见[设计第 10.2 节](aurorabot-design-v0.2.3.md#102-界面动作边界)。该路径不依赖 world/cadence；API 缺席时适用可选接收方约定，不阻断进程内运行。没有新增持久状态或改写既有 ID、配置和快照。
 
 API 传输实际需要的 bot/core 事件时保留原事件类型 ID，可添加传输信封，不另建同义业务事件身份。
 
@@ -385,7 +385,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | bot cancel 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/cancel` |
 | bot 命令与 CLI 接收方 | 可使用的描述 | `org.aurora.cli:schemas/command`；不要求导入 CLI 实现 |
 | bot conversation 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
-| bot conversation 端点 | M3.6 规划操作绑定 | `org.aurora.bot:operations/run/submit` 与 `org.aurora.bot:operations/run/cancel`；复用现有操作 |
+| bot conversation 端点 | 已实现操作绑定 | `org.aurora.bot:operations/run/submit` 与 `org.aurora.bot:operations/run/cancel`；复用现有操作 |
 | world 来源 | M4-W 规划数据写入 | 世界记录由 world 提供；来源不直接决定 agent 运行 |
 | cadence | M4-W 规划读取与提交 | 订阅选定世界记录，向目标实例的既有 AgentRuntime 提交引导 |
 | ReAct 默认处理器 | `register_to` | `org.aurora.core:registries/hook_handlers` |
@@ -399,7 +399,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
 | TUI/Panel 的订阅 | 连接与订阅支持 | `org.aurora.client:services/event_stream` |
 
-直接交流与世界输入的路径已确定，M3.6/M4-W 的具体绑定仍须实现和验收。ID 引用不等于代码导入、已连接或默认对外暴露；本次规划不改变已有 ID、配置和快照，无需数据迁移。
+M3.6 的直接交流绑定已实现和验收；M4-W 的世界输入绑定仍待实现。ID 引用不等于代码导入、已连接或默认对外暴露；既有 ID、配置和快照不变，无需数据迁移。
 
 ## 14. 第三方声明示例
 

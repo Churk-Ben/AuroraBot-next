@@ -74,6 +74,44 @@ uv run --locked python examples/default_bot/main.py --data-dir build/bot-demo --
 
 bot 提供 `org.aurora.bot:assemblies/default`、运行操作和 CLI 命令。它分配的消息、引导和运行状态地址归属 bot；注入这些地址的 agent 组件定义归属 `org.aurora.agent`。
 
+持续运行离线默认 bot，并显式开放直接交流端点及 bot 状态：
+
+```powershell
+uv run --locked python examples/default_bot/main.py --data-dir build/bot-api --serve --port 10270
+```
+
+另一个终端的 Node 客户端使用共享包（在工作区执行）：
+
+```ts
+import { CtxClient } from '@aurorabot/client';
+
+const client = new CtxClient('http://127.0.0.1:10270');
+try {
+  const info = await client.conversation.info();
+  const message = {
+    session_id: info.session_id,
+    instance_id: info.instance_ids[0]!,
+    request_id: crypto.randomUUID(),
+    text: '你好',
+  };
+  const receipt = await client.conversation.submit(message);
+  console.log('引导已接纳', receipt);
+  console.log(await client.conversation.query({
+    session_id: message.session_id,
+    instance_id: message.instance_id,
+    request_id: message.request_id,
+  }));
+} finally {
+  await client.close();
+}
+```
+
+`accepted` 表示接纳，查询的 `run_status` 才表示关联运行的进度；pending 包括排队和清理。需要停止时调用 `client.conversation.cancel({session_id, instance_id, run_id})`，目标来自同一回执。运行中提交新 request_id 会追加引导，收尾边界会关联下一次运行；关闭客户端不取消 bot。
+
+网络结果不确定时保留原 message，先按其身份查询；同一会话下显式重试须使用原 request_id 和原文本，客户端不会自动重发。宿主重启返回 session_expired，需核对恢复状态后再决定是否发起新消息。每会话最多保留 4096 条回执，达到上限拒绝新消息，旧回执仍可查询；不承诺跨重启去重。完整信封和错误边界见[设计文档](../docs/aurorabot-design-v0.2.3.md#102-界面动作边界)。
+
+已配置默认装配的 CLI 宿主可用 `serve --endpoints '["org.aurora.bot:endpoints/conversation"]'` 显式开放该端点；ctx 状态仍由 `--keys` 独立选择。`aurora_api` 插件提供端点接收方声明，未启用时不妨碍进程内运行；安装包不会自动启用插件或开放路由。接口仍限本机客户端，不接受浏览器 Origin。
+
 ## 持续巡检宿主
 
 ```powershell

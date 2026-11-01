@@ -1,6 +1,7 @@
 import type { DeleteRequest, GetRequest, ListRequest, SetRequest, WatchRequest } from './generated/ctx-contract.ts';
 import type { CtxSubscription, StateRecord, SubscriptionOptions, SubscriptionUpdate } from './subscriptions.ts';
 
+import { ConversationClient } from './conversation.ts';
 import { Subscription } from './subscriptions.ts';
 import { RemoteError, Transport } from './transport.ts';
 
@@ -15,6 +16,7 @@ export interface ClientOptions {
 
 /** 共用 core ctx 语义；本地关闭及取消订阅不取消后端业务运行。 */
 export class CtxClient {
+  readonly conversation: ConversationClient;
   get closed(): boolean {
     return this.closing !== undefined;
   }
@@ -37,6 +39,7 @@ export class CtxClient {
       }
     }
     this.transport = new Transport(url, this.options.timeoutMs);
+    this.conversation = new ConversationClient(this.transport);
   }
 
   close(): Promise<void> {

@@ -18,7 +18,7 @@ from aurora_config import configuration_component
 from aurora_config import plugin as configuration_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_core.bootstrap import bootstrap
-from aurora_core.ctx import Context
+from aurora_core.ctx import install_context
 from aurora_core.discovery import register_plugins
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
@@ -115,7 +115,7 @@ async def run(args: argparse.Namespace) -> None:
             register_to=TOOLS,
         )
     )
-    ctx, hooks = Context(registry), HookConnections(registry)
+    ctx, hooks = install_context(registry), HookConnections(registry)
     storage = StorageService(args.data_dir)
     assembly = DefaultAssembly(registry=registry, ctx=ctx, hooks=hooks, storage=storage)
     host = Lifecycle(
@@ -139,6 +139,16 @@ async def run(args: argparse.Namespace) -> None:
     try:
         assert assembly.agent is not None and assembly.defaults is not None
         print("装配已启动；尚未激活。", flush=True)
+        if args.serve:
+            from aurora_api.server import serve
+            from aurora_bot.assembly_config import AGENTS, MESSAGES, RUN, WORK
+            from aurora_bot.conversation import CONVERSATION
+
+            async with serve(
+                registry, keys=[AGENTS, MESSAGES, RUN, WORK], endpoints=[CONVERSATION], port=args.port
+            ) as url:
+                print(f"直接交流 API: {url}", flush=True)
+                await asyncio.Event().wait()
         if args.text is not None or args.activate:
             handle = assembly.runtime.submit(args.text).run if args.text is not None else assembly.runtime.activate()
             outcome = await handle.wait()
@@ -159,6 +169,8 @@ def main() -> None:
     parser.add_argument("--text", help="写入一条引导，并显式执行一次激活")
     parser.add_argument("--activate", action="store_true", help="使用已有输入显式激活")
     parser.add_argument("--profile", choices=("primary", "secondary"), help="本次启动前更新并保存模型角色绑定")
+    parser.add_argument("--serve", action="store_true", help="持续提供本机直接交流与 ctx API")
+    parser.add_argument("--port", type=int, default=10270, help="本机 API 端口")
     try:
         asyncio.run(run(parser.parse_args()))
     except KeyboardInterrupt:

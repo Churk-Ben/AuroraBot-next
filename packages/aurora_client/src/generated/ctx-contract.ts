@@ -1,8 +1,73 @@
-// 由 scripts/generate_ctx_contract.py 生成，请修改 aurora_api.contract 后重新生成。
+// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api.contract 与 aurora_bot.conversation_contract。
 
 export type ApiError = {
   code: string;
   message: string;
+};
+
+export type ConversationCancelRequest = {
+  instance_id: string;
+  run_id: string;
+  session_id: string;
+};
+
+export type ConversationCancelResponse = {
+  result: {
+    cancelled: boolean;
+    instance_id: string;
+    run_id: string;
+    session_id: string;
+  };
+};
+
+export type ConversationInfoRequest = Record<string, never>;
+
+export type ConversationInfoResponse = {
+  result: {
+    instance_ids: string[];
+    session_id: string;
+  };
+};
+
+export type ConversationQueryRequest = {
+  instance_id: string;
+  request_id: string;
+  session_id: string;
+};
+
+export type ConversationQueryResponse = {
+  result: {
+    accepted: true;
+    error: null | string;
+    guidance_id: string;
+    instance_id: string;
+    request_id: string;
+    run_id: string;
+    run_status: 'cancelled' | 'completed' | 'failed' | 'pending';
+    sequence: number;
+    session_id: string;
+  };
+};
+
+export type ConversationReceipt = {
+  accepted: true;
+  guidance_id: string;
+  instance_id: string;
+  request_id: string;
+  run_id: string;
+  sequence: number;
+  session_id: string;
+};
+
+export type ConversationSubmitRequest = {
+  instance_id: string;
+  request_id: string;
+  session_id: string;
+  text: string;
+};
+
+export type ConversationSubmitResponse = {
+  result: ConversationReceipt;
 };
 
 export type DeleteRequest = {
@@ -90,6 +155,10 @@ export type WatchRequest = {
 };
 
 export interface HttpRequests {
+  conversationCancel: ConversationCancelRequest;
+  conversationInfo: ConversationInfoRequest;
+  conversationQuery: ConversationQueryRequest;
+  conversationSubmit: ConversationSubmitRequest;
   delete: DeleteRequest;
   get: GetRequest;
   list: ListRequest;
@@ -97,6 +166,10 @@ export interface HttpRequests {
 }
 
 export interface HttpResponses {
+  conversationCancel: ConversationCancelResponse;
+  conversationInfo: ConversationInfoResponse;
+  conversationQuery: ConversationQueryResponse;
+  conversationSubmit: ConversationSubmitResponse;
   delete: DeleteResponse;
   get: GetResponse;
   list: ListResponse;
@@ -104,6 +177,26 @@ export interface HttpResponses {
 }
 
 export const HTTP_BINDINGS = {
+  conversationCancel: {
+    method: 'POST',
+    path: '/conversation/cancel',
+    operation: 'org.aurora.bot:operations/run/cancel',
+  },
+  conversationInfo: {
+    method: 'POST',
+    path: '/conversation/info',
+    operation: null,
+  },
+  conversationQuery: {
+    method: 'POST',
+    path: '/conversation/query',
+    operation: null,
+  },
+  conversationSubmit: {
+    method: 'POST',
+    path: '/conversation/submit',
+    operation: 'org.aurora.bot:operations/run/submit',
+  },
   delete: {
     method: 'POST',
     path: '/ctx/delete',

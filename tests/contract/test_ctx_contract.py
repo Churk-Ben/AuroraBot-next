@@ -10,6 +10,7 @@ import pytest
 from aiohttp import ClientSession
 from aurora_api.contract import describe_contract
 from aurora_api.server import serve
+from aurora_bot.conversation_contract import describe_conversation
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import StateKey, install_context
 from aurora_core.ids import Id
@@ -136,7 +137,7 @@ def test_generator_is_reproducible_and_check_does_not_write(tmp_path):
     assert not list(tmp_path.iterdir())
     assert run("--output", str(tmp_path)).returncode == 0
     original = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
-    assert json.loads(original["ctx-contract.json"]) == describe_contract()
+    assert json.loads(original["ctx-contract.json"]) == describe_contract(extensions=[describe_conversation()])
     assert run("--output", str(tmp_path)).returncode == 0
     assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == original
     target = tmp_path / "ctx-contract.ts"

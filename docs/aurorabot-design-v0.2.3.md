@@ -3,7 +3,7 @@
 版本：v0.2.3
 设计版本日期：2026-10-29；执行包拆分、M2 验收与文档基线对齐：2026-11-01。
 
-状态：架构基线与当前实现说明；M2 已完成，M3 已交付本机 ctx 传输、按需契约和共享客户端。直接交流与 world/cadence 的职责已确定，M3.6 与 M4-W 尚待实现。规划部分不代表已交付。
+状态：架构基线与当前实现说明；M2 已完成，M3 已交付本机 ctx 传输、按需契约、共享客户端与 M3.6 直接交流。OpenTUI 与 M4-W 尚待实现。规划部分不代表已交付。
 
 配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
 
@@ -382,7 +382,7 @@ ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 
 
 CLI 将 argv 转为对应接口使用或操作调用，不重复实现 ctx 与 bot 行为。bot 可以在自己的命名空间声明命令、端点等入口，引用 CLI/API 的公开注册目标；这不要求导入或安装它们的实现。
 
-当前 CLI 提供 ctx 读写、观察、`id list`、`run` 和 bot 的 `run submit` / `run activate` / `run cancel`。`run` 启动选定装配后等待取消；提交类命令在本次进程内完成一次提交、等待运行收尾并输出流式 JSON，然后退出。远程 ctx 访问已实现，面向常驻 bot 的直接交流传输由 M3.6 接入；输入路径已按 D10 确定，API 回执与运行关联仍待实现。
+当前 CLI 提供 ctx 读写、观察、`id list`、`run` 和 bot 的 `run submit` / `run activate` / `run cancel`。`run` 启动选定装配后等待取消；提交类命令在本次进程内完成一次提交、等待运行收尾并输出流式 JSON，然后退出。远程 ctx 访问与 M3.6 直接交流已实现；`serve --endpoints` 显式开放产品端点，API 回执与运行关联见第 10.2 节。
 
 API 为 client 提供后端连接和 ctx 访问所需传输，不作为插件扩展总线。API 可以提供明确需要的额外端点，但不预设统一的任意 operation 远端调用系统，也不要求先经过 CLI 描述才能实现 ctx 传输。
 
@@ -412,13 +412,17 @@ TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各�
 
 D10 已确定：空闲提交可启动一次运行，运行中提交作为引导保留当前 loop 和既有结果；接纳回执不表示任务完成，也不承诺 bot 必须回复。停止作用于指定 instance_id/run_id，取消须等待收尾；关闭或断开界面仅停止观察，不取消运行或永久停用来源/cadence。首版不把模型过程输出自动等同于对外回复。
 
-M3.6 将明确回执与可查询状态、重复请求身份及其作用域、运行结束边界和取消竞态；客户端重连不自动重复提交，结果不确定时应可观察并核对。`run submit/activate/cancel` 目前为进程内入口；保留的 conversation 端点身份仍为规划，具体 URL、信封及关联记录在实现时同步契约生成和测试。M3.6 无需先实现世界来源或 cadence。
+M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式选择绑定四条 POST 路径：`/conversation/info` 返回当前 session_id 和已绑定 instance_ids；`/conversation/submit` 接收 session_id、instance_id、request_id、text；`/conversation/query` 按前三项查询；`/conversation/cancel` 按 session_id、instance_id、run_id 取消并等待清理。bot 不导入 API，API 不导入 bot，端点复用同一 RunOperations 和 AgentRuntime。未开放端点时没有对应路由。
+
+接纳回执包含 session_id、instance_id、request_id、guidance_id、sequence、run_id、accepted=true；重复提交相同身份与文本返回同一回执，改变文本返回 409 request_conflict。不同 request_id 即使文本相同也属于新引导。去重作用域为当前插件会话和 bot 实例；回执最多 4096 条，不淘汰旧身份，达到上限返回 429 receipt_limit，旧消息仍可查询。回执只留在内存，不混入业务快照；重启后旧会话返回 409 session_expired，不能将换会话重发解释为安全重试。
+
+查询额外提供 run_status（pending/completed/cancelled/failed）和 error；pending 包括排队、执行和清理，终态只取自运行句柄，不推断残留 ctx 状态。该状态属于关联的运行，不承诺每条引导已完成业务或已对外回复。取消未知或已结束的 run 返回 cancelled=false；终态后的清理仍须等完。取消期间的新引导返回 409 busy，未启动或关闭中的实例返回 503 unavailable。HTTP 结果不确定时保留原身份查询；同会话下未知回执返回 404，重试也必须沿用相同身份与内容。客户端从不自动重发动作，关闭连接只结束观察。M3.6 不依赖 world/cadence。
 
 ### 10.3 按需生成
 
 跨语言实际使用的数据结构以维护的后端公开描述为来源，可以从 Python 类型、Pydantic、OpenAPI 或 WS 描述生成 TS 类型与 ID 常量。只导出需要且可传输的部分，不要求将全部 Python 登记项导出给客户端，也不强制每个局部接口加入生成链路。
 
-当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，通过 `uv run --locked python scripts/generate_ctx_contract.py` 生成 client 的 JSON 描述与 TS 类型、绑定常量；增加 `--check` 可只读检查产物。生成不启动宿主，不导出业务配置或模型 SDK 类型。M3.5 的共享 CtxClient 已复用这些绑定提供访问与订阅；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
+当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，直接交流由 [bot 契约](../packages/aurora_bot/src/aurora_bot/conversation_contract.py) 描述。`uv run --locked python scripts/generate_ctx_contract.py` 显式合并两者，生成 client 的 JSON 描述、TS 类型和绑定常量；增加 `--check` 可只读检查产物。API 独立导出仍只包含 ctx，不要求安装 bot。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 CtxClient 提供 ctx 访问、订阅与 conversation.info/submit/query/cancel；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
 
 开发时可使用 Vite 代理 API，生产环境优先同源部署。认证与外部访问配置随实际连接方案确定。同源安排不代替访问控制。docsite 与 landing 独立构建。
 
@@ -485,11 +489,11 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约及共享 TS client；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连已验证，D10 已确定直接交流与工作台方向，M3.6 的传输关联待实现。M4-W 已纳入正式计划但尚未实现。顺序为 M3.6 直接交流、M3.7–M3.9 工作台、M4-W 模拟世界来源与 cadence；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client 和 M3.6 直接交流；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4-W 已纳入正式计划但尚未实现。接续顺序为 M3.7–M3.9 工作台、M4-W 模拟世界来源与 cadence；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 
-1. **直接交流传输（D10）。** 产品路径已确定；M3.6 落实回执、重复请求身份与作用域、状态查询、取消竞态和契约，不把接纳或模型输出解释为业务完成。
+1. **直接交流工作台。** 复用 M3.6 已实现的回执、重复请求、状态查询、取消和契约，交付 OpenTUI 交互，不把接纳或模型输出解释为业务完成。
 2. **client 连接（D08、D09）。** 本机 ctx 与订阅重连已交付；按浏览器和远程接入需要补齐认证、来源与数据范围，复用已有关闭和刷新语义。
 3. **独立 harness。** 复用 core、model_adapter、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
 4. **世界与 cadence（D11、M4-W）。** world 的记录与来源独立于执行；bot 的可选 cadence 插件先原样转发，统一通过既有 AgentRuntime 提交。细化记录保留、重复识别、消费位置、转交结果不确定及恢复行为，验证两条输入路径并存；唤醒工具与子代理另行实施。

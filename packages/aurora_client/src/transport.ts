@@ -24,7 +24,7 @@ export class RemoteError extends Error {
 
 export class ProtocolError extends Error {
   constructor() {
-    super('API 返回了无效的 ctx 传输数据');
+    super('API 返回了无效的传输数据');
     this.name = 'ProtocolError';
   }
 }
@@ -112,6 +112,32 @@ function change(value: unknown): value is StateChange {
   );
 }
 
+function conversationResult(action: string, result: unknown, request: object): boolean {
+  if (!record(result)) return false;
+  const identity = (value: unknown) => typeof value === 'string' && value.trim().length > 0 && [...value].length <= 256;
+  if (!identity(result.session_id)) return false;
+  if (action === 'conversationInfo') {
+    return Array.isArray(result.instance_ids) && result.instance_ids.every(identity);
+  }
+  for (const key of ['session_id', 'instance_id', 'request_id', 'run_id']) {
+    if (Object.hasOwn(request, key) && result[key] !== (request as Record<string, unknown>)[key]) return false;
+  }
+  if (action === 'conversationCancel') return typeof result.cancelled === 'boolean';
+  if (
+    !identity(result.guidance_id) ||
+    !identity(result.run_id) ||
+    result.accepted !== true ||
+    !Number.isSafeInteger(result.sequence) ||
+    Number(result.sequence) <= 0
+  )
+    return false;
+  return (
+    action === 'conversationSubmit' ||
+    (['cancelled', 'completed', 'failed', 'pending'].includes(String(result.run_status)) &&
+      (result.error === null || typeof result.error === 'string'))
+  );
+}
+
 export function decodeMessage(text: unknown): WatchMessage {
   if (typeof text !== 'string') throw new ProtocolError();
   const body = decode(text);
@@ -191,6 +217,7 @@ export class Transport {
       if (
         (action === 'set' && result !== null) ||
         (action === 'delete' && typeof result !== 'boolean') ||
+        (action.startsWith('conversation') && !conversationResult(action, result, request)) ||
         (action === 'list' && (!Array.isArray(result) || !result.every((item: unknown) => address(item))))
       ) {
         throw new ProtocolError();

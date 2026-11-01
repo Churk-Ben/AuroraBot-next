@@ -96,6 +96,63 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('直接交流回执', () => {
+  const scope = { session_id: 'session', instance_id: 'main' };
+  const query = { ...scope, request_id: 'one' };
+  const receipt = { ...query, accepted: true, guidance_id: 'guidance', run_id: 'run', sequence: 1 };
+
+  it('复用生成绑定，区分接纳与运行终态，取消绑定指定实例/run', async () => {
+    const instance = client();
+    request.mockResolvedValueOnce(response({ session_id: 'session', instance_ids: ['main'] }));
+    expect(await instance.conversation.info()).toEqual({ session_id: 'session', instance_ids: ['main'] });
+    request.mockResolvedValueOnce(response(receipt));
+    expect(await instance.conversation.submit({ ...query, text: '你好' })).toEqual(receipt);
+    request.mockResolvedValueOnce(response({ ...receipt, run_status: 'pending', error: null }));
+    const pending = await instance.conversation.query(query);
+    expect(pending.run_status).toBe('pending');
+    const run = { ...scope, run_id: 'run' };
+    request.mockResolvedValueOnce(response({ ...run, cancelled: false }));
+    const cancellation = await instance.conversation.cancel(run);
+    expect(cancellation.cancelled).toBe(false);
+    expect(request.mock.calls.map(([url]) => String(url))).toEqual(
+      ['Info', 'Submit', 'Query', 'Cancel'].map(
+        (action) => URL + HTTP_BINDINGS[`conversation${action}` as keyof typeof HTTP_BINDINGS].path,
+      ),
+    );
+    expect(JSON.parse(String(request.mock.calls[3]?.[1]?.body))).toEqual(run);
+  });
+
+  it.each([
+    { instance_id: 'other' },
+    { session_id: 'old' },
+    { request_id: 'other' },
+    { accepted: false },
+    { run_id: '' },
+    { sequence: 0 },
+    { sequence: 1.5 },
+    { run_status: 'accepted' },
+    { error: 123 },
+  ])('拒绝错配或损坏的查询回执：%j', async (change) => {
+    request.mockResolvedValueOnce(response({ ...receipt, run_status: 'completed', error: null, ...change }));
+    await expect(client().conversation.query(query)).rejects.toThrow(ProtocolError);
+  });
+
+  it('网络失败和宿主会话失效不自动重新提交', async () => {
+    const instance = client();
+    request.mockRejectedValueOnce(new TypeError('连接中断'));
+    await expect(instance.conversation.submit({ ...query, text: '你好' })).rejects.toThrow('连接中断');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(request).toHaveBeenCalledTimes(1);
+    request.mockResolvedValueOnce(
+      Response.json({ error: { code: 'session_expired', message: '会话失效' } }, { status: 409 }),
+    );
+    await expect(instance.conversation.query(query)).rejects.toMatchObject({ code: 'session_expired', status: 409 });
+    await instance.close();
+    await expect(instance.conversation.submit({ ...query, text: '你好' })).rejects.toThrow('客户端已关闭');
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('显式 HTTP ctx 访问', () => {
   it('复用生成绑定，保留空值和精确 location，返回真实结果', async () => {
     const instance = client();

@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 from aurora_api.contract import describe_contract
+from aurora_bot.conversation_contract import describe_conversation
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "packages/aurora_client/src/generated"
@@ -15,6 +16,8 @@ def _type(schema: dict) -> str:
     if "$ref" in schema:
         return schema["$ref"].removeprefix("#/$defs/")
     if "const" in schema:
+        if isinstance(schema["const"], bool):
+            return str(schema["const"]).lower()
         return repr(schema["const"])
     if "enum" in schema:
         return " | ".join(sorted(repr(value) for value in schema["enum"]))
@@ -26,6 +29,8 @@ def _type(schema: dict) -> str:
     if kind == "object":
         if "properties" not in schema:
             return f"{{ [key: string]: {_type(schema['additionalProperties'])} }}"
+        if not schema["properties"]:
+            return "Record<string, never>"
         required = schema["required"]
         fields = [
             f"  {name}{'' if name in required else '?'}: {_type(value)};"
@@ -37,7 +42,9 @@ def _type(schema: dict) -> str:
 
 def render_typescript(contract: dict) -> str:
     """仅转换 ctx 描述使用的类型结构；字段约束由 JSON 描述和服务端校验保留。"""
-    parts = ["// 由 scripts/generate_ctx_contract.py 生成，请修改 aurora_api.contract 后重新生成。"]
+    parts = [
+        "// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api.contract 与 aurora_bot.conversation_contract。"
+    ]
     for name, schema in sorted(contract["$defs"].items()):
         parts.append(f"export type {name} = {_type(schema)};")
     for name, field in (("HttpRequests", "request"), ("HttpResponses", "response")):
@@ -51,7 +58,7 @@ def render_typescript(contract: dict) -> str:
             f"  {action}: {{\n"
             f"    method: '{binding['method']}',\n"
             f"    path: '{binding['path']}',\n"
-            f"    operation: '{binding['operation']}',\n"
+            f"    operation: {repr(binding['operation']) if binding['operation'] else 'null'},\n"
             "  },"
         )
     parts.append("export const HTTP_BINDINGS = {\n" + "\n".join(bindings) + "\n} as const;")
@@ -66,7 +73,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="不写文件，产物缺失或过期时返回非零")
     parser.add_argument("--output", type=Path, default=OUTPUT, help="产物目录")
     args = parser.parse_args()
-    contract = describe_contract()
+    contract = describe_contract(extensions=[describe_conversation()])
     files = {
         "ctx-contract.json": json.dumps(contract, ensure_ascii=False, indent=2) + "\n",
         "ctx-contract.ts": render_typescript(contract),

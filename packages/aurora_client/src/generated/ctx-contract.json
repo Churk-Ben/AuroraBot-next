@@ -270,6 +270,285 @@
           "$ref": "#/$defs/WatchError"
         }
       ]
+    },
+    "ConversationInfoRequest": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "ConversationInfoResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "instance_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "\\S"
+              }
+            }
+          },
+          "required": ["session_id", "instance_ids"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "ConversationSubmitRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "pattern": "\\S"
+        }
+      },
+      "required": ["session_id", "instance_id", "request_id", "text"],
+      "additionalProperties": false
+    },
+    "ConversationSubmitResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ConversationReceipt"
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "ConversationQueryRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        }
+      },
+      "required": ["session_id", "instance_id", "request_id"],
+      "additionalProperties": false
+    },
+    "ConversationQueryResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "instance_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "guidance_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "run_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "accepted": {
+              "const": true
+            },
+            "run_status": {
+              "enum": ["pending", "completed", "cancelled", "failed"]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "required": [
+            "session_id",
+            "instance_id",
+            "request_id",
+            "guidance_id",
+            "sequence",
+            "run_id",
+            "accepted",
+            "run_status",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "ConversationCancelRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        }
+      },
+      "required": ["session_id", "instance_id", "run_id"],
+      "additionalProperties": false
+    },
+    "ConversationCancelResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "instance_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "run_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "cancelled": {
+              "type": "boolean"
+            }
+          },
+          "required": ["session_id", "instance_id", "run_id", "cancelled"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "ConversationReceipt": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "guidance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "accepted": {
+          "const": true
+        }
+      },
+      "required": ["session_id", "instance_id", "request_id", "guidance_id", "sequence", "run_id", "accepted"],
+      "additionalProperties": false
     }
   },
   "http": {
@@ -324,6 +603,62 @@
       },
       "response": {
         "$ref": "#/$defs/DeleteResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "conversationInfo": {
+      "method": "POST",
+      "path": "/conversation/info",
+      "operation": null,
+      "request": {
+        "$ref": "#/$defs/ConversationInfoRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConversationInfoResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "conversationSubmit": {
+      "method": "POST",
+      "path": "/conversation/submit",
+      "operation": "org.aurora.bot:operations/run/submit",
+      "request": {
+        "$ref": "#/$defs/ConversationSubmitRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConversationSubmitResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "conversationQuery": {
+      "method": "POST",
+      "path": "/conversation/query",
+      "operation": null,
+      "request": {
+        "$ref": "#/$defs/ConversationQueryRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConversationQueryResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "conversationCancel": {
+      "method": "POST",
+      "path": "/conversation/cancel",
+      "operation": "org.aurora.bot:operations/run/cancel",
+      "request": {
+        "$ref": "#/$defs/ConversationCancelRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConversationCancelResponse"
       },
       "error": {
         "$ref": "#/$defs/ErrorResponse"

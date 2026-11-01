@@ -3,11 +3,13 @@
 import asyncio
 import json
 from io import StringIO
+from pathlib import Path
 from typing import cast
 
 import httpx
 import pytest
 import tomli_w
+from aiohttp import ClientSession
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import AgentBusyError
 from aurora_agent.react import plugin as react_plugin
@@ -15,9 +17,13 @@ from aurora_agent.react_defaults import plugin as defaults_plugin
 from aurora_agent.runtime import RunHandle, Submission
 from aurora_agent.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_agent.tools import plugin as tools_plugin
+from aurora_api.contract import describe_contract
+from aurora_api.server import serve
 from aurora_bot.assembly import ASSEMBLY, DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, RUN, WORK
+from aurora_bot.conversation import CONVERSATION
+from aurora_bot.conversation_contract import describe_conversation
 from aurora_bot.operations import RUN_ACTIVATE, RUN_CANCEL, RUN_CONTROL, RUN_SUBMIT
 from aurora_cli.commander import run_cli
 from aurora_config import configuration_component
@@ -38,6 +44,7 @@ from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
 from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
 from aurora_model_adapter.fake import FakeModel, FakeReply
 from aurora_model_adapter.plugin import plugin as adapter_plugin
+from jsonschema import Draft202012Validator
 
 ADAPTER = Id("dev.assembly:adapters/fake")
 TOOL = Id("dev.assembly:tools/echo")
@@ -1344,5 +1351,119 @@ def test_bot_cli_tool_errors_are_observed_and_survive_restart(tmp_path, behavior
         assert restored_messages[: len(messages)] == messages
         assert events.count("tool.executed") == 1
         assert json.loads(restored_output.getvalue().splitlines()[-1])["status"] == "completed"
+
+    asyncio.run(scenario())
+
+
+def test_conversation_http_receipts_validation_disconnect_and_restart(tmp_path):
+    async def scenario():
+        host, assembly, ctx, registry, _, _, events, entered = setup(tmp_path, behavior="wait")
+        await host.start(configure=lambda: seed(ctx))
+        contract = describe_contract(extensions=[describe_conversation()])
+        Draft202012Validator.check_schema(contract)
+
+        def validate(name, body):
+            Draft202012Validator({"$defs": contract["$defs"], "$ref": f"#/$defs/{name}"}).validate(body)
+
+        async with ClientSession() as session:
+            try:
+                async with (
+                    serve(registry, keys=[], port=0) as url,
+                    session.post(url + "/conversation/info", json={}) as response,
+                ):
+                    assert response.status == 404
+                async with serve(registry, keys=[], endpoints=[CONVERSATION], port=0) as url:
+
+                    async def call(action, payload, expected=200):
+                        binding = contract["http"][f"conversation{action}"]
+                        async with session.post(url + binding["path"], json=payload) as response:
+                            assert response.status == expected, await response.text()
+                            body = await response.json()
+                        validate(f"Conversation{action}Response" if expected == 200 else "ErrorResponse", body)
+                        return body.get("result", body.get("error"))
+
+                    info = await call("Info", {})
+                    assert info["instance_ids"] == ["main"]
+                    scope = {"session_id": info["session_id"], "instance_id": "main"}
+                    message = {**scope, "request_id": "one", "text": "开始"}
+                    for invalid in (
+                        {},
+                        {**message, "text": " "},
+                        {**message, "extra": 1},
+                        {**message, "request_id": 7},
+                    ):
+                        await call("Submit", invalid, 400)
+                    assert await call("Submit", {**message, "instance_id": "absent"}, 404)
+                    first, duplicate = await asyncio.gather(call("Submit", message), call("Submit", message))
+                    assert first == duplicate and first["accepted"] is True
+                    await asyncio.wait_for(entered.wait(), 2)
+                    conflict = await call("Submit", {**message, "text": "不同内容"}, 409)
+                    assert conflict["code"] == "request_conflict"
+                    second = await call("Submit", {**message, "request_id": "two", "text": "运行中引导"})
+                    assert first["run_id"] == second["run_id"] and first["guidance_id"] != second["guidance_id"]
+                    assert (await call("Query", {**scope, "request_id": "one"}))["run_status"] == "pending"
+                    assert (await call("Cancel", {**scope, "run_id": "unknown"}))["cancelled"] is False
+                    await call("Cancel", {**scope, "instance_id": "absent", "run_id": first["run_id"]}, 404)
+                    async with session.post(
+                        url + "/conversation/submit", json=message, headers={"Origin": "http://localhost"}
+                    ) as response:
+                        assert response.status == 403
+                # API 退出只停止观察，装配仍持有运行任务。
+                assert assembly.runtime.current is not None and not assembly.runtime.current.done
+                async with serve(registry, keys=[], endpoints=[CONVERSATION], port=0) as url:
+                    assert await call("Submit", message) == first
+                    assert (await call("Cancel", {**scope, "run_id": first["run_id"]}))["cancelled"] is True
+                    assert "tool.cancelled" in events
+                    assert (await call("Query", {**scope, "request_id": "one"}))["run_status"] == "cancelled"
+                    assert (await call("Cancel", {**scope, "run_id": first["run_id"]}))["cancelled"] is False
+            finally:
+                await host.stop()
+            restored, other, other_ctx, other_registry, clients, _, _, _ = setup(tmp_path)
+            await restored.start()
+            try:
+                async with serve(other_registry, keys=[], endpoints=[CONVERSATION], port=0) as url:
+                    new_info = await call("Info", {})
+                    assert new_info["session_id"] != info["session_id"]
+                    for action, data in (
+                        ("Submit", message),
+                        ("Query", {**scope, "request_id": "one"}),
+                        ("Cancel", {**scope, "run_id": first["run_id"]}),
+                    ):
+                        assert (await call(action, data, 409))["code"] == "session_expired"
+                    assert clients[0].requests == [] and other.runtime.current is None
+                    assert (
+                        await call("Query", {**scope, "session_id": new_info["session_id"], "request_id": "one"}, 404)
+                    )["code"] == "not_found"
+                    assert other_ctx.list(key=AGENTS)
+            finally:
+                await restored.stop()
+
+    asyncio.run(scenario())
+
+
+def test_typescript_direct_conversation_uses_real_bot_runtime(tmp_path):
+    async def scenario():
+        host, assembly, ctx, registry, _, _, events, _ = setup(tmp_path, behavior="wait")
+        await host.start(configure=lambda: seed(ctx))
+        process = None
+        try:
+            async with serve(registry, keys=[], endpoints=[CONVERSATION], port=0) as url:
+                process = await asyncio.create_subprocess_exec(
+                    "node",
+                    str(Path(__file__).resolve().parents[1] / "fixtures/conversation_client_process.mjs"),
+                    url,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                output, errors = await asyncio.wait_for(process.communicate(), 15)
+                assert process.returncode == 0, errors.decode("utf-8")
+                assert json.loads(output) == {"status": "cancelled"}
+                assert assembly.runtime.current is None
+                assert events.count("tool.executed") == 1 and "tool.cancelled" in events
+        finally:
+            if process is not None and process.returncode is None:
+                process.kill()
+                await process.communicate()
+            await host.stop()
 
     asyncio.run(scenario())

@@ -1,3 +1,4 @@
+export type { ConversationClient } from './conversation.ts';
 export type { ClientOptions } from './ctx.ts';
 export { CtxClient } from './ctx.ts';
 
