@@ -62,7 +62,7 @@ export class Workbench {
   history = '';
   instance = '';
   readonly messages: Message[] = [];
-  notice = '正在连接后端…';
+  notice = '';
   ready = false;
   readonly records = new Map<string, StateRecord>();
   session = '';
@@ -161,8 +161,7 @@ export class Workbench {
         this.notice = this.instance ? `目标 bot 未就绪：${this.instance}` : '后端尚无可交流的 bot 实例。';
         return;
       }
-      if (!previous) this.notice = '已连接。输入消息开始交流；模型文本显示为运行输出。';
-      else if (!wasReady && previous === this.session) this.notice = '已重新连接，状态已刷新。';
+      if (!previous || (!wasReady && previous === this.session)) this.notice = '';
       this.captureHistory();
       for (const record of this.records.values()) this.ingest(record);
       const queried = new Set<string>();
@@ -349,7 +348,7 @@ export class Workbench {
       } else {
         this.epoch++;
         this.ready = false;
-        this.notice = update.status.error?.message ?? '正在建立订阅并刷新状态…';
+        this.notice = update.status.error?.message ?? '';
       }
     } else if (update.type === 'snapshot') {
       this.records.clear();
@@ -383,7 +382,7 @@ export class Workbench {
       message.receipt = receipt;
       message.status = 'accepted';
       this.group(receipt.run_id, receipt.session_id);
-      this.notice = '引导已接纳，正在观察运行。';
+      this.notice = '';
     } catch (error) {
       if (this.stopped) return;
       message.status =

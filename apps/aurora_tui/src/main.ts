@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { CtxClient } from '@aurorabot/client';
 import { createCliRenderer } from '@opentui/core';
 
+import { colors } from './theme.ts';
 import { WorkbenchView } from './view.ts';
 import { Workbench } from './workbench.ts';
 
@@ -30,7 +31,7 @@ async function main(): Promise<void> {
     exitSignals: [],
     useMouse: true,
     screenMode: 'alternate-screen',
-    backgroundColor: '#10161d',
+    backgroundColor: colors.background,
     openConsoleOnError: false,
   });
   let view: undefined | WorkbenchView;

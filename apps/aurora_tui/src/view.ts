@@ -4,17 +4,9 @@ import type { RunGroup } from './workbench.ts';
 
 import { BoxRenderable, InputRenderable, ScrollBoxRenderable, TextareaRenderable, TextRenderable } from '@opentui/core';
 
+import { colors } from './theme.ts';
 import { Workbench } from './workbench.ts';
 
-const colors = {
-  background: '#10161d',
-  surface: '#18232e',
-  text: '#dbe5ee',
-  muted: '#8fa5b8',
-  accent: '#78dcca',
-  border: '#304555',
-  warning: '#e8bc78',
-};
 const connections = {
   closed: '已关闭',
   connected: '已连接',
@@ -105,12 +97,12 @@ export class WorkbenchView {
       borderColor: colors.border,
     });
     this.root.add(header);
-    header.add(this.text('AURORA', { fg: colors.accent }));
+    header.add(this.text('AURORA'));
     this.tabs = this.text(' 交流 ', { onMouseDown: () => this.switchPage('chat') });
     this.stateTab = this.text(' 状态 ', { onMouseDown: () => this.switchPage('state') });
     header.add(this.tabs);
     header.add(this.stateTab);
-    this.identity = this.text('', { flexGrow: 1, textAlign: 'right', truncate: true });
+    this.identity = this.text('', { fg: colors.muted, flexGrow: 1, textAlign: 'right', truncate: true });
     header.add(this.identity);
 
     this.chatPage = new BoxRenderable(renderer, { flexDirection: 'column', flexGrow: 1, minHeight: 0 });
@@ -130,11 +122,15 @@ export class WorkbenchView {
       scrollX: false,
       stickyScroll: true,
       stickyStart: 'bottom',
+      scrollbarOptions: {
+        showArrows: false,
+        trackOptions: { backgroundColor: colors.background, foregroundColor: colors.border },
+      },
       contentOptions: { paddingX: 2, paddingY: 1, gap: 1 },
     });
     this.chatPage.add(this.chat);
     this.history = this.text('', { fg: colors.muted });
-    this.pending = this.text('连接后输入消息，开始一次运行。', { fg: colors.muted });
+    this.pending = this.text('', { fg: colors.muted });
     this.chat.add(this.history);
     this.chat.add(this.pending);
     this.chat.verticalScrollBar.on('change', () => {
@@ -142,10 +138,14 @@ export class WorkbenchView {
       this.hints();
     });
 
-    this.statePage.add(this.text('后端状态 · 只读浏览', { fg: colors.accent, marginY: 1 }));
+    this.statePage.add(this.text('只读浏览', { fg: colors.muted, marginY: 1 }));
     this.filter = new InputRenderable(renderer, {
       id: 'state-filter',
       placeholder: '筛选状态 ID 或 location…',
+      placeholderColor: colors.muted,
+      cursorColor: colors.accent,
+      selectionBg: colors.border,
+      selectionFg: colors.text,
       backgroundColor: colors.surface,
       textColor: colors.text,
       focusedBackgroundColor: colors.surface,
@@ -158,6 +158,10 @@ export class WorkbenchView {
       flexGrow: 1,
       minHeight: 0,
       scrollX: false,
+      scrollbarOptions: {
+        showArrows: false,
+        trackOptions: { backgroundColor: colors.background, foregroundColor: colors.border },
+      },
       contentOptions: { paddingY: 1 },
     });
     this.stateText = this.text('');
@@ -181,6 +185,10 @@ export class WorkbenchView {
       width: '100%',
       height: 3,
       placeholder: '输入消息…',
+      placeholderColor: colors.muted,
+      cursorColor: colors.accent,
+      selectionBg: colors.border,
+      selectionFg: colors.text,
       textColor: colors.text,
       focusedTextColor: colors.text,
       backgroundColor: colors.surface,
@@ -230,10 +238,7 @@ export class WorkbenchView {
 
   private hints(): void {
     if (this.disposed) return;
-    this.footer.content =
-      this.renderer.width < 70
-        ? `Tab 切页 · Ctrl+C 退出${this.unread ? ' · F3 新内容' : ''}`
-        : `${this.unread ? '↓ 新内容 · F3 回到底部  ' : ''}Tab 切页 · PgUp/PgDn 翻阅 · Ctrl+T 工具 · Ctrl+X 停止 · F5 核对 · Ctrl+C 退出`;
+    this.footer.content = `${this.unread ? '↓ 新内容 · F3  ' : ''}Tab 切页 · Ctrl+C 退出`;
   }
 
   private readonly key = (key: KeyEvent): void => {
@@ -264,13 +269,15 @@ export class WorkbenchView {
     if (this.disposed) return;
     const atBottom = this.atBottom();
     const { model } = this;
-    this.tabs.fg = this.page === 'chat' ? colors.accent : colors.muted;
-    this.stateTab.fg = this.page === 'state' ? colors.accent : colors.muted;
-    this.identity.content = visibleText(`${model.instance || '未选择 bot'} · ${connections[model.connection]}`);
+    this.tabs.fg = this.page === 'chat' ? colors.text : colors.muted;
+    this.stateTab.fg = this.page === 'state' ? colors.text : colors.muted;
+    this.identity.content = visibleText(
+      `${model.instance || '未选择 bot'}${model.connection === 'connected' ? '' : ` · ${connections[model.connection]}`}`,
+    );
     this.history.visible = Boolean(model.history);
-    this.history.content = visibleText(`连接前的上下文 · 无运行回执\n\n${model.history}`);
+    this.history.content = visibleText(`历史上下文\n\n${model.history}`);
     const pending = model.messages.filter((message) => !message.receipt);
-    this.pending.visible = pending.length > 0 || model.groups.length === 0;
+    this.pending.visible = pending.length > 0;
     this.pending.content =
       pending.length > 0
         ? visibleText(
@@ -279,7 +286,7 @@ export class WorkbenchView {
               .map((message) => `你 · ${messages[message.status]}\n${message.request.text}\n${message.error ?? ''}`)
               .join('\n\n'),
           )
-        : '输入消息开始交流。运行中也可以追加引导。';
+        : '';
     let contentChanged = false;
     for (const group of model.groups) {
       let card = this.cards.get(group);
@@ -290,7 +297,7 @@ export class WorkbenchView {
           flexShrink: 0,
           paddingBottom: 1,
         });
-        const title = this.text('', { fg: colors.accent });
+        const title = this.text('', { fg: colors.muted });
         const body = this.text('');
         const tools = this.text('', {
           fg: colors.muted,
@@ -300,8 +307,8 @@ export class WorkbenchView {
             this.render();
           },
         });
-        const stop = this.text('■ 停止此运行', {
-          fg: colors.warning,
+        const stop = this.text('■ 停止', {
+          fg: colors.muted,
           onMouseDown: () => {
             void model.cancel(group);
           },
@@ -319,7 +326,10 @@ export class WorkbenchView {
       card.title.content = visibleText(`● 运行 ${group.id.slice(0, 8)}  ${label}`);
       const guides = model.messages
         .filter((message) => message.receipt?.run_id === group.id && message.request.session_id === group.session)
-        .map((message) => `你 · ${messages[message.status]}\n${message.request.text}`);
+        .map(
+          (message) =>
+            `你${message.status === 'accepted' ? '' : ` · ${messages[message.status]}`}\n${message.request.text}`,
+        );
       const outputs = [...group.outputs.values()].filter(Boolean).map((text) => `模型输出\n${text}`);
       const content = visibleText([...guides, ...outputs].join('\n\n') || '正在等待运行活动…');
       if (card.bodyText !== content) {
@@ -352,8 +362,9 @@ export class WorkbenchView {
     }
     if (contentChanged && !atBottom) this.unread = true;
     this.status.content = visibleText(model.notice);
-    let placeholder = '连接就绪后可发送；草稿会保留…';
-    if (model.ready) placeholder = `${model.current() ? '追加引导' : '输入消息'}…（Enter 发送，Shift+Enter 换行）`;
+    this.status.visible = Boolean(model.notice);
+    let placeholder = '等待连接…';
+    if (model.ready) placeholder = `${model.current() ? '追加引导' : '输入消息'}…`;
     this.input.placeholder = placeholder;
     this.renderState();
     this.hints();
@@ -367,14 +378,14 @@ export class WorkbenchView {
         `${record.id} ${JSON.stringify(record.location)}`.toLocaleLowerCase().includes(filter),
     );
     this.stateText.content = visibleText(
-      `目标：${this.model.instance || '等待发现'}\n连接：${connections[this.model.connection]} · ${records.length} 个状态地址\n\n${
+      `${records.length} 个状态\n\n${
         records
           .slice(0, 100)
           .map(
             (record) =>
               `${record.id}\n${JSON.stringify(record.location)}\n${JSON.stringify(record.value, null, 2).slice(0, 8000)}`,
           )
-          .join('\n\n') || '暂无匹配状态。状态范围由后端开放策略决定。'
+          .join('\n\n') || '暂无匹配状态。'
       }`,
     );
   }
