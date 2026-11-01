@@ -391,7 +391,7 @@ TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各�
 
 跨语言实际使用的数据结构以维护的后端公开描述为来源，可以从 Python 类型、Pydantic、OpenAPI 或 WS 描述生成 TS 类型与 ID 常量。只导出需要且可传输的部分，不要求将全部 Python 登记项导出给客户端，也不强制每个局部接口加入生成链路。
 
-当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，通过 `uv run --locked python scripts/generate_ctx_contract.py` 生成 client 的 JSON 描述与 TS 类型、绑定常量；增加 `--check` 可只读检查产物。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 client 的连接与重连仍属 M3.5。
+当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，通过 `uv run --locked python scripts/generate_ctx_contract.py` 生成 client 的 JSON 描述与 TS 类型、绑定常量；增加 `--check` 可只读检查产物。生成不启动宿主，不导出业务配置或模型 SDK 类型。M3.5 的共享 CtxClient 已复用这些绑定提供访问与订阅；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
 
 开发时可使用 Vite 代理 API，生产环境优先同源部署。认证与外部访问配置随实际连接方案确定。同源安排不代替访问控制。docsite 与 landing 独立构建。
 

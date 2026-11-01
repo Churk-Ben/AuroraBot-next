@@ -297,7 +297,7 @@ API 传输实际需要的 bot/core 事件时保留原事件类型 ID，可添加
 
 以下对象在 TS 客户端环境解析；本地状态不自动成为 Python ctx 状态。
 
-当前已生成 [ctx 类型及 ID 常量](../packages/aurora_client/src/generated/ctx-contract.ts) 与 [JSON 描述](../packages/aurora_client/src/generated/ctx-contract.json)，由 `@aurorabot/client` 导出 TS 契约。下表仍为规划身份；共享访问、连接和订阅运行时尚未实现，生成文件本身不等于登记 `contracts/generated`。
+当前 `@aurorabot/client` 导出 [CtxClient](../packages/aurora_client/src/ctx.ts)、[订阅与连接状态](../packages/aurora_client/src/subscriptions.ts)，以及生成的 [ctx 类型及 ID 常量](../packages/aurora_client/src/generated/ctx-contract.ts)；[JSON 描述](../packages/aurora_client/src/generated/ctx-contract.json) 与 TS 契约同源。客户端已实现六类 ctx 入口、关闭、断线重订阅与状态刷新，验收覆盖本机 Node。下表仍为规划身份，类与本地句柄不自动登记服务或状态 ID，生成文件本身不等于登记 `contracts/generated`。
 
 | ID | kind | 用途 |
 | --- | --- | --- |

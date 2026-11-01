@@ -2,6 +2,38 @@
 
 ## 2026-11-01
 
+### M3.5：共享 TS ctx 客户端与断线恢复
+
+- `@aurorabot/client` 导出 `CtxClient`、订阅句柄、更新类型及 `RemoteError`/`ProtocolError`，复用生成的 HTTP/WS 绑定和 core ctx ID。提供 get、set、delete、list、subscribe、unsubscribe；HTTP 方法接收对应的请求对象，可另传 AbortSignal。get 保留 JSON null 与缺失错误的区别，set 返回 null，delete 返回是否删除，list 保留精确 location 语义。没有任意 operation 转发入口。
+- 每个订阅独立维护 connecting、refreshing、connected、reconnecting、failed、closed 状态。subscribe 立即返回句柄，ready 等待首次握手、读取匹配状态及缓冲事件交付完成；观察者接收 status、snapshot、change 更新。观察者按顺序同步调用，异步处理须自行保持顺序；观察者抛错或 Promise 拒绝仅终止自己的订阅。
+- 每次连接先收到 WS ready，再通过 list/get 读取匹配状态，随后交付刷新期间的变化。snapshot 是多次读取的结果，不是原子快照；读取与事件可能短暂重复或交错，界面按完整地址替换/删除状态，不据此触发业务副作用。刷新时已删除的地址允许返回 not_found。事件修订号只在当前连接内检查递增，允许过滤形成的间隔；重连重新建立基线，兼容宿主重启后的修订号归零。
+- 网络故障、握手超时和慢消费者错误按 250ms 起、最多 5s 的指数退避重连，并重新订阅与读取。刷新事件缓冲默认 256，溢出显式通知重连；旧连接迟到的结果不会进入新状态。访问拒绝、协议错误和无法编码的状态终止订阅，避免无效重试；`reconnect: false` 可关闭自动重连。HTTP 请求默认超时 10s，不自动重试任何动作，写入中断也不会因重连重复提交。
+- unsubscribe 只接受所属客户端仍持有的句柄，重复或跨客户端取消返回 false；取消会中止刷新、停止退避并等待连接关闭，握手等待上限 2s。close 幂等，停止新工作、中止并等待在途 HTTP 与订阅清理，也等待正在取消的连接；取消通知中重入 close 不提前返回。关闭观察与关闭客户端都不取消后端 agent 运行。
+- 请求编码拒绝非有限数值、孤立代理字符、undefined 状态值、循环引用及非 JSON 对象，避免 JSON.stringify 静默改值；响应形状和事件身份经过校验。沿用既有 JSON number 精度范围，无新增凭证、配置、持久状态或公共 ID，不涉及用户数据迁移。
+- 新增 39 项 TS 测试及真实 Node/Python 集成场景。两个客户端共享 11 组 ctx 用例，覆盖空值、精确地址、删除、错误与中文 JSON；真实 HTTP/WS 验证双订阅独立取消、后端重启后的重新读取、修订号重建及资源释放。当前验收范围为 Node 本机 API；浏览器来源、远程认证、D10 界面运行协议和 OpenTUI 仍待后续任务，未调用真实模型服务。
+- 完整 `uv run --locked aurora check` 通过：549 项 Python 测试、48 项 TS/工具链测试，以及格式、lint、Python/TypeScript 类型和工作区导入检查。供应商 SDK 保留 1 项 Pydantic ReadOnly 提示。未增加运行依赖，现有生成契约保持一致。
+
+本机 API 启动后，可在工作区 Node 客户端中使用（开放状态由宿主的 keys 决定）：
+
+```ts
+import { CtxClient } from '@aurorabot/client';
+
+const client = new CtxClient('http://127.0.0.1:10270');
+try {
+  const subscription = client.subscribe({}, (update) => {
+    console.log(update);
+  });
+  await subscription.ready;
+  const addresses = await client.list();
+  for (const address of addresses) {
+    console.log(await client.get({ key: address.id, location: address.location }));
+  }
+  await client.unsubscribe(subscription);
+} finally {
+  await client.close();
+}
+```
+
 ### M3.4：本机 ctx 传输契约按需生成
 
 - `aurora_api.contract.describe_contract()` 描述现有四个 HTTP ctx 请求及响应、错误、WS 握手与事件信封，显式绑定 URL、方法、既有 core 操作及事件 ID。JSON Schema Draft 2020-12 保留必填、可选、空值与 location 结构；业务状态值仅描述为 JSON，不读取配置、登记表或运行期资源，不引入新公共 ID。

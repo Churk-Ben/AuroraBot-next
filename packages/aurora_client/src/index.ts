@@ -1,2 +1,12 @@
-// 共享 ctx 传输的类型与显式绑定。
+export type { ClientOptions } from './ctx.ts';
+export { CtxClient } from './ctx.ts';
+
 export * from './generated/ctx-contract.ts';
+export type {
+  ConnectionState,
+  ConnectionStatus,
+  CtxSubscription,
+  StateRecord,
+  SubscriptionUpdate,
+} from './subscriptions.ts';
+export { ProtocolError, RemoteError } from './transport.ts';
