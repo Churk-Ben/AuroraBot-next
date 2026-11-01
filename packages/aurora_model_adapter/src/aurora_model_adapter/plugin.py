@@ -1,6 +1,7 @@
 """登记当前实现的模型协议入口；工厂及实例由装配显式选择。"""
 
 from aurora_core.bootstrap import KindReceiver
+from aurora_core.configuration import ConfigTemplate
 from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
@@ -20,8 +21,26 @@ def plugin() -> Plugin:
         ("schemas/model_response", "schema", ModelResponse, "schemas"),
         ("schemas/model_chunk", "schema", ModelChunk, "schemas"),
         ("schemas/model_capabilities", "schema", ModelCapabilities, "schemas"),
-        ("state/config", "state_key", StateKey(validate_config), "state_keys"),
-        ("state/bindings", "state_key", StateKey(validate_bindings), "state_keys"),
+        (
+            "state/config",
+            "state_key",
+            StateKey(
+                validate_config,
+                persistent=False,
+                config=ConfigTemplate("aurora_model_adapter", "config.tomls/profiles.toml"),
+            ),
+            "state_keys",
+        ),
+        (
+            "state/bindings",
+            "state_key",
+            StateKey(
+                validate_bindings,
+                persistent=False,
+                config=ConfigTemplate("aurora_model_adapter", "config.tomls/bindings.toml"),
+            ),
+            "state_keys",
+        ),
     )
     return Plugin(
         "aurora_model_adapter",

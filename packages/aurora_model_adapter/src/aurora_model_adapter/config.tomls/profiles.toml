@@ -1,0 +1,10 @@
+# 每个表是一份独立模型 profile；密钥仅填写环境变量名称。
+# 取消以下示例的注释后，配置相应环境变量。
+# [primary]
+# adapter = "org.aurora.model_adapter:adapters/litellm"
+# provider = "deepseek"
+# model = "deepseek-flash"
+# credential = "DEEPSEEK_API_KEY"
+# [primary.capabilities]
+# streaming = true
+# tool_calls = true

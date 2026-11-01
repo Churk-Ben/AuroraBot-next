@@ -1,4 +1,4 @@
-"""默认单 bot 装配的可恢复配置及显式状态地址。"""
+"""默认单 bot 装配的 TOML 配置结构及显式状态地址。"""
 
 import math
 from typing import TypedDict, cast

@@ -1,5 +1,81 @@
 # 变更记录
 
+## 2026-11-01
+
+### 插件 TOML 配置与启动注入
+
+- TOML 是配置的持久来源。带 StorageService 的宿主在发现后收集配置、恢复运行状态，再原子校验并注入全部配置，随后执行各组件的 prepare/start。装配工厂只构造组件，prepare 可读取完整配置并创建资源。
+- 插件使用包内 `config.toml` 或 `config.tomls/`，同一包不能同时提供两种形式。普通 `config/` 代码包不参与收集。每个配置状态显式声明包资源；单文件对应整个状态对象，多文件分别声明目标状态，不隐式合并表。
+- 用户文件位于 `<data-dir>/config/<拥有者命名空间>/`。单文件保留 `config.toml` 名称，多文件保留 `config.tomls/` 内相对路径。拥有者默认取状态 ID 的命名空间，也可通过 owner 显式指定。框架只复制缺失文件，保留模板注释，不覆盖用户文件；删除文件后下次启动会重新生成该文件。
+- 配置状态显式设置 `persistent=False`，其全部业务地址均不保存、不从快照恢复；运行期 ctx 修改不会写回 TOML。重启直接以文件内容重建，删去的字段不会由快照补回。普通业务状态继续持久化，不根据状态名称猜测用途。配置文件修改在下次启动生效，不提供通用热加载。
+- `config/host.toml` 在插件发现前读取 plugins 与可选 assembly。显式 `--plugin` 列表替代文件列表，显式装配参数优先于文件默认值；`--config` 仅临时覆盖当前宿主的 CLI 配置。程序化启动的 configure 回调也只修改本次 ctx。help/id 等查询不启动组件、不生成插件模板，远程连接不读取本地宿主配置。
+- 模型 profiles、角色 bindings、默认 bot 和 CLI 均提供包内模板；profile 的协议、地址、凭证引用与能力继续独立。默认 bot 示例、持续巡检示例及 M2 验收脚本使用 TOML 文件准备配置。
+- 完整 `uv run --locked aurora check` 通过：475 项 Python 测试、9 项工具链测试，格式、lint、Python/TypeScript 类型检查通过；SDK 保留 1 项 Pydantic ReadOnly 提示。覆盖普通包与压缩包资源、模板冲突、已有文件保留、无效配置原子拒绝、prepare 顺序、配置不落盘、业务状态恢复及宿主选项优先级。工作区 wheel 构建成功，bot、CLI、模型适配包中的模板资源已核对。
+
+插件在注册 state_key 时声明配置来源，例如包内 `config.tomls/options.toml`：
+
+```python
+from aurora_core.configuration import ConfigTemplate
+from aurora_core.ctx import StateKey
+
+definition = StateKey(
+    validate_options,
+    persistent=False,
+    config=ConfigTemplate("my_plugin", "config.tomls/options.toml"),
+)
+```
+
+将 definition 注册到 `dev.example:state/options` 后，文件路径为 `data/config/dev.example/options.toml`；prepare 中通过 `ctx.get(Id("dev.example:state/options"))` 读取。单文件使用 `ConfigTemplate("my_plugin")`。发布插件时须将 TOML 文件包含在包资源中；未声明的文件不参与加载。
+
+本地初始化可执行 `uv run --locked aurora --data-dir data ctx list`，生成宿主与 CLI 配置。将 `data/config/host.toml` 的 plugins 设置为：
+
+```toml
+plugins = [
+  "aurora_model_adapter",
+  "aurora_bot.model",
+  "aurora_bot.react",
+  "aurora_bot.tools",
+  "aurora_bot.react_defaults",
+  "aurora_bot.assembly",
+]
+# 完成模型配置后，可设置默认装配。
+# assembly = "org.aurora.bot:assemblies/default"
+```
+
+再次执行 ctx list，生成以下文件；此时不创建模型客户端：
+
+```text
+data/config/
+├── host.toml
+├── org.aurora.cli/config.toml
+├── org.aurora.bot/config.toml
+└── org.aurora.model_adapter/
+    ├── profiles.toml
+    └── bindings.toml
+```
+
+在 profiles.toml 中填写独立 profile，例如 DeepSeek：
+
+```toml
+[primary]
+adapter = "org.aurora.model_adapter:adapters/litellm"
+provider = "deepseek"
+model = "deepseek-flash"
+credential = "DEEPSEEK_API_KEY"
+
+[primary.capabilities]
+streaming = true
+tool_calls = true
+```
+
+bindings.toml 填写 `reasoning = "primary"`。兼容服务可在自己的 profile 中设置 `provider = "openai"`、base_url、model 和 credential。凭证字段仅填写环境变量名称，实际密钥由启动环境提供。
+
+使用默认 bot 配置发起一次运行：
+
+```powershell
+uv run --locked --env-file .env aurora --data-dir data --assembly org.aurora.bot:assemblies/default --namespace org.aurora.bot run submit '只输出：配置验收成功' --instance-id main
+```
+
 ## 2026-10-31
 
 ### profile 独立连接与 LiteLLM 模型选择

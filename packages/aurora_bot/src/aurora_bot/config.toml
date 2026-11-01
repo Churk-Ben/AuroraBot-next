@@ -1,0 +1,8 @@
+# 默认 bot 的实例与运行参数。
+instance_id = "main"
+model_role = "reasoning"
+max_iterations = 8
+tool_timeout = 30.0
+streaming = true
+system_prompt = ""
+tools = []

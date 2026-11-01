@@ -9,6 +9,7 @@ from io import StringIO
 from pathlib import Path
 from uuid import uuid4
 
+import tomli_w
 from aurora_bot.control import ExecutionPlug, component_entries
 from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_cli.commander import run_cli
@@ -110,7 +111,14 @@ async def accept(args: argparse.Namespace, *, streaming: bool) -> dict[str, obje
         (MODEL + "config", {"primary": profile}),
         (MODEL + "bindings", {"reasoning": "primary"}),
     ):
-        await cli("ctx", "set", key, json.dumps(value))
+        relative = {
+            BOT + "config": "org.aurora.bot/config.toml",
+            MODEL + "config": "org.aurora.model_adapter/profiles.toml",
+            MODEL + "bindings": "org.aurora.model_adapter/bindings.toml",
+        }[key]
+        path = root / "config" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(tomli_w.dumps(value), encoding="utf-8")
 
     output = await cli(
         "org.aurora.bot:commands/run/submit",

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import cast
 
 from aurora_core import entry_from, hook_handler
+from aurora_core.configuration import ConfigTemplate
 from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.hooks import HookConnections
@@ -350,7 +351,9 @@ def plugin() -> Plugin:
                 RegistryEntry(
                     key,
                     "state_key",
-                    StateKey(validator),
+                    StateKey(validator, persistent=False, config=ConfigTemplate("aurora_bot"))
+                    if key == CONFIG
+                    else StateKey(validator),
                     "aurora_bot",
                     register_to=Id("org.aurora.core:registries/state_keys"),
                 )

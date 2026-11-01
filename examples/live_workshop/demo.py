@@ -23,6 +23,7 @@ from aurora_bot.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_bot.tools import plugin as tools_plugin
 from aurora_cli.declarations import CONFIG as CLI_CONFIG
 from aurora_core import Id, entry_from, hook_handler
+from aurora_core.configuration import ConfigTemplate
 from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
@@ -164,18 +165,6 @@ class Workshop:
             SETTINGS: settings(initial),
             WORLD: {"tick": 0, "temperature": 20},
             STATUS: {"activations": 0, "status": "idle", "sequence": 0},
-            CONFIG: {
-                "instance_id": "workshop",
-                "model_role": "reasoning",
-                "max_iterations": 20,
-                "tool_timeout": 60,
-                "tools": [
-                    {"tool": str(INSPECT_TOOL), "instance_id": "inspect"},
-                    {"tool": str(REPORT_TOOL), "instance_id": "report"},
-                ],
-            },
-            MODEL_CONFIG: {name: {"adapter": str(ADAPTER), "model": name} for name in ("steady", "fast")},
-            BINDINGS: {"reasoning": "steady"},
         }
         for key, value in defaults.items():
             try:
@@ -406,7 +395,7 @@ def plugins():
             ),
         ),
     )
-    return (
+    selected = (
         adapter_plugin(),
         control_plugin(),
         model_plugin(),
@@ -416,4 +405,22 @@ def plugins():
         assembly_plugin(),
         world_plugin(),
         example,
+    )
+    resources = {CONFIG: "bot.toml", MODEL_CONFIG: "profiles.toml", BINDINGS: "bindings.toml"}
+    return tuple(
+        replace(
+            item,
+            entries=tuple(
+                replace(
+                    entry,
+                    target=replace(
+                        entry.target, config=ConfigTemplate(__name__, "config.tomls/" + resources[entry.id])
+                    ),
+                )
+                if entry.id in resources and isinstance(entry.target, StateKey)
+                else entry
+                for entry in item.entries
+            ),
+        )
+        for item in selected
     )

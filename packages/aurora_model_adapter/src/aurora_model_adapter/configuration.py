@@ -1,4 +1,4 @@
-"""可恢复的模型配置与角色引用；运行时工厂和凭证不进入 ctx。"""
+"""模型 profile 配置与角色引用；运行时工厂和凭证不进入 ctx。"""
 
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict, cast

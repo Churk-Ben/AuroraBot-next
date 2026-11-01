@@ -1,4 +1,4 @@
-"""验证恢复配置驱动的默认装配、运行期资源所有权与宿主关闭。"""
+"""验证 TOML 配置驱动的默认装配、运行期资源所有权与宿主关闭。"""
 
 import asyncio
 import json
@@ -7,6 +7,7 @@ from typing import cast
 
 import httpx
 import pytest
+import tomli_w
 from aurora_bot.assembly import ASSEMBLY, DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, RUN, WORK
@@ -257,7 +258,26 @@ def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"
     assembly = DefaultAssembly(
         registry=registry, ctx=ctx, hooks=hooks, storage=storage, credential_resolver=lambda _: secret
     )
-    host = Lifecycle(
+
+    class ConfiguredLifecycle(Lifecycle):
+        """将各用例声明的初始配置写入 TOML，供后续宿主从文件加载。"""
+
+        async def start(self, *, configure=None):
+            def configure_files():
+                if configure is not None:
+                    configure()
+                    for key, relative in (
+                        (CONFIG, "org.aurora.bot/config.toml"),
+                        (MODEL_CONFIG, "org.aurora.model_adapter/profiles.toml"),
+                        (BINDINGS, "org.aurora.model_adapter/bindings.toml"),
+                    ):
+                        path = root / "config" / relative
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text(tomli_w.dumps(cast(dict, ctx.get(key))), encoding="utf-8")
+
+            await super().start(configure=configure_files)
+
+    host = ConfiguredLifecycle(
         ctx,
         hooks,
         assembly.components(),

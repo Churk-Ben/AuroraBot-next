@@ -160,6 +160,9 @@ def test_automatic_cycles_controls_pause_and_persistent_reports(tmp_path):
             assert await client.request("list", key=PREFIX + "pipeline") == []
             total = (await state(client, PREFIX + "reports"))["total"]
             await cli_set(client, "org.aurora.model_adapter:state/bindings", {"reasoning": "fast"})
+        (tmp_path / "data/config/org.aurora.model_adapter/bindings.toml").write_text(
+            'reasoning = "fast"\n', encoding="utf-8"
+        )
         async with workshop(tmp_path) as (client, _, _):
             assert (await state(client, PREFIX + "reports"))["total"] == total
             assert (await state(client, PREFIX + "settings"))["automatic"] is False

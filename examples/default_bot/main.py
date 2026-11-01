@@ -1,4 +1,4 @@
-"""从可恢复配置创建默认 bot；模型和工具通过显式工厂提供，无需网络或密钥。"""
+"""从 TOML 配置创建默认 bot；模型和工具通过显式工厂提供，无需网络或密钥。"""
 
 import argparse
 import asyncio
@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
+import tomli_w
 from aurora_bot.assembly import DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import CONFIG
@@ -114,7 +115,7 @@ async def run(args: argparse.Namespace) -> None:
         storage=storage,
     )
 
-    def configure() -> None:
+    def configure_files() -> None:
         defaults = {
             CONFIG: {
                 "instance_id": "main",
@@ -128,14 +129,25 @@ async def run(args: argparse.Namespace) -> None:
             BINDINGS: {"reasoning": "primary"},
         }
         for key, value in defaults.items():
+            relative = {
+                CONFIG: "org.aurora.bot/config.toml",
+                MODEL_CONFIG: "org.aurora.model_adapter/profiles.toml",
+                BINDINGS: "org.aurora.model_adapter/bindings.toml",
+            }[key]
+            path = args.data_dir / "config" / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                ctx.get(key)
-            except KeyError:
-                ctx.set(key, value)
+                with path.open("x", encoding="utf-8") as stream:
+                    stream.write(tomli_w.dumps(value))
+            except FileExistsError:
+                pass
         if args.profile is not None:
-            ctx.set(BINDINGS, {"reasoning": args.profile})
+            (args.data_dir / "config/org.aurora.model_adapter/bindings.toml").write_text(
+                tomli_w.dumps({"reasoning": args.profile}), encoding="utf-8"
+            )
 
-    await host.start(configure=configure)
+    configure_files()
+    await host.start()
     try:
         assert assembly.agent is not None and assembly.defaults is not None
         print("装配已启动；尚未激活。", flush=True)
