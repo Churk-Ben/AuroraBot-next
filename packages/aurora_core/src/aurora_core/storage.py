@@ -66,6 +66,11 @@ class StorageService:
         self._check_open()
         return JsonSnapshotStore(self._directories.context_snapshot())
 
+    def configuration_directory(self) -> Path:
+        """返回宿主统一配置目录。"""
+        self._check_open()
+        return self._directories.configuration()
+
     def get(self, namespace: str, key: str) -> object:
         self._check_key(namespace, key)
         row = self._connection.execute(

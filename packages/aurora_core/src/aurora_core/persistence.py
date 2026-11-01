@@ -86,7 +86,7 @@ class ContextPersistence:
                 raise RuntimeError("持久化已关闭")
             try:
                 while True:
-                    snapshot = self._ctx.snapshot()
+                    snapshot = self._ctx.snapshot(persistent_only=True)
                     if snapshot.revision == self._saved_revision:
                         self.last_error = None
                         return

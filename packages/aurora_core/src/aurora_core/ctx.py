@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from threading import get_ident
 from typing import Literal
 
+from .configuration import ConfigTemplate
 from .declarations import entry_from, operation
 from .events import Event, EventBus
 from .ids import Id
@@ -20,11 +21,18 @@ class StateKey:
     """状态定义的可选同步校验器；通过时返回 None，拒绝时抛出异常。
 
     状态值须为支持独立深拷贝的数据。校验器收到独立副本，不通过返回值转换数据。
+    persistent 控制快照读写；配置模板须配合 persistent=False，启动时从 TOML 注入。
     """
 
     validate: Callable[[object], None] | None = None
+    persistent: bool = True
+    config: ConfigTemplate | None = None
 
     def __post_init__(self) -> None:
+        if type(self.persistent) is not bool:
+            raise TypeError("persistent 必须为布尔值")
+        if self.config is not None and (not isinstance(self.config, ConfigTemplate) or self.persistent):
+            raise ValueError("配置模板必须使用 ConfigTemplate 且配置状态不得持久化")
         if self.validate is not None and (not callable(self.validate) or inspect.iscoroutinefunction(self.validate)):
             raise TypeError("状态校验器必须是同步回调")
 
@@ -91,6 +99,46 @@ class Context:
         self._values: dict[StateAddress, object] = {}
         self._revision = 0
         self._events = EventBus()
+
+    @property
+    def registry(self) -> DefinitionRegistry:
+        """提供当前状态定义目录，供宿主读取配置声明。"""
+        return self._registry
+
+    def configure(self, records: tuple[StateRecord, ...]) -> None:
+        """原子校验并写入本次启动配置，发布变更时全部配置已就绪。"""
+        self._check_open()
+        if self._validating:
+            raise RuntimeError("校验期间不得修改配置")
+        pending: dict[StateAddress, object] = {}
+        self._validating = True
+        try:
+            for record in records:
+                definition = self._definition(record.address.key)
+                location = dict(record.address.location)
+                if len(location) != len(record.address.location):
+                    raise ValueError("配置业务定位字段重复")
+                address = StateAddress(record.address.key, _location(location))
+                if definition.persistent or address in pending:
+                    raise ValueError("配置地址必须不持久化且不得重复")
+                pending[address] = self._validated_copy(definition, record.value)
+            changes = tuple(
+                StateChange(
+                    address,
+                    self._revision + index,
+                    "set",
+                    deepcopy(value),
+                    deepcopy(self._values.get(address)),
+                    address in self._values,
+                )
+                for index, (address, value) in enumerate(pending.items(), start=1)
+            )
+        finally:
+            self._validating = False
+        self._values.update(pending)
+        self._revision += len(changes)
+        for change in changes:
+            self._events.publish(CTX_CHANGED, change)
 
     def _check_open(self) -> None:
         if get_ident() != self._owner:
@@ -215,23 +263,27 @@ class Context:
         """取消尚未开始的通知；关闭后仍可幂等取消。"""
         return self._events.unsubscribe(handle)
 
-    def snapshot(self) -> ContextSnapshot:
-        """在宿主线程同步复制全部状态，后台 I/O 只消费该独立快照。"""
+    def snapshot(self, *, persistent_only: bool = False) -> ContextSnapshot:
+        """同步复制状态；持久化调用方仅选择 persistent 状态。"""
         self._check_open()
         if self._validating:
             raise RuntimeError("校验期间不得创建快照")
         self._validating = True
         try:
-            records = tuple(StateRecord(address, deepcopy(self._values[address])) for address in self.list())
+            records = tuple(
+                StateRecord(address, deepcopy(self._values[address]))
+                for address in self.list()
+                if not persistent_only or self._definition(address.key).persistent
+            )
             return ContextSnapshot(self._revision, records)
         finally:
             self._validating = False
 
     def restore(self, records: tuple[StateRecord, ...]) -> None:
-        """在首次写入前原子恢复完整快照，全部通过当前定义校验后才提交。
+        """在首次写入前原子恢复持久状态，全部通过当前定义校验后才提交。
 
         恢复不重放历史事件；宿主应在恢复结束后配置运行环境并启动工作组件。
-        未安装的状态定义、重复地址或无效值会拒绝整个快照。
+        非持久状态忽略；未安装的状态定义、持久地址重复或无效值会拒绝整个快照。
         """
         self._check_open()
         if self._validating or self._restored or self._revision or self._values:
@@ -241,6 +293,8 @@ class Context:
         try:
             for record in records:
                 definition = self._definition(record.address.key)
+                if not definition.persistent:
+                    continue
                 location = dict(record.address.location)
                 if len(location) != len(record.address.location):
                     raise ValueError("快照业务定位字段重复")

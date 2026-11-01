@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Literal
 
+from .configuration import load_configuration
 from .ctx import Context
 from .hooks import HookConnection, HookConnections, HookSlot
 from .ids import Id
@@ -122,9 +123,15 @@ class Lifecycle:
         self._loop = asyncio.get_running_loop()
         self._state = "starting"
         try:
+            configuration = (
+                ()
+                if self._storage is None
+                else load_configuration(self._ctx.registry, self._storage.configuration_directory())
+            )
             if self._persistence is not None:
                 await self._persistence.start()
                 self._persistence_started = True
+            self._ctx.configure(configuration)
             if configure is not None:
                 async with asyncio.timeout(self._timeout):
                     await invoke_callable(configure)
