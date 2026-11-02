@@ -54,7 +54,7 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | `aurora_api` | client 与后端 ctx 交互所需的 HTTP/WS 传输、端点、事件信封及实际需要的契约导出 | 不作为插件接入总线，不预设任意 operation 的远端分发器 |
 | `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
 | `aurora_logging` | 宿主与库共用的日志级别、控制台输出、回溯与文件落盘配置 | 不依赖业务包，不参与 ctx 或插件登记 |
-| `aurora_world` | 世界输入记录、共享环境状态与来源接入；当前为独立插件骨架，正式能力由 M4-W 交付 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
+| `aurora_world` | 世界记录、来源去重与位置读取已交付；来源接入和环境状态按 M4-W 扩展 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
 
 代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`model_adapter` 只依赖 core 并被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、model_adapter、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
 
@@ -104,7 +104,8 @@ ID 不自动映射为文件路径、导入路径、HTTP URL、执行顺序或组
 | `aurora_bot` | `org.aurora.bot` | Python 运行时 |
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
 | `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
-| `aurora_logging`、`aurora_world` | `org.aurora.logging`、`org.aurora.world` | Python 运行时；当前未登记公共定义 |
+| `aurora_logging` | `org.aurora.logging` | Python 运行时；当前未登记公共定义 |
+| `aurora_world` | `org.aurora.world` | Python 运行时；已登记世界记录状态 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
 | `aurora_tui` | `org.aurora.tui` | TUI 本地 |
 | `aurora_panel` | `org.aurora.panel` | WebUI 本地 |
@@ -339,7 +340,7 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具、多模型选择与聚合、agent 通信及 MCP 由 bot 插件提供，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
 
-### 7.7 直接交流与世界输入（已确定方向，待实现）
+### 7.7 直接交流与世界输入
 
 输入按交流性质分为两条路径。面对面交流已表达“请目标 bot 关注这条输入”，由产品入口直接提交引导；外部消息与环境变化进入 world，由 cadence 形成引导。首版默认 Panel/TUI/CLI 的交互为直接交流，外部来源走世界路径；平台本身不永久绑定一种语义。直接交流记录无需先写入世界，world 也不承担全部用户对话存储。
 
@@ -358,7 +359,37 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 首版 cadence 对订阅范围内的世界消息原样转发：一条消息形成一条引导，保留内容与来源关联，暂不做语义聚类、合并或延迟调度。消息身份、重复识别、消费位置和转交回执用于可靠交付；来源消息、世界记录、引导、run_id 与 execution_id 分别管理。世界消息可能在一个已有运行中被接纳，不假设一条消息对应一个独立 run。
 
-world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。具体存储、保留、转交一致性与恢复边界由 M4.W1–M4.W3 的 D11 明确。接收回执不默认承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
+world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。M4.W1 已确定以下记录侧 D11 规则，转交一致性与消费恢复由 M4.W3 补齐。接收回执不承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
+
+- `aurora_world` 仅依赖 core，插件只登记 `org.aurora.world:state/records`，使用全局 `location={}`。`WorldRecords(ctx)` 不写状态、不启动任务；`append(source_id=..., message_id=..., payload=...)` 同步接纳严格 JSON 内容，不要求 bot、run 或消费者存在。首次追加创建 journal_id，记录包含独立 record_id、来源身份和从 1 递增的序号。
+- source_id 是来源实例身份，须由接入方稳定地区分平台、账户、通道等实际消息 ID 作用域；message_id 在该来源下稳定。两个字段按原字符串精确比较，不自动规范化。同身份且内容相同返回原记录及 `duplicate=True`，不写入或再次通知；不同内容抛出 `MessageConflictError`。JSON 对象键序不影响去重，数组顺序以及布尔值、整数、浮点数的编码保留区别；凭证在写入前由来源排除。
+- `get(source_id=..., message_id=...)` 读取原记录；`read(after=..., source_id=..., limit=100)` 按全局序号返回独立副本。after 为 `WorldPosition(journal_id, sequence, record_id)`，严格读取该位置之后的记录；来源过滤不改变序号。日志缺失、身份变化、位置超前或对应 record_id 不一致时抛出 `CursorError`，防止旧快照恢复后序号复用造成静默跳过。
+- 消费者先 `ctx.subscribe(callback, key=RECORDS, location={})`，再按位置读取历史及后续记录；通知只提示重新读取，恢复不补发旧事件。句柄通过 `ctx.unsubscribe` 释放。world 不额外建立事件总线或转交队列，也不替消费者保存已读位置。
+- 首版日志版本为 1，记录、序号与去重身份在一次 ctx.set 中提交，随宿主 ContextPersistence 完整快照保存。正常结束来源后由宿主最终 flush；返回接纳回执到落盘之间有崩溃窗口，不提供跨消费者恰好一次保证。恢复会校验结构、连续序号和唯一身份，未知版本或损坏数据明确失败。
+- 保留策略是保存全部记录和去重身份，无自动过期、裁剪或删除接口。宿主不能用普通 ctx 写入改写日志历史；备份、容量监控与后续归档由宿主明确安排。读取和写入会复制完整日志，适用于首版有限规模输入，limit 限制返回数量而非内存扫描规模。扩展为大容量日志前须明确迁移、消费位置与去重保留策略。
+
+最小进程内使用方式（仅内存，持久化由宿主另行装配）：
+
+```python
+from aurora_core.bootstrap import bootstrap
+from aurora_core.ctx import Context
+from aurora_core.discovery import load_plugins, register_plugins
+from aurora_world import RECORDS, WorldRecords
+
+registry = bootstrap()
+register_plugins(registry, load_plugins(enabled=["aurora_world"]))
+ctx = Context(registry)
+world = WorldRecords(ctx)
+changes = []
+handle = ctx.subscribe(changes.append, key=RECORDS, location={})
+try:
+    receipt = world.append(source_id="workshop/sensor", message_id="1", payload={"text": "门已打开"})
+    assert world.get(source_id="workshop/sensor", message_id="1") == receipt.record
+    assert world.read(after=receipt.record.position) == ()
+finally:
+    ctx.unsubscribe(handle)
+    ctx.close()
+```
 
 正式 cadence 不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。`live_workshop` 当前的模拟世界与自有调度属于示例，M4.W4 将其改为正式能力的消费者；不能直接把示例循环当成可交付的 cadence。世界来源和 cadence 持有自己的后台资源，关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。
 
@@ -447,7 +478,7 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 | `aurora_cli` | core、api | 接收已启用的命令声明，不导入 bot 插件实现 |
 | `aurora_api` | core；按实际需要复用 CLI 公开适配描述 | 提供 client 传输；不强制经过 CLI，不导入 bot 插件实现 |
 | `aurora_logging` | core；按实际需要 | 当前提供日志配置 |
-| `aurora_world` | core；声明配置时使用 config | 当前为插件骨架；正式世界记录不依赖 agent/bot，cadence 通过其公开记录与 ctx 订阅接入 |
+| `aurora_world` | core；后续声明配置时使用 config | 世界记录已实现，不依赖 agent/bot；cadence 将通过其公开记录与 ctx 订阅接入 |
 | `aurora_client` | TS 传输与所需生成类型 | 实现统一 ctx 接口和既有 ctx ID 入口 |
 | `aurora_tui`、`aurora_panel` | client | 使用 ctx interface，不参与后端插件装配 |
 | `docsite`、`landing` | 各自构建依赖 | 独立解析页面和资源 |
@@ -465,7 +496,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | `packages/aurora_cli/` | CLI |
 | `packages/aurora_api/` | 后端传输 |
 | `packages/aurora_logging/` | 日志配置 |
-| `packages/aurora_world/` | 世界输入与共享环境状态骨架 |
+| `packages/aurora_world/` | 世界记录、来源身份与位置读取；来源接入待实现 |
 | `packages/aurora_client/` | TS 共享 ctx 访问与连接 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 终端与 Web 界面 |
 | `apps/docsite/`、`apps/landing/` | 静态应用 |
@@ -495,7 +526,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client 和 M3.6 直接交流；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4-W 已纳入正式计划但尚未实现。接续顺序为 M3.7–M3.9 工作台、M4-W 模拟世界来源与 cadence；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录已交付，接续 M4.W2 来源生命周期，再推进 cadence 与双路径验收；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 

@@ -2,6 +2,15 @@
 
 ## 2026-11-02
 
+### M4.W1：独立世界记录与来源身份
+
+- `aurora_world` 提供 `WorldRecords.append/get/read`、`WorldRecord`、`WorldReceipt` 和 `WorldPosition`，只依赖 core。插件登记全局持久状态 `org.aurora.world:state/records`，发现与构造不写入状态、不创建资源；接收消息无需 bot、agent、模型、目标实例或 run。变化观察复用 `ctx.subscribe`，不新增重复的操作、事件总线或投递队列。
+- `(source_id, message_id)` 是来源消息身份；同身份同 JSON 内容返回原记录且不再通知，内容冲突拒绝覆盖。记录拥有独立 record_id 和连续序号；按来源及位置读取返回独立副本。位置同时绑定日志、序号与记录身份，拒绝日志丢失、替换、位置超前，以及旧快照恢复后序号被新记录复用的情况。
+- D11 的记录保存策略确定为版本化完整 ctx 日志，保留全部记录与去重身份，不自动裁剪。一次同步写入提交记录及身份；宿主负责异步保存和最终 flush，接纳回执不承诺已落盘或已经转交。非法 JSON、损坏结构、重复身份、不连续序号及未知版本在写入/恢复时明确拒绝；每次操作复制完整日志，首版面向有限规模输入。
+- 验收新增 39 项用例，覆盖重复/冲突、数据副本、分页与来源过滤、读取位置回退、重入订阅、失败提交、非法数据、跨线程拒绝、坏快照、落盘失败后重试与跨进程恢复。完整 `pnpm exec uv run --locked aurora check` 验证 598 项 Python、97 项 TS、5 项原生终端测试；未调用真实模型。
+- 11 个 wheel 构建完成；最终 world wheel 在 `build/m4-w1-isolated` 的干净环境中验证，环境仅安装 core/world，缺少 bot、agent、control、model_adapter、CLI、API、config。独立进程两次运行 `tests/fixtures/world_roundtrip.py`，恢复原身份、识别重复输入并将序号从 `[1, 2]` 继续到 `[1, 2, 3]`。
+- 同步设计、公共 ID、计划与示例指南。无旧 ID、插件名或配置变更，旧数据无需迁移；含新世界状态的快照恢复时须显式启用 aurora_world，不静默忽略缺失定义。M4.W1 已交付，下一步 M4.W2 来源与生命周期；live_workshop 的示例调度留至 M4.W4 统一替换，cadence 尚未实现。
+
 ### M3.9：本机双工作台、断线与重启联调
 
 - 新增 `tests/e2e/test_tui_recovery.py` 与 `apps/aurora_tui/tests/recovery-process.ts`：真实 Python bot/API 与 Node 共享客户端连接两个 OpenTUI 原生测试工作台，双向编辑并观察 ctx，区分 null 与缺失地址；两端读取同版 TOML 后保存产生修订冲突，拒绝覆盖并保留未保存草稿。页面和工具展开偏好保持各自独立。

@@ -1,0 +1,125 @@
+"""验证 world 的分发边界与宿主控制的最终落盘。"""
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+from importlib import metadata
+from pathlib import Path
+
+import pytest
+from aurora_core.bootstrap import bootstrap
+from aurora_core.ctx import Context, StateKey
+from aurora_core.discovery import load_plugins, register_plugins
+from aurora_core.persistence import ContextPersistence
+from aurora_core.snapshots import JsonSnapshotStore
+from aurora_world import RECORDS, WorldRecords
+
+
+def environment(path):
+    registry = bootstrap()
+    register_plugins(registry, load_plugins(enabled=["aurora_world"]))
+    ctx = Context(registry)
+    store = JsonSnapshotStore(path)
+    return ctx, store, ContextPersistence(ctx, store, interval=60)
+
+
+def test_receipt_precedes_flush_and_failed_flush_preserves_retryable_records(tmp_path, monkeypatch):
+    async def scenario():
+        path = tmp_path / "world.json"
+        ctx, store, persistence = environment(path)
+        await persistence.start()
+        records = WorldRecords(ctx)
+        receipt = records.append(source_id="source", message_id="1", payload="原文")
+        assert store.load() == ()
+        save = store.save
+
+        def fail(snapshot):
+            raise OSError("磁盘不可写")
+
+        monkeypatch.setattr(store, "save", fail)
+        try:
+            with pytest.raises(OSError, match="磁盘不可写"):
+                await persistence.flush()
+            assert store.load() == ()
+            assert records.get(source_id="source", message_id="1") == receipt.record
+            assert records.append(source_id="source", message_id="1", payload="原文").duplicate
+            monkeypatch.setattr(store, "save", save)
+            await persistence.flush()
+            assert store.load()[0].address.key == RECORDS
+        finally:
+            monkeypatch.setattr(store, "save", save)
+            await persistence.close()
+            ctx.close()
+
+        ctx, _, persistence = environment(path)
+        observed = []
+        handle = ctx.subscribe(observed.append, key=RECORDS, location={})
+        try:
+            await persistence.start()
+            restored = WorldRecords(ctx)
+            assert restored.read() == (receipt.record,)
+            assert restored.read(after=receipt.record.position) == ()
+            assert observed == []
+            assert restored.append(source_id="source", message_id="1", payload="原文").duplicate
+            assert observed == []
+            new = restored.append(source_id="source", message_id="2", payload="后续输入")
+            assert new.record.position.sequence == 2
+            assert len(observed) == 1
+        finally:
+            ctx.unsubscribe(handle)
+            await persistence.close()
+            ctx.close()
+
+    asyncio.run(scenario())
+
+
+def test_world_runs_and_restores_without_execution_or_host_packages(tmp_path):
+    launcher = """
+import importlib.abc
+import runpy
+import sys
+
+blocked = {'aurora_agent', 'aurora_bot', 'aurora_control', 'aurora_model_adapter',
+           'aurora_cli', 'aurora_api', 'aurora_config'}
+
+class AbsentPackages(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in blocked:
+            raise ModuleNotFoundError('独立 world 环境不提供：' + fullname)
+
+sys.meta_path.insert(0, AbsentPackages())
+source = sys.argv.pop(1)
+runpy.run_path(source, run_name='__main__')
+assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
+"""
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "world_roundtrip.py"
+    results = []
+    for _ in range(2):
+        result = subprocess.run(
+            [sys.executable, "-c", launcher, str(fixture), str(tmp_path)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        results.append(json.loads(result.stdout))
+    first, restored = results
+    assert first["duplicate"] is False and restored["duplicate"] is True
+    assert first["journal_id"] == restored["journal_id"]
+    assert first["first_id"] == restored["first_id"]
+    assert first["sequences"] == [1, 2] and restored["sequences"] == [1, 2, 3]
+
+
+def test_world_distribution_owns_only_its_persistent_record_definition():
+    assert metadata.requires("aurora-world") == ["aurora-core>=0.1.0"]
+    plugin = load_plugins(enabled=["aurora_world"])[0]
+    assert plugin.requires == ()
+    assert len(plugin.entries) == 1
+    entry = plugin.entries[0]
+    assert entry.id == RECORDS and entry.kind == "state_key" and entry.provider == "aurora_world"
+    assert isinstance(entry.target, StateKey) and entry.target.persistent
