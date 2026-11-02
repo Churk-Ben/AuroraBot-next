@@ -549,6 +549,100 @@
       },
       "required": ["session_id", "instance_id", "request_id", "guidance_id", "sequence", "run_id", "accepted"],
       "additionalProperties": false
+    },
+    "ConfigurationFile": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/StateId"
+        },
+        "state": {
+          "$ref": "#/$defs/StateId"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "state", "path"],
+      "additionalProperties": false
+    },
+    "ConfigurationDocument": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/StateId"
+        },
+        "content": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "content", "revision"],
+      "additionalProperties": false
+    },
+    "ConfigurationListRequest": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "ConfigurationListResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfigurationFile"
+          }
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "ConfigurationGetRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/StateId"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+    "ConfigurationGetResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ConfigurationDocument"
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
+    },
+    "ConfigurationSaveRequest": {
+      "$ref": "#/$defs/ConfigurationDocument"
+    },
+    "ConfigurationSaveResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/StateId"
+            },
+            "restart_required": {
+              "const": true
+            }
+          },
+          "required": ["id", "restart_required"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["result"],
+      "additionalProperties": false
     }
   },
   "http": {
@@ -659,6 +753,48 @@
       },
       "response": {
         "$ref": "#/$defs/ConversationCancelResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "configurationList": {
+      "method": "POST",
+      "path": "/configuration/list",
+      "operation": null,
+      "request": {
+        "$ref": "#/$defs/ConfigurationListRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConfigurationListResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "configurationGet": {
+      "method": "POST",
+      "path": "/configuration/get",
+      "operation": null,
+      "request": {
+        "$ref": "#/$defs/ConfigurationGetRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConfigurationGetResponse"
+      },
+      "error": {
+        "$ref": "#/$defs/ErrorResponse"
+      }
+    },
+    "configurationSave": {
+      "method": "POST",
+      "path": "/configuration/save",
+      "operation": null,
+      "request": {
+        "$ref": "#/$defs/ConfigurationSaveRequest"
+      },
+      "response": {
+        "$ref": "#/$defs/ConfigurationSaveResponse"
       },
       "error": {
         "$ref": "#/$defs/ErrorResponse"

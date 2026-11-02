@@ -82,6 +82,8 @@ resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，
 
 配置声明使用 `config` kind，由 `org.aurora.config:registries/configs` 接收；声明同时提供对应的非持久状态、结构校验与包内 TOML 模板。插件入口为 `aurora_config`。宿主在恢复业务状态后执行 config 阶段，全部文件与关联校验通过后才原子注入 ctx。
 
+`aurora_config` 还登记 `org.aurora.config:endpoints/configuration`（`endpoint`），由 `org.aurora.api:registries/endpoints` 接收。宿主通过 `serve --endpoints` 显式选择后才开放 POST `/configuration/list`、`/configuration/get`、`/configuration/save`；便捷启动脚本与默认 bot 示例使用 `--edit-config`。仅编辑已登记 `ConfigSpec` 的 TOML 文件，以配置声明 ID 定位，保存通过结构与关联校验并检查全部声明文件的读取修订，重启生效，不改变运行期 ctx。未连接 API 时保留声明并告警，不要求配置包导入或安装 API。契约见 [editor_contract.py](../packages/aurora_config/src/aurora_config/editor_contract.py)。新增端点不重命名既有 ID、插件入口或快照地址，无数据迁移。
+
 ### 3.2 操作、生命周期与基础契约
 
 当前 ctx 六个操作、五个生命周期插槽与 ctx/changed 事件已实现；hook/failed 事件和本表四个 schema ID 仍为规划。实际 ctx 与插件声明通过 Python 类型表达，不以规划 schema 已登记为前提。
@@ -385,6 +387,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | bot cancel 命令 | 一条操作绑定 | `org.aurora.bot:operations/run/cancel` |
 | bot 命令与 CLI 接收方 | 可使用的描述 | `org.aurora.cli:schemas/command`；不要求导入 CLI 实现 |
 | bot conversation 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
+| config configuration 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
 | bot conversation 端点 | 已实现操作绑定 | `org.aurora.bot:operations/run/submit` 与 `org.aurora.bot:operations/run/cancel`；复用现有操作 |
 | world 来源 | M4-W 规划数据写入 | 世界记录由 world 提供；来源不直接决定 agent 运行 |
 | cadence | M4-W 规划读取与提交 | 订阅选定世界记录，向目标实例的既有 AgentRuntime 提交引导 |

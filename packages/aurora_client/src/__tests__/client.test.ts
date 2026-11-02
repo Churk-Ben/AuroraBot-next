@@ -96,6 +96,42 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('声明 TOML 编辑', () => {
+  const document = { id: 'org.aurora.bot:configs/default', content: '# 注释\nvalue = 1', revision: 'a'.repeat(64) };
+
+  it('列表、读取、保存复用传输，冲突与未知结果均不重试', async () => {
+    const instance = client();
+    const files = [{ id: document.id, state: 'org.aurora.bot:state/config', path: 'org.aurora.bot/config.toml' }];
+    request.mockResolvedValueOnce(response(files));
+    expect(await instance.configuration.list()).toEqual(files);
+    request.mockResolvedValueOnce(response(document));
+    expect(await instance.configuration.get({ id: document.id })).toEqual(document);
+    request.mockResolvedValueOnce(response({ id: document.id, restart_required: true }));
+    expect(await instance.configuration.save(document)).toEqual({ id: document.id, restart_required: true });
+    expect(request.mock.calls.at(-1)?.[1]?.body).toBe(JSON.stringify(document));
+    request.mockResolvedValueOnce(
+      Response.json({ error: { code: 'configuration_conflict', message: '重新读取' } }, { status: 409 }),
+    );
+    await expect(instance.configuration.save(document)).rejects.toThrow('configuration_conflict');
+    request.mockRejectedValueOnce(new TypeError('响应丢失'));
+    await expect(instance.configuration.save(document)).rejects.toThrow('响应丢失');
+    expect(request).toHaveBeenCalledTimes(5);
+  });
+
+  it('拒绝目标错配、无效修订与伪造的生效回执', async () => {
+    const instance = client();
+    for (const invalid of [
+      { ...document, id: 'other' },
+      { ...document, revision: '' },
+    ]) {
+      request.mockResolvedValueOnce(response(invalid));
+      await expect(instance.configuration.get({ id: document.id })).rejects.toThrow(ProtocolError);
+    }
+    request.mockResolvedValueOnce(response({ id: document.id, restart_required: false }));
+    await expect(instance.configuration.save(document)).rejects.toThrow(ProtocolError);
+  });
+});
+
 describe('直接交流回执', () => {
   const scope = { session_id: 'session', instance_id: 'main' };
   const query = { ...scope, request_id: 'one' };

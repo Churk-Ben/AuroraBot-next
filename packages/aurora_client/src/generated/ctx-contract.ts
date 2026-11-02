@@ -1,8 +1,43 @@
-// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api.contract 与 aurora_bot.conversation_contract。
+// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api、aurora_bot 与 aurora_config 的显式传输契约。
 
 export type ApiError = {
   code: string;
   message: string;
+};
+
+export type ConfigurationDocument = {
+  content: string;
+  id: StateId;
+  revision: string;
+};
+
+export type ConfigurationFile = {
+  id: StateId;
+  path: string;
+  state: StateId;
+};
+
+export type ConfigurationGetRequest = {
+  id: StateId;
+};
+
+export type ConfigurationGetResponse = {
+  result: ConfigurationDocument;
+};
+
+export type ConfigurationListRequest = Record<string, never>;
+
+export type ConfigurationListResponse = {
+  result: ConfigurationFile[];
+};
+
+export type ConfigurationSaveRequest = ConfigurationDocument;
+
+export type ConfigurationSaveResponse = {
+  result: {
+    id: StateId;
+    restart_required: true;
+  };
 };
 
 export type ConversationCancelRequest = {
@@ -155,6 +190,9 @@ export type WatchRequest = {
 };
 
 export interface HttpRequests {
+  configurationGet: ConfigurationGetRequest;
+  configurationList: ConfigurationListRequest;
+  configurationSave: ConfigurationSaveRequest;
   conversationCancel: ConversationCancelRequest;
   conversationInfo: ConversationInfoRequest;
   conversationQuery: ConversationQueryRequest;
@@ -166,6 +204,9 @@ export interface HttpRequests {
 }
 
 export interface HttpResponses {
+  configurationGet: ConfigurationGetResponse;
+  configurationList: ConfigurationListResponse;
+  configurationSave: ConfigurationSaveResponse;
   conversationCancel: ConversationCancelResponse;
   conversationInfo: ConversationInfoResponse;
   conversationQuery: ConversationQueryResponse;
@@ -177,6 +218,21 @@ export interface HttpResponses {
 }
 
 export const HTTP_BINDINGS = {
+  configurationGet: {
+    method: 'POST',
+    path: '/configuration/get',
+    operation: null,
+  },
+  configurationList: {
+    method: 'POST',
+    path: '/configuration/list',
+    operation: null,
+  },
+  configurationSave: {
+    method: 'POST',
+    path: '/configuration/save',
+    operation: null,
+  },
   conversationCancel: {
     method: 'POST',
     path: '/conversation/cancel',

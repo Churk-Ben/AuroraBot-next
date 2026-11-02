@@ -2,6 +2,14 @@
 
 ## 2026-11-02
 
+### 提供声明 TOML 的显式编辑端点
+
+- `aurora_config` 登记 `org.aurora.config:endpoints/configuration`，提供 POST `/configuration/list`、`/configuration/get`、`/configuration/save`。配置服务在 config 成功后绑定文件访问，停止接收时关闭；API 按宿主显式选择开放，两个包不互相导入。`scripts/serve_bot.py` 和 `default_bot --serve` 增加 `--edit-config`，默认不开放配置编辑。未开放路由统一返回固定 JSON 404。
+- 提取启动与编辑共用的文件定位、结构及关联校验，保留现有缺失模板复制与配置原子注入语义。编辑只接受已登记配置 ID，排除任意路径、host.toml 与凭证文件；单文件上限 256 KiB。读取修订覆盖全部声明文件，冲突返回 409；同一宿主保存串行，校验通过后完整写临时文件并替换，原始注释与文本保留。与外部编辑器仍存在检查/替换竞态，不承诺跨进程比较交换或跨文件事务。
+- 保存只更新 TOML，返回 `restart_required=true`，不改 ctx、不创建资源或重建模型/工具。下一次启动再次加载与创建资源。共享 `CtxClient.configuration` 提供 list/get/save，复用 HTTP 关闭、超时与不重试规则，校验响应身份和修订；生成契约同步合并 config 描述，API 独立导出仍不依赖 config 或 bot。
+- 验证配置服务的未就绪/关闭、未开放路由、来源拒绝、注释保留、结构与关联校验、重复保存冲突、跨文件修订、写入失败保留原文件及重启生效。既有模型协议测试明确断言新增端点是唯一可选未连接项，其余登记继续全部接纳。11 个 wheel 构建通过；三个干净环境验证 config/API 无 agent/模型/bot/CLI、control 无 agent/模型、agent 无 bot/CLI/API，并检查安装包中的端点与契约可导入。未调用真实模型。
+- 新增端点 ID，不改变已有插件名、配置状态 ID 或快照格式，无用户数据迁移；公共 ID 目录已同步。API 缺席时按现有规则报告可选接收方未连接。
+
 ### M3.7：TUI 连接设置与本地偏好
 
 - 启动按命令行参数、本地偏好、内置默认值依次选择连接和实例。新增 `--save-preferences` 保存连接选择后退出，不连接后端；普通启动参数仅本次生效。切换到不同后端而未指定实例时恢复自动选择，避免沿用旧后端的目标。`--preferences PATH` 可隔离不同界面的设置，默认文件位于用户配置目录，详见[启动指南](../examples/START.md)。

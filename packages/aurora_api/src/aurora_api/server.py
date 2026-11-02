@@ -83,7 +83,9 @@ def create_application(
             return web.json_response(error_data("forbidden", "仅接受本机客户端请求"), status=403)
         try:
             return await handler(request)
-        except web.HTTPException:
+        except web.HTTPException as error:
+            if error.status == 404:
+                return web.json_response(error_data("not_found", "接口未开放"), status=404)
             raise
         except Exception as error:  # noqa: BLE001 — 在传输边界统一映射错误。
             status, body = _error(error)

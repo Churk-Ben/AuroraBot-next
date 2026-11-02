@@ -7,6 +7,7 @@ from pathlib import Path
 
 from aurora_api.contract import describe_contract
 from aurora_bot.conversation_contract import describe_conversation
+from aurora_config.editor_contract import describe_configuration
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "packages/aurora_client/src/generated"
@@ -43,7 +44,7 @@ def _type(schema: dict) -> str:
 def render_typescript(contract: dict) -> str:
     """仅转换 ctx 描述使用的类型结构；字段约束由 JSON 描述和服务端校验保留。"""
     parts = [
-        "// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api.contract 与 aurora_bot.conversation_contract。"
+        "// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api、aurora_bot 与 aurora_config 的显式传输契约。"
     ]
     for name, schema in sorted(contract["$defs"].items()):
         parts.append(f"export type {name} = {_type(schema)};")
@@ -73,7 +74,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="不写文件，产物缺失或过期时返回非零")
     parser.add_argument("--output", type=Path, default=OUTPUT, help="产物目录")
     args = parser.parse_args()
-    contract = describe_contract(extensions=[describe_conversation()])
+    contract = describe_contract(extensions=[describe_conversation(), describe_configuration()])
     files = {
         "ctx-contract.json": json.dumps(contract, ensure_ascii=False, indent=2) + "\n",
         "ctx-contract.ts": render_typescript(contract),

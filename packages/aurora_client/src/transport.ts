@@ -149,6 +149,25 @@ export function decodeMessage(text: unknown): WatchMessage {
   throw new ProtocolError();
 }
 
+function configurationResult(action: string, result: unknown, request: object): boolean {
+  if (action === 'configurationList')
+    return (
+      Array.isArray(result) &&
+      result.every(
+        (item: unknown) =>
+          record(item) &&
+          typeof item.id === 'string' &&
+          typeof item.state === 'string' &&
+          typeof item.path === 'string',
+      )
+    );
+  if (!record(result) || result.id !== (request as { id: string }).id) return false;
+  if (action === 'configurationSave') return result.restart_required === true;
+  return (
+    typeof result.content === 'string' && typeof result.revision === 'string' && /^[a-f\d]{64}$/u.test(result.revision)
+  );
+}
+
 /** HTTP 请求不重试；关闭会中止并等待所有在途请求。 */
 export class Transport {
   readonly url: string;
@@ -218,6 +237,7 @@ export class Transport {
         (action === 'set' && result !== null) ||
         (action === 'delete' && typeof result !== 'boolean') ||
         (action.startsWith('conversation') && !conversationResult(action, result, request)) ||
+        (action.startsWith('configuration') && !configurationResult(action, result, request)) ||
         (action === 'list' && (!Array.isArray(result) || !result.every((item: unknown) => address(item))))
       ) {
         throw new ProtocolError();

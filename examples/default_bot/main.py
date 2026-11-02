@@ -14,7 +14,7 @@ from aurora_agent.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_agent.tools import plugin as tools_plugin
 from aurora_bot.assembly import DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
-from aurora_config import configuration_component
+from aurora_config import CONFIGURATION, configuration_component
 from aurora_config import plugin as configuration_plugin
 from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_core.bootstrap import bootstrap
@@ -145,7 +145,10 @@ async def run(args: argparse.Namespace) -> None:
             from aurora_bot.conversation import CONVERSATION
 
             async with serve(
-                registry, keys=[AGENTS, MESSAGES, RUN, WORK], endpoints=[CONVERSATION], port=args.port
+                registry,
+                keys=[AGENTS, MESSAGES, RUN, WORK],
+                endpoints=[CONVERSATION, *([CONFIGURATION] if args.edit_config else [])],
+                port=args.port,
             ) as url:
                 print(f"直接交流 API: {url}", flush=True)
                 await asyncio.Event().wait()
@@ -171,6 +174,7 @@ def main() -> None:
     parser.add_argument("--profile", choices=("primary", "secondary"), help="本次启动前更新并保存模型角色绑定")
     parser.add_argument("--serve", action="store_true", help="持续提供本机直接交流与 ctx API")
     parser.add_argument("--port", type=int, default=10270, help="本机 API 端口")
+    parser.add_argument("--edit-config", action="store_true", help="在 serve 模式开放声明 TOML 配置编辑")
     try:
         asyncio.run(run(parser.parse_args()))
     except KeyboardInterrupt:
