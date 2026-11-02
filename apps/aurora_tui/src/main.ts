@@ -6,6 +6,7 @@ import { createCliRenderer } from '@opentui/core';
 
 import { Workbench } from './state/workbench.ts';
 import { colors } from './theme/colors.ts';
+import { exitLogo } from './ui/exit-logo.ts';
 import { shortcutHelp } from './ui/shortcuts.ts';
 import { WorkbenchView } from './ui/workbench-view.ts';
 
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
     process.off('SIGINT', quit);
     process.off('SIGTERM', quit);
   }
+  process.stdout.write(exitLogo(process.stdout.columns, process.stdout.hasColors() && !('NO_COLOR' in process.env)));
 }
 
 try {

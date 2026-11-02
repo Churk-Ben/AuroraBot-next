@@ -2,6 +2,12 @@
 
 ## 2026-11-02
 
+### TUI 退出时展示 AuroraBot 字符标志
+
+- TUI 正常退出并等待 renderer 关闭、终端恢复后，在主屏幕打印 `about` 同款字符画，仅输出一次。图案保存于 TUI 的 `assets/logo.txt`，不为展示标志启动 Python 进程或依赖 CLI 运行环境。
+- 沿用品牌蓝 `#4B79EC`，遵循终端颜色能力与 `NO_COLOR`；宽度不足时显示紧凑文字标志。帮助命令和启动失败不打印退出标志，退出界面仍不取消后端运行。
+- 验收：字符画逐字比对 `about.LOGO` 一致，检查宽屏、窄屏及无色输出；格式、ESLint/Oxlint、TUI 类型检查和 3 项原生终端回归通过。输出位于 `renderer.closed` 与连接清理完成之后。
+
 ### 启用 OpenTUI 内置 Markdown 渲染
 
 - 交流页使用 OpenTUI 0.8.1 的 `MarkdownRenderable` 显示模型输出和历史模型消息，支持标题、强调、列表、行内代码、代码块及表格；用户输入与工具数据保持原文展示。无需增加 Markdown 解析依赖或修改后端数据。
