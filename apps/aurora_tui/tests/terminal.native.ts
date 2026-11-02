@@ -15,6 +15,83 @@ import { BOT, Workbench } from '../src/state/workbench.ts';
 import { WorkbenchView } from '../src/ui/workbench-view.ts';
 import { FakeClient, settle } from './fake-client.ts';
 
+test('ctx 与 TOML 编辑、确认锁定、错误反馈和窄终端可操作', async () => {
+  const terminal = await createTestRenderer({ width: 100, height: 30, kittyKeyboard: true });
+  const client = new FakeClient();
+  const record = { id: 'dev.test:state/editable', location: { scope: '中文' }, value: { old: true } };
+  client.records = [record];
+  const model = new Workbench(client);
+  const view = new WorkbenchView(terminal.renderer, model, () => {});
+  try {
+    await model.start();
+    terminal.mockInput.pressKey('F2');
+    terminal.mockInput.pressKey('F6');
+    await terminal.renderOnce();
+    assert.equal(view.editorPanel.value.focused, true);
+    assert.match(terminal.captureCharFrame(), /ctx 编辑/);
+    view.editorPanel.value.setText('{"新值":2}');
+    client.emit({ id: 'dev.test:state/background', location: {}, value: '后台更新' });
+    assert.equal(view.editorPanel.value.plainText, '{"新值":2}');
+    terminal.mockInput.pressKey('F8');
+    assert.ok(model.editor.pending);
+    await terminal.mockInput.pasteBracketedText('不能改变待确认内容');
+    terminal.mockInput.pressTab();
+    terminal.mockInput.pressKey('x', { ctrl: true });
+    assert.equal(client.writes.length, 0);
+    assert.equal(client.cancelled.length, 0);
+    assert.equal(model.editor.content, '{"新值":2}');
+    terminal.resize(48, 18);
+    await terminal.renderOnce();
+    assert.match(terminal.captureCharFrame(), /F9 确认/);
+    terminal.mockInput.pressKey('F9');
+    await settle();
+    assert.deepEqual(client.writes, [{ key: record.id, location: record.location, value: { 新值: 2 } }]);
+    assert.equal(view.editorPanel.value.focused, true);
+    terminal.mockInput.pressKey('d', { ctrl: true });
+    terminal.mockInput.pressKey('F9');
+    await settle();
+    assert.equal(client.deletions.length, 1);
+    terminal.mockInput.pressKey('F5');
+    await settle();
+    assert.match(model.editor.message, /not_found/);
+    terminal.mockInput.pressEscape();
+    assert.equal(view.statusPage.filter.focused, true);
+    terminal.mockInput.pressKey('n', { ctrl: true });
+    assert.equal(view.editorPanel.identity.value, '');
+    view.editorPanel.identity.value = 'dev.test:state/new';
+    view.editorPanel.location.value = '{}';
+    view.editorPanel.value.setText('null');
+    terminal.mockInput.pressKey('F8');
+    terminal.mockInput.pressKey('F9');
+    await settle();
+    assert.equal(client.writes.at(-1)?.value, null);
+    terminal.mockInput.pressEscape();
+    terminal.mockInput.pressKey('F7');
+    await settle();
+    terminal.mockInput.pressKey('F5');
+    await settle();
+    terminal.mockInput.pressTab();
+    assert.equal(view.editorPanel.value.focused, true);
+    view.editorPanel.value.setText('# 保留注释\nvalue = 2\n');
+    terminal.mockInput.pressKey('F12');
+    await terminal.mockInput.pasteBracketedText('不能修改隐藏草稿');
+    terminal.mockInput.pressEscape();
+    assert.equal(view.editorPanel.value.focused, true);
+    assert.equal(model.editor.content, '# 保留注释\nvalue = 2\n');
+    terminal.mockInput.pressKey('F8');
+    terminal.mockInput.pressKey('F9');
+    await settle();
+    await terminal.renderOnce();
+    assert.match(terminal.captureCharFrame(), /重启后端后生效/);
+    assert.equal(client.savedConfigurations[0]?.content, '# 保留注释\nvalue = 2\n');
+    assert.equal(client.sent.length, 0);
+  } finally {
+    view.dispose();
+    await model.close();
+    await terminal.dispose();
+  }
+});
+
 test('重开终端恢复页面、焦点和工具偏好，不恢复草稿或运行请求', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'aurora-tui-native-'));
   const path = join(directory, 'tui.json');
@@ -42,13 +119,13 @@ test('重开终端恢复页面、焦点和工具偏好，不恢复草稿或运�
     view = new WorkbenchView(terminal.renderer, model, () => {}, stored);
     await model.start();
     await terminal.renderOnce();
-    assert.match(terminal.captureCharFrame(), /只读浏览/);
+    assert.match(terminal.captureCharFrame(), /状态浏览/);
     assert.equal(view.statusPage.filter.focused, true);
     assert.equal(view.statusPage.filter.value, '');
     assert.equal(view.input.plainText, '');
     assert.equal(client.sent.length, 0);
     terminal.mockInput.pressTab();
-    client.set({
+    client.emit({
       id: BOT.work,
       location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' },
       value: {
@@ -90,14 +167,14 @@ test('真实终端渲染保留草稿、切页焦点、工具展开与滚动位�
     await terminal.renderOnce();
     assert.equal(view.page, 'state');
     assert.equal(view.input.plainText, '保留草稿\n第二行');
-    assert.match(terminal.captureCharFrame(), /只读浏览/);
+    assert.match(terminal.captureCharFrame(), /状态浏览/);
     terminal.mockInput.pressTab();
     terminal.mockInput.pressEnter();
     await settle();
     assert.equal(client.sent[0]?.text, '保留草稿\n第二行');
     assert.equal(view.input.plainText, '');
     const record = { id: BOT.work, location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' } };
-    client.set({
+    client.emit({
       ...record,
       value: {
         execution_id: 'turn-one',
@@ -111,7 +188,7 @@ test('真实终端渲染保留草稿、切页焦点、工具展开与滚动位�
     terminal.mockInput.pressKey('t', { ctrl: true });
     await terminal.renderOnce();
     assert.match(terminal.captureCharFrame(), /参数详情/);
-    client.set({
+    client.emit({
       ...record,
       value: { execution_id: 'turn-one', text: Array.from({ length: 60 }, (_, i) => `输出行 ${i}`).join('\n') },
     });
@@ -129,7 +206,7 @@ test('真实终端渲染保留草稿、切页焦点、工具展开与滚动位�
     terminal.mockInput.pressTab();
     await terminal.renderOnce();
     assert.equal(view.conversation.scroll.scrollTop, offset);
-    client.set({
+    client.emit({
       ...record,
       value: { execution_id: 'turn-one', text: Array.from({ length: 65 }, (_, i) => `输出行 ${i}`).join('\n') },
     });
@@ -242,14 +319,14 @@ test('模型 Markdown 与历史消息渲染，流式代码块独立于其他轮�
     const record = { id: BOT.work, location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' } };
     const prefix =
       '# 渲染标题\n\n**加粗内容** 与 `行内代码`\n\n- 列表甲\n- 列表乙\n\n| 项目 | 状态 |\n| --- | --- |\n| 渲染 | 正常 |\n\n';
-    client.set({ ...record, value: { execution_id: 'turn-one', text: `${prefix}\`\`\`js\nconst answer =` } });
+    client.emit({ ...record, value: { execution_id: 'turn-one', text: `${prefix}\`\`\`js\nconst answer =` } });
     await terminal.renderOnce();
     await rendered(terminal, /const answer =/);
-    client.set({
+    client.emit({
       ...record,
       value: { execution_id: 'turn-one', text: `${prefix}\`\`\`js\nconst answer = 42;\n\`\`\`` },
     });
-    client.set({ ...record, value: { execution_id: 'turn-two', text: '## 下一轮\n\n**独立内容**' } });
+    client.emit({ ...record, value: { execution_id: 'turn-two', text: '## 下一轮\n\n**独立内容**' } });
     const receipt = [...client.receipts.values()][0];
     assert.ok(receipt);
     receipt.run_status = 'completed';

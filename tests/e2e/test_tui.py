@@ -7,6 +7,7 @@ from pathlib import Path
 from aurora_api.server import serve
 from aurora_bot.assembly_config import AGENTS, MESSAGES, RUN, WORK
 from aurora_bot.conversation import CONVERSATION
+from aurora_config import CONFIGURATION
 from aurora_core import entry_from
 from test_default_assembly import seed, setup
 
@@ -23,7 +24,9 @@ def test_native_tui_submit_append_detach_and_cancel(tmp_path):
         process = None
         await host.start(configure=lambda: seed(ctx))
         try:
-            async with serve(registry, keys=[AGENTS, MESSAGES, RUN, WORK], endpoints=[CONVERSATION], port=0) as url:
+            async with serve(
+                registry, keys=[AGENTS, MESSAGES, RUN, WORK], endpoints=[CONVERSATION, CONFIGURATION], port=0
+            ) as url:
                 process = await asyncio.create_subprocess_exec(
                     "node",
                     "--experimental-ffi",

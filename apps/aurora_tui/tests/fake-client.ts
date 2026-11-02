@@ -1,8 +1,11 @@
 import type {
+  ConfigurationSaveRequest,
   ConversationCancelRequest,
   ConversationQueryRequest,
   ConversationQueryResponse,
   ConversationSubmitRequest,
+  GetRequest,
+  SetRequest,
   StateRecord,
   SubscriptionUpdate,
 } from '@aurorabot/client';
@@ -14,6 +17,16 @@ import { RemoteError } from '@aurorabot/client';
 export class FakeClient implements WorkbenchClient {
   readonly cancelled: ConversationCancelRequest[] = [];
   closed = false;
+  readonly configuration = {
+    list: async () => [
+      { id: 'dev.test:configs/options', state: 'dev.test:state/config', path: 'dev.test/config.toml' },
+    ],
+    get: async ({ id }: { id: string }) => ({ id, content: '# 中文配置\nvalue = 1\n', revision: 'a'.repeat(64) }),
+    save: async (request: ConfigurationSaveRequest) => {
+      this.savedConfigurations.push(request);
+      return { id: request.id, restart_required: true as const };
+    },
+  };
   readonly conversation = {
     info: async () => ({ session_id: this.session, instance_ids: this.instances }),
     submit: async (request: ConversationSubmitRequest) => {
@@ -44,25 +57,54 @@ export class FakeClient implements WorkbenchClient {
       return { ...request, cancelled: true };
     },
   };
+  readonly deletions: GetRequest[] = [];
   instances = ['main'];
   loseRequest = false;
   loseResponse = false;
   observer?: (update: SubscriptionUpdate) => void;
   readonly receipts = new Map<string, ConversationQueryResponse['result']>();
   records: StateRecord[] = [];
+  readonly savedConfigurations: ConfigurationSaveRequest[] = [];
   readonly sent: ConversationSubmitRequest[] = [];
-
   session = 'host-one';
+
+  readonly writes: SetRequest[] = [];
 
   async close(): Promise<void> {
     this.closed = true;
   }
 
-  set(record: StateRecord): void {
+  async delete(request: GetRequest): Promise<boolean> {
+    this.deletions.push(request);
+    const record = this.records.find((item) => this.matches(item, request));
+    if (!record) return false;
+    this.records = this.records.filter((item) => item !== record);
+    this.observer?.({
+      type: 'change',
+      change: { ...record, action: 'delete', revision: 1, existed: true, previous: record.value, value: null },
+    });
+    return true;
+  }
+
+  emit(record: StateRecord): void {
+    this.records = this.records.filter((item) => !this.matches(item, { key: record.id, location: record.location }));
+    this.records.push(record);
     this.observer?.({
       type: 'change',
       change: { ...record, action: 'set', revision: 1, existed: false, previous: null },
     });
+  }
+
+  async get(request: GetRequest) {
+    const record = this.records.find((item) => this.matches(item, request));
+    if (!record) throw new RemoteError('not_found', '状态不存在', 404);
+    return record.value;
+  }
+
+  async set(request: SetRequest): Promise<null> {
+    this.writes.push(request);
+    this.emit({ id: request.key, location: request.location ?? {}, value: request.value });
+    return null;
   }
 
   subscribe(_filters: object, observer: (update: SubscriptionUpdate) => void) {
@@ -70,6 +112,14 @@ export class FakeClient implements WorkbenchClient {
     observer({ type: 'snapshot', records: this.records });
     observer({ type: 'status', status: { state: 'connected' } });
     return { ready: Promise.resolve(), status: { state: 'connected' as const } };
+  }
+
+  private matches(record: StateRecord, request: GetRequest): boolean {
+    return (
+      record.id === request.key &&
+      JSON.stringify(Object.entries(record.location).toSorted()) ===
+        JSON.stringify(Object.entries(request.location ?? {}).toSorted())
+    );
   }
 }
 

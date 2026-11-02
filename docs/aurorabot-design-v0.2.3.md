@@ -3,7 +3,7 @@
 版本：v0.2.3
 设计版本日期：2026-10-29；执行包拆分、M2 验收与文档基线对齐：2026-11-01。
 
-状态：架构基线与当前实现说明；M2 已完成，M3 已交付本机 ctx 传输、按需契约、共享客户端、M3.6 直接交流及首版 OpenTUI 交流/只读状态页。界面配置编辑、本地偏好和 M4-W 尚待实现。规划部分不代表已交付。
+状态：架构基线与当前实现说明；M2 已完成，M3 已交付本机 ctx 传输、按需契约、共享客户端、M3.6 直接交流及 OpenTUI 交流/状态页、ctx 编辑、声明 TOML 编辑与本地偏好。M3.9 完整联调和 M4-W 尚待交付。规划部分不代表已交付。
 
 配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
 
@@ -408,7 +408,11 @@ core 的事件机制负责进程内发布订阅，ctx 变化订阅属于 ctx 接
 
 TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各自维护本地视图、动作、主题、键位与偏好。首版采用围绕长期存在的 bot 的工作台，展示直接交流、运行、输出和工具活动；世界能力接入后展示世界输入及其引导关联，不提前建立多会话上下文隔离。
 
-当前 TUI 已提供交流/状态页签、底部多行输入、运行分组、工具折叠、指定运行取消和只读 ctx 筛选。切页保留草稿与滚动位置，向上翻阅时新内容不抢占位置；关闭界面只停止观察。运行终态通过回执查询确认，断线后核对原请求，宿主重启不自动重放。配置编辑、ctx 写操作和本地偏好持久化仍属规划。
+当前 TUI 已提供交流/状态页签、底部多行输入、运行分组、工具折叠、指定运行取消、ctx 筛选与精确地址编辑，以及声明 TOML 文件编辑。切页保留交流草稿与滚动位置，向上翻阅时新内容不抢占位置；关闭界面只停止观察。运行终态通过回执查询确认，断线后核对原请求，宿主重启不自动重放。连接选择可显式保存；页面与工具展开偏好只保存在客户端。
+
+ctx 编辑复用既有 get/set/delete 及状态键白名单，写入整项替换，不是读改写事务。TOML 编辑通过 `aurora_config` 声明的 `org.aurora.config:endpoints/configuration`，宿主显式选择后才开放 list/get/save 三条 POST 路径。配置服务在 config 成功后绑定编辑入口，停止接收阶段关闭；API 不依赖配置实现，配置包也不导入 API。只允许按配置声明 ID 编辑包模板对应的用户文件，不接受任意文件路径，不包含 `host.toml` 与环境凭证文件。
+
+保存 TOML 复用 config 阶段的结构与关联校验；原始文本完整写入临时文件后替换目标。读取修订覆盖全部声明文件，同一宿主串行保存，任一配置变化返回 409 configuration_conflict。外部文件编辑仍有检查与替换之间的竞态，不承诺跨进程原子比较或跨文件事务。保存成功只返回 restart_required=true，不热更新 ctx 或重建模型/工具；资源创建仍由下次启动负责。ctx 与 TOML 修改均先显示目标和草稿再确认，网络结果不确定时保留草稿并要求重新读取，客户端不自动重发。
 
 直接交流由 bot 的专用产品入口接收，复用现有 run 提交与取消操作；API 只接收明确的传输绑定，client 关联目标实例、消息回执、引导与运行。通用 ctx 写入不隐式触发交流，不提供任意 operation 的远端转发，也不为该路径新增 conversation/send、conversation/cancel 同义操作。
 
@@ -424,7 +428,7 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 
 跨语言实际使用的数据结构以维护的后端公开描述为来源，可以从 Python 类型、Pydantic、OpenAPI 或 WS 描述生成 TS 类型与 ID 常量。只导出需要且可传输的部分，不要求将全部 Python 登记项导出给客户端，也不强制每个局部接口加入生成链路。
 
-当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，直接交流由 [bot 契约](../packages/aurora_bot/src/aurora_bot/conversation_contract.py) 描述。`uv run --locked python scripts/generate_ctx_contract.py` 显式合并两者，生成 client 的 JSON 描述、TS 类型和绑定常量；增加 `--check` 可只读检查产物。API 独立导出仍只包含 ctx，不要求安装 bot。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 CtxClient 提供 ctx 访问、订阅与 conversation.info/submit/query/cancel；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
+当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，直接交流由 [bot 契约](../packages/aurora_bot/src/aurora_bot/conversation_contract.py) 描述，声明 TOML 编辑由 [config 契约](../packages/aurora_config/src/aurora_config/editor_contract.py) 描述。`uv run --locked python scripts/generate_ctx_contract.py` 显式合并三者，生成 client 的 JSON 描述、TS 类型和绑定常量；增加 `--check` 可只读检查产物。API 独立导出仍只包含 ctx，不要求安装 bot 或 config。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 CtxClient 提供 ctx 访问、订阅、conversation.info/submit/query/cancel 与 configuration.list/get/save；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
 
 开发时可使用 Vite 代理 API，生产环境优先同源部署。认证与外部访问配置随实际连接方案确定。同源安排不代替访问控制。docsite 与 landing 独立构建。
 

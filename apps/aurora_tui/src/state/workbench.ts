@@ -8,7 +8,11 @@ import type {
   SubscriptionUpdate,
 } from '@aurorabot/client';
 
+import type { EditorClient } from './editor.ts';
+
 import { RemoteError } from '@aurorabot/client';
+
+import { WorkspaceEditor } from './editor.ts';
 
 export const BOT = {
   messages: 'org.aurora.bot:state/messages',
@@ -16,9 +20,10 @@ export const BOT = {
   work: 'org.aurora.bot:state/react_work',
 };
 
-export type WorkbenchClient = Pick<CtxClient, 'close' | 'subscribe'> & {
-  conversation: Pick<CtxClient['conversation'], 'cancel' | 'info' | 'query' | 'submit'>;
-};
+export type WorkbenchClient = EditorClient &
+  Pick<CtxClient, 'close' | 'subscribe'> & {
+    conversation: Pick<CtxClient['conversation'], 'cancel' | 'info' | 'query' | 'submit'>;
+  };
 
 export interface Message {
   request: ConversationSubmitRequest;
@@ -58,6 +63,7 @@ function address(record: Pick<StateRecord, 'id' | 'location'>): string {
 /** 只维护观察和动作关联；运行所有权始终留在后端。 */
 export class Workbench {
   connection: ConnectionState = 'connecting';
+  readonly editor: WorkspaceEditor;
   readonly groups: RunGroup[] = [];
   history: { role: string; text: string }[] = [];
   instance = '';
@@ -81,6 +87,11 @@ export class Workbench {
   constructor(client: WorkbenchClient, instance?: string) {
     this.client = client;
     this.requestedInstance = instance;
+    this.editor = new WorkspaceEditor(
+      client,
+      () => !this.stopped && this.connection === 'connected',
+      () => this.changed(),
+    );
   }
 
   async cancel(group: RunGroup): Promise<void> {
@@ -112,6 +123,7 @@ export class Workbench {
   close(): Promise<void> {
     if (!this.closing) {
       this.stopped = true;
+      this.editor.invalidate();
       this.ready = false;
       clearInterval(this.timer);
       this.listeners.clear();
@@ -343,6 +355,7 @@ export class Workbench {
         this.track(this.refresh());
       } else {
         this.epoch++;
+        this.editor.invalidate();
         this.ready = false;
         this.notice = update.status.error?.message ?? '';
       }

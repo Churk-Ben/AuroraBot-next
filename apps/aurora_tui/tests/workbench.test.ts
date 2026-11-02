@@ -23,7 +23,7 @@ describe('工作台动作和观察边界', () => {
     expect(model.ready).toBe(true);
     expect(model.submit('你好')).toBe(true);
     await settle();
-    client.set({ id: BOT.run, location: { instance_id: 'main' }, value: { run_id: 'run-one', status: 'completed' } });
+    client.emit({ id: BOT.run, location: { instance_id: 'main' }, value: { run_id: 'run-one', status: 'completed' } });
     expect(model.groups[0]?.status).toBe('pending');
     expect(model.groups[0]?.confirmed).toBe(false);
     const receipt = [...client.receipts.values()][0];
@@ -80,7 +80,7 @@ describe('工作台动作和观察边界', () => {
   it('同一运行保留多次模型输出和不同轮次的工具，忽略其他实例', async () => {
     const { client, model } = await setup();
     const record = { id: BOT.work, location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' } };
-    client.set({
+    client.emit({
       ...record,
       value: {
         execution_id: 'turn-one',
@@ -88,8 +88,8 @@ describe('工作台动作和观察边界', () => {
         tool_calls: [{ id: 'call', name: 'echo', arguments: { text: '你好' } }],
       },
     });
-    client.set({ ...record, value: { execution_id: 'turn-one', text: '第一段继续' } });
-    client.set({
+    client.emit({ ...record, value: { execution_id: 'turn-one', text: '第一段继续' } });
+    client.emit({
       ...record,
       value: {
         execution_id: 'turn-two',
@@ -97,7 +97,7 @@ describe('工作台动作和观察边界', () => {
         tool_calls: [{ id: 'call', name: 'echo', arguments: { text: '再见' } }],
       },
     });
-    client.set({
+    client.emit({
       ...record,
       location: { ...record.location, instance_id: 'other' },
       value: { execution_id: 'other', text: '其他实例' },

@@ -6,6 +6,7 @@ import { BoxRenderable, TextareaRenderable, TextRenderable } from '@opentui/core
 
 import { Workbench } from '../state/workbench.ts';
 import { colors } from '../theme/colors.ts';
+import { EditorPanel } from './components/editor-panel.ts';
 import { ShortcutHelp } from './components/shortcut-help.ts';
 import { ConversationPage } from './pages/conversation.ts';
 import { StatusPage } from './pages/status.ts';
@@ -22,6 +23,7 @@ const connections = {
 
 export class WorkbenchView {
   readonly conversation: ConversationPage;
+  readonly editorPanel: EditorPanel;
   readonly input: TextareaRenderable;
   page: 'chat' | 'state' = 'chat';
   readonly statusPage: StatusPage;
@@ -76,9 +78,14 @@ export class WorkbenchView {
     this.conversation = new ConversationPage(renderer, model, () => this.hints(), preferences?.showTools);
     this.statusPage = new StatusPage(renderer, model);
     this.help = new ShortcutHelp(renderer);
+    this.editorPanel = new EditorPanel(renderer, model.editor, () => {
+      this.editorPanel.opened = this.editorPanel.root.visible = false;
+      this.switchPage(this.page);
+    });
     this.root.add(this.conversation.root);
     this.root.add(this.statusPage.root);
     this.root.add(this.help.root);
+    this.root.add(this.editorPanel.root);
 
     this.notice = new BoxRenderable(renderer, { paddingX: 3, flexShrink: 0, visible: false });
     this.status = text(renderer, '', { fg: colors.muted });
@@ -114,7 +121,8 @@ export class WorkbenchView {
         { name: 'return', meta: true, action: 'newline' },
       ],
       onSubmit: () => {
-        if (!this.help.root.visible && model.submit(this.input.plainText)) this.input.clear();
+        if (!this.help.root.visible && !this.editorPanel.opened && model.submit(this.input.plainText))
+          this.input.clear();
       },
     });
     this.composer.add(this.input);
@@ -147,7 +155,7 @@ export class WorkbenchView {
   }
 
   switchPage(page: 'chat' | 'state'): void {
-    if (this.help.root.visible) return;
+    if (this.help.root.visible || this.editorPanel.opened) return;
     this.page = page;
     this.conversation.root.visible = page === 'chat';
     this.composer.visible = page === 'chat';
@@ -176,7 +184,23 @@ export class WorkbenchView {
       else if (key.name === 'pageup' || key.name === 'pagedown')
         this.help.scroll.scrollBy(key.name === 'pageup' ? -1 : 1, 'viewport');
       else if (key.name === 'up' || key.name === 'down') this.help.scroll.scrollBy(key.name === 'up' ? -1 : 1);
-    } else if (key.name === 'f12' || (question && this.editor().plainText.length === 0)) this.toggleHelp();
+    } else if (key.name === 'f12' || (question && !this.editorPanel.opened && this.editor().plainText.length === 0))
+      this.toggleHelp();
+    else if (this.editorPanel.opened) {
+      if (this.model.editor.busy || this.model.editor.pending) {
+        this.editorPanel.key(key);
+      } else {
+        this.editorPanel.key(key);
+        return;
+      }
+    } else if (key.name === 'f7') {
+      void this.model.editor.openConfiguration();
+      this.openEditor();
+    } else if (this.page === 'state' && (key.name === 'f6' || (key.ctrl && key.name === 'n'))) {
+      this.model.editor.openCtx(key.name === 'f6' ? this.statusPage.current() : undefined);
+      this.openEditor();
+    } else if (this.page === 'state' && (key.name === 'up' || key.name === 'down'))
+      this.statusPage.move(key.name === 'up' ? -1 : 1);
     else if (key.name === 'tab') this.switchPage(this.page === 'chat' ? 'state' : 'chat');
     else if (key.name === 'f1') this.switchPage('chat');
     else if (key.name === 'f2') this.switchPage('state');
@@ -197,8 +221,13 @@ export class WorkbenchView {
     key.stopPropagation();
   };
 
+  private openEditor(): void {
+    this.conversation.root.visible = this.statusPage.root.visible = this.composer.visible = false;
+    this.editorPanel.open();
+  }
+
   private readonly paste = (event: PasteEvent): void => {
-    if (this.help.root.visible) {
+    if (this.help.root.visible || (this.editorPanel.opened && (this.model.editor.busy || this.model.editor.pending))) {
       event.preventDefault();
       event.stopPropagation();
     }
@@ -217,6 +246,7 @@ export class WorkbenchView {
     );
     this.conversation.render();
     this.statusPage.render();
+    this.editorPanel.render();
     this.status.content = visibleText(model.notice);
     this.notice.visible = Boolean(model.notice);
     let placeholder = '等待连接…';
@@ -234,9 +264,11 @@ export class WorkbenchView {
     const open = !this.help.root.visible;
     this.editor().blur();
     this.help.root.visible = open;
-    this.conversation.root.visible = !open && this.page === 'chat';
-    this.statusPage.root.visible = !open && this.page === 'state';
+    this.conversation.root.visible = !open && !this.editorPanel.opened && this.page === 'chat';
+    this.statusPage.root.visible = !open && !this.editorPanel.opened && this.page === 'state';
+    this.editorPanel.root.visible = !open && this.editorPanel.opened;
     if (open) this.help.root.focus();
+    else if (this.editorPanel.opened) this.editorPanel.focus();
     else this.editor().focus();
     this.render();
   }

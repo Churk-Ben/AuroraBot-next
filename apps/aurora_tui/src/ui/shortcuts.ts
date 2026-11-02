@@ -16,6 +16,10 @@ export const shortcutGroups = [
     items: [
       ['Tab', '切换页面'],
       ['F1 / F2', '交流 / 状态'],
+      ['F6 / Ctrl+N', '编辑 ctx / 新地址（状态页）'],
+      ['F7', 'TOML 配置文件'],
+      ['F5 / F8 / F9', '编辑器内读取 / 保存 / 确认'],
+      ['Ctrl+D / Esc', '编辑器内删除 ctx / 返回'],
       ['PgUp / PgDn', '翻阅当前页面'],
       ['F3', '交流回到底部'],
       ['Ctrl+C', '退出界面'],
