@@ -18,7 +18,7 @@ build-backend = "setuptools.build_meta"
 packages = []
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.9", "tomli-w>=1.2,<2", "aurora-adapters[mcp]>=0.1.0"]
+dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.9", "tomli-w>=1.2,<2", "aurora-adapters[mcp-world]>=0.1.0"]
 
 [tool.coverage.run]
 source = [

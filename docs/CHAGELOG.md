@@ -2,6 +2,16 @@
 
 ## 2026-11-02
 
+### M4.B4：将 MCP 资源通知接入独立世界来源
+
+- 新增 `aurora_adapters.mcp.world` 插件与 `aurora-adapters[mcp-world]` extra，登记 `org.aurora.adapters:sources/mcp/resources` 和非持久 `org.aurora.adapters:state/mcp/world`。来源配置复用 world 的 sources.config，mcp_world_component 注入共享 MCPClients 并声明生命周期依赖，替代通用来源装配而不创建第二个 world 所有者。仅客户端的 mcp extra 仍不安装或导入 world，通知侧不引入 agent/bot/CLI/API。
+- 通过 SDK 2.3.0 的 subscriptions/listen 订阅精确选择的 URI，start 等待全部选择得到确认；按实际消费要求检查 resources/tools 能力。notification 只存变化提示，resource 读取当前内容，两者使用本地观察身份；event 读取单个文本资源的严格 JSON `{message_id, payload}`，以连接、URI、上游消息身份组合去重，不把采样时间混入稳定事件。同身份同文返回原 world 记录，异文或身份缺失明确失败。来源固定 source_id，经既有 emit 接纳普通 JSON，SDK 类型不进入 world。
+- 默认桥接缓冲为 64 项，溢出、未选 URI、超限内容、读取失败、订阅结束或断线均停止该来源并记录固定错误码，无自动重订阅、重连或历史补发。SDK 可能合并尚未消费的同 URI 通知，另有 1024 项不同事件积压上限；SDK 丢流统一报 subscription_lost。因此资源读取及 event 模式都不承诺还原全部中间变化。工具目录变化只标记 tools_dirty，不进入世界记录或热改工具集合。
+- 订阅及借用由来源自有任务进入和退出，接收与读取任务一同收束；关闭等待取消或超时可再次等待，不重复取消 finally。来源失败或关闭不关闭共享客户端；真正的订阅清理失败单独报告，故障与宿主停止同时发生不误报清理失败。正常停止时尚未接纳的缓冲与在途观察以 discarded、固定诊断和日志报告，不伪报已保存，不在重启后重放。只有 emit 成功的记录交由宿主最终落盘。
+- 新增 34 项验收：资源模式、身份与冲突、过滤确认、能力拒绝、断流/读取错误、缓冲溢出、启动取消、关闭等待重试和收尾竞态。真实本机 HTTP 服务通过两个独立进程验证记录恢复，记录数依次为 `[2, 3]`、`[4, 5]`，稳定事件保留原 record_id；来源失败后另一个来源和共享工具调用仍可用，断线不自动重新订阅。未调用真实模型或外部业务服务。
+- 完整 `pnpm exec uv run --locked aurora check` 通过：758 项 Python、97 项 TS、5 项原生终端测试，格式、lint、类型检查通过。12 个 wheel 构建完成；最终 adapters wheel 在 `build/mcp-b4-isolated` 的无 bot/agent 环境完成来源、模板和本机通知验收，在 `build/mcp-b4-client` 验证仅客户端无需 world。另以干净环境确认基础 adapters/control 仅需 core、agent 无 bot/CLI/API/world/adapters。文档本地链接和差异检查通过。
+- 同步架构、公共 ID、启动指南与推进顺序；无旧公共 ID/插件替换，无快照迁移，不修改现有用户配置或默认 bot 装配。B4 已交付，下一步 B2 工具桥及 B3 共享关闭验收，再接 cadence 与 live_workshop 集成。保留原五条产品示例路径，独立验收入口位于 tests/fixtures/mcp_world_roundtrip.py。
+
 ### M4.B1：MCP 声明配置与独立客户端所有权
 
 - 新增可选 `aurora_adapters` 包及 `aurora_adapters.mcp` 插件，基础包仅依赖 core，`aurora-adapters[mcp]` extra 提供 config、官方 MCP SDK 2.3.0 和 httpx2。工作区开发依赖包含该 extra，统一产品安装和默认 bot 不自动启用 MCP；不引入 world/agent/bot 反向依赖。协议限定 2026-07-28，通过指定版本的 server/discover 检查能力，不回退旧握手，不自动续发多轮输入请求。

@@ -7,9 +7,11 @@ dependencies = ["aurora-core>=0.1.0"]
 
 [project.optional-dependencies]
 mcp = ["aurora-config>=0.1.0", "mcp==2.3.0", "httpx2>=2.16,<3"]
+mcp-world = ["aurora-adapters[mcp]>=0.1.0", "aurora-world[config]>=0.1.0"]
 
 [project.entry-points."aurora.plugins"]
 "aurora_adapters.mcp" = "aurora_adapters.mcp:plugin"
+"aurora_adapters.mcp.world" = "aurora_adapters.mcp.world:plugin"
 
 [build-system]
 requires = ["hatchling"]

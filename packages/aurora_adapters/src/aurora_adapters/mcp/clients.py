@@ -120,6 +120,11 @@ class MCPClients:
         self._closing = False
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    @property
+    def instance_id(self) -> str:
+        """供实际消费者声明生命周期依赖。"""
+        return self._instance_id
+
     def _check_loop(self) -> None:
         if self._loop is not asyncio.get_running_loop():
             raise RuntimeError("MCP 客户端必须在准备它的事件循环使用")

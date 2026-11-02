@@ -55,7 +55,7 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
 | `aurora_logging` | 宿主与库共用的日志级别、控制台输出、回溯与文件落盘配置 | 不依赖业务包，不参与 ctx 或插件登记 |
 | `aurora_world` | 世界记录、来源去重、位置读取及进程内来源装配已交付；TOML/内置来源按 M4-W 扩展 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
-| `aurora_adapters` | 可选 MCP 连接配置、独立客户端所有者与能力检查已交付 | SDK 类型留在适配层；世界通知桥与 agent 工具桥后续分别接入 |
+| `aurora_adapters` | 可选 MCP 配置、独立客户端所有者、能力检查与世界通知桥已交付 | SDK 类型留在适配层；agent 工具桥待 B2 接入 |
 
 代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`model_adapter` 只依赖 core 并被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、model_adapter、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
 
@@ -414,7 +414,9 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - M4.B1 已提供可选 `aurora-adapters[mcp]` 与 `aurora_adapters.mcp` 插件。`MCPClients` 在 config 阶段选择声明，prepare 阶段创建连接；每个 SDK 上下文由同一后台任务进入与退出，消费者通过异步借用上下文使用。stop 封闭入口、取消并等待剩余借用，clean 在依赖者清理后关闭客户端，最后由宿主落盘。关闭等待超时或取消可再次等待，不重复取消正在收尾的任务；真正的关闭失败阻止宿主假报关闭成功。基础 adapters 仅依赖 core，MCP extra 引入 config/SDK/httpx2，无 world/agent/bot 依赖。
 - MCP 配置模板默认 connections 为空，只补缺失文件；每项包含 connection_id、HTTP(S) URL、所需能力、连接和请求超时以及可选 token_env 环境变量名。凭证在连接创建时单独解析，不进入 TOML、ctx 或快照。URL 不接受 userinfo、查询串或片段；服务端任意元数据不写入观察状态。配置与状态均非持久，固定错误码区分启动超时、协议/能力拒绝、传输和关闭失败。ready 不是持续健康探测，断线在请求时诊断，不自动重放请求或重连。
 - SDK 锁定 2.3.0，以 `2026-07-28` 版本显式请求 server/discover，不执行旧握手回退；未知必需能力在配置阶段拒绝，服务端额外能力不冒充已支持能力。未提供采样、roots 或 elicitation 回调，多轮输入结果不自动续发。客户端不自动读取工具/资源、监听通知或激活模型；默认 bot 尚不装配 MCP。独立本机验收与宿主用法见[启动指南](../examples/START.md#mcp-独立客户端验收)。
-- 世界通知桥待 M4.B4 实现：通过 `subscriptions/listen` 接收选定资源变化，按配置决定是否读取资源内容，再转换为世界输入。工具目录变化、调用进度、取消及订阅控制信息由适配器/调用管理处理，业务事件需要额外明确的内容与身份约定。[SDK 说明](https://py.sdk.modelcontextprotocol.io/whats-new/)、[订阅协议](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions)。
+- M4.B4 已通过 `aurora_adapters.mcp.world` 插件与 `aurora-adapters[mcp-world]` extra 提供资源通知来源。mcp_world_component 复用 world 的声明配置与唯一来源所有者，并依赖注入的 MCPClients；来源 start 等待 subscriptions/listen 确认全部选择，后台任务同时接收通知与处理有界队列，停止只释放自身订阅和借用。世界消息通过固定 source_id 的 emit 接纳，world 不反向导入 SDK 或 agent，默认 bot 尚不装配 MCP。
+- 每个资源按精确 URI 配置 notification/resource/event 模式。前两种分别只存变化提示或读取内容，都使用本地观察身份；event 读取单个文本资源中的严格 JSON `{message_id, payload}`，连接、URI 与稳定 message_id 共同限定去重身份，不将采样时间混入事件载荷。身份缺失、同身份异文、未选 URI、读取失败、超限内容或缓冲溢出均使对应来源失败，其他来源和客户端仍可用。工具目录通知只设置 tools_dirty，不进入 world、不热改工具集合；协议控制通知不作为业务输入。
+- SDK 2.3.0 的通知流会合并尚未消费的同 URI 提示，且有自身的 1024 项不同事件积压上限；SDK 流丢失统一报 subscription_lost。适配器另有默认 64 项的有界队列，溢出明确报 buffer_overflow。两者均不承诺完整事件日志或历史补发；资源读取反映读取时当前值，不保证保留通知时的版本。正常停止也会报告已收到但尚未接纳的观察数量，状态非持久，固定诊断同步进入宿主日志；它们不会被伪报为已落盘或在重启后重放。[SDK 订阅说明](https://py.sdk.modelcontextprotocol.io/client/subscriptions/)。
 - 来源有稳定事件 ID 或修订号时用于构造 message_id；只有资源 URI、最新内容或通知到达时间时不承诺跨重连去重与完整历史。缓冲须有界，溢出或来源失败必须有明确状态；断线后不静默补发未知业务，不自动重试结果不明的工具动作。
 - MCP 工具在 bot 的 prepare 检查前完成发现与 ToolSpec 登记，再将实例 ExecutionPlug 接入 ToolExecutor。名称冲突、schema、结构化内容与错误由工具桥处理，before_call/after_call、超时与取消沿用 agent；首版工具目录变化标记待重新装配，不在运行中热改集合。
 - MCP 客户端由独立生命周期组件持有，世界与工具桥只持有使用引用。配置完成后创建资源，消费者就绪后开放输入；停止接纳后结束来源与运行任务，待依赖者清理完再关闭客户端，最后由宿主落盘。单个来源停止不能关闭在途工具仍使用的客户端。
@@ -505,7 +507,7 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 | `aurora_api` | core；按实际需要复用 CLI 公开适配描述 | 提供 client 传输；不强制经过 CLI，不导入 bot 插件实现 |
 | `aurora_logging` | core；按实际需要 | 当前提供日志配置 |
 | `aurora_world` | core；后续声明配置时使用 config | 世界记录已实现，不依赖 agent/bot；cadence 将通过其公开记录与 ctx 订阅接入 |
-| `aurora_adapters` | core；mcp extra 引入 config、mcp、httpx2 | 独立客户端已实现；通知桥及工具桥待实现，不反向引入 world/agent/bot |
+| `aurora_adapters` | core；mcp extra 引入 config、mcp、httpx2；mcp-world extra 加入 world/config | 客户端与世界通知桥已实现，工具桥待实现；world/agent/bot 不反向依赖 adapters |
 | `aurora_client` | TS 传输与所需生成类型 | 实现统一 ctx 接口和既有 ctx ID 入口 |
 | `aurora_tui`、`aurora_panel` | client | 使用 ctx interface，不参与后端插件装配 |
 | `docsite`、`landing` | 各自构建依赖 | 独立解析页面和资源 |
@@ -524,7 +526,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | `packages/aurora_api/` | 后端传输 |
 | `packages/aurora_logging/` | 日志配置 |
 | `packages/aurora_world/` | 世界记录、来源身份与位置读取、来源装配、可选声明配置、后台托管与时间/天气环境来源 |
-| `packages/aurora_adapters/` | 可选外部协议适配；MCP 声明配置与客户端生命周期 |
+| `packages/aurora_adapters/` | 可选外部协议适配；MCP 声明配置、客户端生命周期与世界资源通知桥 |
 | `packages/aurora_client/` | TS 共享 ctx 访问与连接 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 终端与 Web 界面 |
 | `apps/docsite/`、`apps/landing/` | 静态应用 |

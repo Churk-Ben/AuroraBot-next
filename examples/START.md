@@ -306,7 +306,60 @@ request_timeout = 30.0
 
 token_env 只填写运行期环境变量名。地址不可包含凭证、查询串或片段；修改配置后重启生效。支持 HTTP(S) Streamable HTTP，已验收本机 HTTP；SDK 固定 2.3.0，协议固定 2026-07-28，拒绝旧协议，不自动处理多轮输入。客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；ready 表示启动准备完成，没有后台健康探测。失败不自动重连或重放请求。关闭等待超时可再次等待，真正的关闭异常需诊断后重建宿主。
 
-当前默认 bot 尚不装配 MCP，通知转 world、工具转 ToolSpec 和 stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
+当前默认 bot 尚不装配 MCP；世界通知通过下面的 B4 独立来源装配使用，工具转 ToolSpec 和 stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
+
+### MCP 世界通知桥
+
+安装 `aurora-adapters[mcp-world]`，宿主显式启用 `aurora_config`、`aurora_adapters.mcp`、`aurora_world`、`aurora_world.configuration` 和 `aurora_adapters.mcp.world`。保留上述 MCP 连接配置，使用共享 MCPClients，并用 `mcp_world_component` 替代通用 configured_sources_component；不要在同一 ctx 重复装配两个 world 来源所有者：
+
+```python
+from aurora_adapters.mcp import MCPClients
+from aurora_adapters.mcp.world import mcp_world_component
+
+clients = MCPClients(ctx, hooks)
+components = [
+    configuration_component(registry, ctx, hooks, storage),
+    clients.component(),
+    mcp_world_component(ctx, hooks, clients),
+]
+```
+
+在 `<data-dir>/config/org.aurora.world/config.toml` 的现有 sources 列表中增加来源。若文件只有 `sources = []`，先移除该行；已有环境来源可以与 MCP 来源共存于同一列表：
+
+```toml
+[[sources]]
+source = "org.aurora.adapters:sources/mcp/resources"
+source_id = "external/resources"
+[sources.config]
+connection_id = "local"
+buffer_size = 64
+max_content_bytes = 1048576
+watch_tools = false
+
+[[sources.config.resources]]
+uri = "board://current"
+mode = "resource"
+
+[[sources.config.resources]]
+uri = "events://latest"
+mode = "event"
+```
+
+URI 精确匹配，不自动读取服务端报告的其他 URI 或子资源。mode 默认为 resource，读取当前资源内容；notification 只存变化提示、不读取；这两种模式均生成本地观察身份，不把 URI 或内容哈希当作稳定事件 ID。event 要求服务端返回单个文本资源，其文本是严格 JSON，例如 `{"message_id":"event-42","payload":{"text":"原文"}}`；缺失身份或额外字段会使来源失败。同连接、URI、message_id 在同 source_id 下重投同文不会重复记录，异文明确冲突。切换到另一逻辑上游时应选择新的 source_id 或 connection_id。去重限于 world 仍保留的记录。
+
+订阅确认后才开始接纳，不在启动时自动读取资源或补发停机期间消息。MCP 资源变化是“可能需要重新读取”的提示，SDK 会合并尚未消费的同 URI 通知；读取时得到的是最新值，event 模式也不能据此保证完整业务事件历史。需要逐条可靠投递的上游必须另外提供可追读事件日志契约。
+
+桥接状态位于 `org.aurora.adapters:state/mcp/world`，location 为 `{"source_id":"external/resources"}`。identity_modes 明确是本地观察还是来源消息身份，accepted/duplicates 表示内存接纳结果。watch_tools 只设置 tools_dirty，不把目录变化写成世界输入，也不热更新工具。缺失能力、订阅未确认全部选择、身份错误、读取失败、连接丢失及队列溢出均有固定错误码，并封闭对应来源；不自动重订阅或重放。修正后需正常重启宿主。
+
+buffer_size 限制适配器等待处理的通知数，不包括当前一项读取；max_content_bytes 限制读取后可接纳的序列化内容大小，不是 HTTP 响应下载上限。SDK 另有 1024 项不同待消费事件的上限，其丢流报告为 subscription_lost。连接的 request_timeout 也约束 HTTP 空闲读取，长时间无消息的服务应发送流心跳或配置相应超时。停止来源会等待订阅与在途读取收束，释放借用而不关闭共享客户端；已收到但尚未接纳的观察会记入 discarded，并报告 stopped_with_pending 或对应故障及日志。桥接诊断不持久化，重启不会恢复这些待处理通知；已接纳的 world 记录由宿主最终落盘。
+
+独立验收夹具在本机启动真实 MCP 服务，验证通知、资源读取、稳定事件去重、宿主恢复、来源失败隔离和断流：
+
+```powershell
+uv run --locked python tests/fixtures/mcp_world_roundtrip.py build/mcp-world-acceptance
+```
+
+该命令只创建测试服务，但会写指定目录的验收配置，请使用独立目录。同一目录再次运行会验证保留记录的去重与新观察追加。它不调用真实模型，不是新的产品示例入口。
 
 ## 真实模型验收
 
