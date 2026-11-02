@@ -1,0 +1,10 @@
+# 显式选择 Streamable HTTP 服务；修改后重启生效。
+connections = []
+
+# [[connections]]
+# connection_id = "local"
+# url = "http://127.0.0.1:8000/mcp"
+# required_capabilities = ["resources", "tools"]
+# connect_timeout = 10.0
+# request_timeout = 30.0
+# token_env = "AURORA_MCP_TOKEN" # 仅填写环境变量名，不填写凭证。

@@ -2,6 +2,16 @@
 
 ## 2026-11-02
 
+### M4.B1：MCP 声明配置与独立客户端所有权
+
+- 新增可选 `aurora_adapters` 包及 `aurora_adapters.mcp` 插件，基础包仅依赖 core，`aurora-adapters[mcp]` extra 提供 config、官方 MCP SDK 2.3.0 和 httpx2。工作区开发依赖包含该 extra，统一产品安装和默认 bot 不自动启用 MCP；不引入 world/agent/bot 反向依赖。协议限定 2026-07-28，通过指定版本的 server/discover 检查能力，不回退旧握手，不自动续发多轮输入请求。
+- 连接配置复用 ConfigSpec/ConfigSchema/ConfigTemplate，默认 connections 为空，模板只复制缺失文件；config 选择连接，prepare 才创建客户端。支持 HTTP(S) Streamable HTTP，本轮验收本机 HTTP。每项声明独立身份、URL、必需能力及连接/请求超时；凭证只通过 token_env 在运行期解析，URL 拒绝 userinfo、查询串和片段。未知必需能力在配置阶段拒绝，服务端额外能力不冒充本地支持，不将任意元数据写入状态。
+- MCPClients 通过既有生命周期组件表达依赖，每个 SDK 上下文始终由同一后台任务进入、退出；消费者在适配层通过 connection 异步上下文借用。停止接纳后取消并等待剩余借用，依赖者清理完成后才释放客户端，最终由宿主落盘。关闭等待超时或取消可再次等待，不重复取消正在执行的 finally；真正的关闭异常明确失败，保留诊断而不伪报成功。SDK 在退出时上抛的既有请求传输故障与真正关闭异常分别处理，不自动重连或重放请求。
+- 新增 `org.aurora.adapters:configs/mcp`、`state/mcp/config`、`state/mcp/clients` 和四个生命周期处理器。配置和观察状态均非持久；观察以 owner/connection_id 定位，只含阶段、固定错误码、接纳开关、协议和已知能力。ready 表示准备成功，不提供持续健康探测，断线在实际请求中诊断。无旧公共 ID 或插件替换，无快照迁移，不改写现有用户配置。
+- 新增 41 项验收，覆盖配置拒绝、发现不联网、运行期凭证与错误脱敏、协议/能力拒绝、部分启动失败及取消、嵌套借用收束、关闭等待重试、关闭异常、模板保留和最终落盘顺序。真实进程夹具在禁用执行包、world、bot、CLI/API 导入的环境中完成本机 HTTP 能力发现、工具往返、资源读取和断线诊断；不调用真实模型或供应商服务。
+- 最终完整 `pnpm exec uv run --locked aurora check` 通过：724 项 Python、97 项 TS、5 项原生终端测试，格式、lint、类型检查通过。12 个 wheel 构建完成；最终 adapters wheel 在 `build/mcp-b1-isolated` 验证安装包内模板、无 bot/agent/world 环境和本机往返。另以干净环境验证基础 adapters 仅需 core、control 无 agent/模型、agent 无 bot/CLI/API；agent 既有 LiteLLM 间接依赖包含 MCP，本轮未改变该依赖关系。文档本地链接与差异检查通过。
+- 同步架构、公共 ID、推进计划和启动指南。B1 已交付，下一步为 B4 世界通知桥；通知流、world 转换、agent 工具桥和 stdio 尚未交付。保留原五条产品示例路径，独立安装验收复用 tests/fixtures/mcp_roundtrip.py。
+
 ### 限定环境记录保留窗口
 
 - 按用户要求，时间默认只保留最新 1 条；天气按 observed_at 采样时间保留最近一小时内最多 4 条，满一小时即过期，包括不可用观察。时间和天气分别提供 retain_count，天气另提供 retain_seconds，默认 1、4、3600；与采样间隔独立配置。包内模板、启动指南及本机南京来源配置已同步，修改后重启生效。

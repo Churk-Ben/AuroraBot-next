@@ -273,6 +273,41 @@ pnpm --filter @aurorabot/tui start
 
 裁剪会更新实际记录与快照，序号不重新编号；旧版 world 日志可直接读取，下次写入升级为 v2，旧程序不能读取新格式。裁剪后仅保留窗口内的消息参与去重，窗口外的同身份重投会作为新输入。读取位置落后于裁剪边界时明确报错，消费者须核对后重新读取窗口，不自动跳过缺失历史。每次环境采样仍是新的观察，重启不补发离线周期；来源状态显示主循环是否运行，天气是否可用以对应观察的 status 为准。
 
+## MCP 独立客户端验收
+
+M4.B1 提供 `aurora-adapters[mcp]`；工作区开发依赖已包含该 extra，统一产品安装不自动启用 MCP。通过现有测试夹具启动并关闭一个本机 MCP 服务和独立宿主：
+
+```powershell
+uv run --locked python tests/fixtures/mcp_roundtrip.py build/mcp-acceptance
+```
+
+夹具只在指定验收目录创建测试配置，完成真实 Streamable HTTP 能力发现、测试工具往返、资源读取、断线诊断和最终落盘；不访问真实供应商或用户模型。它不是新增产品示例入口，不要将验收目录指向已有用户数据。
+
+自定义宿主显式启用 `aurora_config` 和 `aurora_adapters.mcp`，登记生命周期插槽，装配 `configuration_component` 与 `MCPClients(ctx, hooks).component()`。消费者依赖默认组件身份 `aurora_adapters/mcp`，在 prepare 完成后借用：
+
+```python
+async with clients.connection("local") as client:
+    tools = await client.list_tools()
+```
+
+SDK 对象仅在适配层使用，不存入 ctx 或传给 world/agent。借用期间不要跨任务退出或自行关闭客户端，退出后不要保留引用继续使用；长期消费者在自己的 stop 阶段收束。停止整个宿主会封闭借用入口并取消剩余借用，等待它们的 finally 完成后才释放连接。
+
+缺失配置文件会在 `<data-dir>/config/org.aurora.adapters/config.toml` 生成空列表模板。启用连接时替换 `connections = []`：
+
+```toml
+[[connections]]
+connection_id = "local"
+url = "http://127.0.0.1:8000/mcp"
+required_capabilities = ["tools", "resources"]
+connect_timeout = 10.0
+request_timeout = 30.0
+# token_env = "AURORA_MCP_TOKEN"
+```
+
+token_env 只填写运行期环境变量名。地址不可包含凭证、查询串或片段；修改配置后重启生效。支持 HTTP(S) Streamable HTTP，已验收本机 HTTP；SDK 固定 2.3.0，协议固定 2026-07-28，拒绝旧协议，不自动处理多轮输入。客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；ready 表示启动准备完成，没有后台健康探测。失败不自动重连或重放请求。关闭等待超时可再次等待，真正的关闭异常需诊断后重建宿主。
+
+当前默认 bot 尚不装配 MCP，通知转 world、工具转 ToolSpec 和 stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
+
 ## 真实模型验收
 
 [scripts/accept_m2.py](../scripts/accept_m2.py) 创建独立 TOML profile 和 bot 配置，经 CLI 验证流式、完整响应、工具往返与恢复。该脚本会调用指定供应商，需要事先配置凭证；`--data-dir` 必须是尚不存在的目录。

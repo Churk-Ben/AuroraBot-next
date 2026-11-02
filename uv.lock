@@ -8,6 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "aurora-adapters",
     "aurora-agent",
     "aurora-api",
     "aurora-bot",
@@ -217,6 +218,30 @@ wheels = [
 ]
 
 [[package]]
+name = "aurora-adapters"
+version = "0.1.0"
+source = { editable = "packages/aurora_adapters" }
+dependencies = [
+    { name = "aurora-core" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "aurora-config" },
+    { name = "httpx2" },
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aurora-config", marker = "extra == 'mcp'", editable = "packages/aurora_config" },
+    { name = "aurora-core", editable = "packages/aurora_core" },
+    { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.16,<3" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
+]
+provides-extras = ["mcp"]
+
+[[package]]
 name = "aurora-agent"
 version = "0.1.0"
 source = { editable = "packages/aurora_agent" }
@@ -398,6 +423,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aurora-adapters", extra = ["mcp"] },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -414,6 +440,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "aurora-adapters", extras = ["mcp"], editable = "packages/aurora_adapters" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.9" },

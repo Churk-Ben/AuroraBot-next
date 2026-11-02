@@ -29,6 +29,7 @@
 | --- | --- | --- |
 | `aurora_core` | `org.aurora.core` | Python 运行时 |
 | `aurora_config` | `org.aurora.config` | Python 运行时 |
+| `aurora_adapters` | `org.aurora.adapters` | Python 运行时；MCP 可选插件 |
 | `aurora_cli` | `org.aurora.cli` | Python 运行时 |
 | `aurora_control` | `org.aurora.control` | Python 运行时 |
 | `aurora_agent` | `org.aurora.agent` | Python 运行时 |
@@ -292,11 +293,29 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | --- | --- | --- |
 | 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 已实现上述状态与 Python 接口；不承载全部直接对话，不要求记录绑定某个 run |
 | 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | W2.1–W2.3 已交付登记、绑定接纳、声明配置、后台托管与时间/天气来源，并接入默认装配 |
-| MCP 客户端、世界来源桥与工具桥 | 待新增的 aurora_adapters 包，具体公共 ID 尚未登记 | 通知桥实现 world 来源契约，工具桥接入 agent；共用独立客户端所有者，不改变 world/agent 的定义归属 |
+| MCP 客户端、世界来源桥与工具桥 | `org.aurora.adapters`；B1 客户端定义见第 6.6 节 | 独立客户端已交付；通知桥与工具桥待实现，不改变 world/agent 的定义归属 |
 | cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 在 bot 包内提供可选插件；插件名与完整 ID 随实现登记，不建立独立 cadence 包 |
 | 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
 
 来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，避免同一输入经两条路径重复提交。M4.W4 将 live_workshop 改为正式 world/cadence 的消费者，替换其示例自有调度。
+
+### 6.6 MCP 客户端（M4.B1 已实现）
+
+安装 `aurora-adapters[mcp]`，显式启用 `aurora_config` 与 `aurora_adapters.mcp`。入口属于 `aurora.plugins`，名称与 Plugin.name 一致；发现不创建网络资源。基础 adapters 包仅依赖 core，MCP extra 引入 config、SDK 2.3.0 和 httpx2，不依赖 world、agent 或 bot。
+
+| ID | kind | 用途 |
+| --- | --- | --- |
+| `org.aurora.adapters:configs/mcp` | `config` | 连接列表声明；模板来自 aurora_adapters.mcp/config.toml |
+| `org.aurora.adapters:state/mcp/config` | `state_key` | 全局非持久配置；文件位于 org.aurora.adapters/config.toml |
+| `org.aurora.adapters:state/mcp/clients` | `state_key` | 非持久观察；location 为 owner 与 connection_id |
+| `org.aurora.adapters:handlers/mcp/configure` | `hook_handler` | config 阶段复制并选择连接声明 |
+| `org.aurora.adapters:handlers/mcp/prepare` | `hook_handler` | 创建客户端并检查协议与所需能力 |
+| `org.aurora.adapters:handlers/mcp/stop` | `hook_handler` | 封闭借用，取消并等待剩余消费者 |
+| `org.aurora.adapters:handlers/mcp/clean` | `hook_handler` | 在依赖者清理后释放客户端及 HTTP 资源 |
+
+`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapters/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、accepting、protocol_version 和已知能力名称，不保留服务端描述或凭证。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
+
+新增定义均非持久，无旧 ID/插件名替换，无快照迁移；不自动启用插件、改写用户文件或调整默认 bot 装配。世界通知桥与工具桥的定义随实际消费者实现。
 
 ## 7. aurora_api
 

@@ -1,0 +1,19 @@
+[project]
+name = "aurora-adapters"
+version = "0.1.0"
+description = "Aurora external protocol adapters"
+requires-python = ">=3.12"
+dependencies = ["aurora-core>=0.1.0"]
+
+[project.optional-dependencies]
+mcp = ["aurora-config>=0.1.0", "mcp==2.3.0", "httpx2>=2.16,<3"]
+
+[project.entry-points."aurora.plugins"]
+"aurora_adapters.mcp" = "aurora_adapters.mcp:plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aurora_adapters"]
