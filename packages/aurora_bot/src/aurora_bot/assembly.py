@@ -22,6 +22,8 @@ from aurora_core.storage import StorageService
 from aurora_model_adapter import ModelClient, require_capabilities
 from aurora_model_adapter.configuration import BINDINGS, resolve_model
 from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
+from aurora_world.configuration import CONFIGURATION as WORLD_CONFIGURATION
+from aurora_world.configuration import configured_sources_component
 
 from .assembly_config import (
     AGENTS,
@@ -50,7 +52,7 @@ def environment_credential(reference: str) -> str:
 
 
 class DefaultAssembly:
-    """同一宿主内的一份默认装配，固定包含模型资源所有者和单 bot 所有者。
+    """默认装配持有模型和单 bot，并在启用 world 配置时托管所选世界来源。
 
     components() 同步建立生命周期连接；prepare 在宿主恢复和预配置之后读取配置。
     同一配置的多次装配各自调用工厂，不隐式共享模型实例。工具工厂创建的实例由 bot
@@ -119,13 +121,22 @@ class DefaultAssembly:
                 links.append(
                     self.hooks.connect(phase, definition.id, slot_instance=owner, handler_instance=owner, target=method)
                 )
+            world = ()
+            if any(entry.id == WORLD_CONFIGURATION for entry in self.registry.entries()):
+                world = (
+                    configured_sources_component(
+                        self.ctx, self.hooks, instance_id=f"{self.instance_id}/world", depends_on=(bot_owner,)
+                    ),
+                )
         except Exception:
             for link in links:
                 self.hooks.disconnect(link)
             raise
         self._connected = True
-        return LifecycleComponent(model_owner), LifecycleComponent(
-            bot_owner, depends_on=(model_owner,), stop_accepting=self.stop_accepting
+        return (
+            LifecycleComponent(model_owner),
+            LifecycleComponent(bot_owner, depends_on=(model_owner,), stop_accepting=self.stop_accepting),
+            *world,
         )
 
     @hook_handler("org.aurora.bot:handlers/assembly/prepare_model", slot=PREPARE)

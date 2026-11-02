@@ -7,10 +7,12 @@ dependencies = ["aurora-core>=0.1.0"]
 
 [project.optional-dependencies]
 config = ["aurora-config>=0.1.0"]
+environment = ["aurora-config>=0.1.0", "httpx>=0.28,<1"]
 
 [project.entry-points."aurora.plugins"]
 aurora_world = "aurora_world.plugin:plugin"
 "aurora_world.configuration" = "aurora_world.configuration:plugin"
+"aurora_world.environment" = "aurora_world.environment:plugin"
 
 [build-system]
 requires = ["hatchling"]

@@ -181,9 +181,10 @@ def seed(ctx, *, tools=True, credential=False, model="first"):
     ctx.set(BINDINGS, {"reasoning": "primary"})
 
 
-def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"):
+def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret", extra_plugins=()):
     registry = bootstrap()
     register_plugins(registry, (configuration_plugin(),))
+    register_plugins(registry, extra_plugins)
     register_plugins(
         registry,
         (adapter_plugin(), model_plugin(), react_plugin(), tools_plugin(), defaults_plugin(), assembly_plugin()),

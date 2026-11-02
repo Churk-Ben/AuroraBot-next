@@ -262,6 +262,7 @@ dependencies = [
     { name = "aurora-control" },
     { name = "aurora-core" },
     { name = "aurora-model-adapter" },
+    { name = "aurora-world", extra = ["config"] },
 ]
 
 [package.metadata]
@@ -271,6 +272,7 @@ requires-dist = [
     { name = "aurora-control", editable = "packages/aurora_control" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
+    { name = "aurora-world", extras = ["config"], editable = "packages/aurora_world" },
 ]
 
 [[package]]
@@ -369,13 +371,19 @@ dependencies = [
 config = [
     { name = "aurora-config" },
 ]
+environment = [
+    { name = "aurora-config" },
+    { name = "httpx" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "aurora-config", marker = "extra == 'config'", editable = "packages/aurora_config" },
+    { name = "aurora-config", marker = "extra == 'environment'", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
+    { name = "httpx", marker = "extra == 'environment'", specifier = ">=0.28,<1" },
 ]
-provides-extras = ["config"]
+provides-extras = ["config", "environment"]
 
 [[package]]
 name = "aurorabot-ai"
@@ -385,7 +393,7 @@ dependencies = [
     { name = "aurora-api" },
     { name = "aurora-bot" },
     { name = "aurora-cli" },
-    { name = "aurora-world" },
+    { name = "aurora-world", extra = ["environment"] },
 ]
 
 [package.dev-dependencies]
@@ -401,7 +409,7 @@ requires-dist = [
     { name = "aurora-api", editable = "packages/aurora_api" },
     { name = "aurora-bot", editable = "packages/aurora_bot" },
     { name = "aurora-cli", editable = "packages/aurora_cli" },
-    { name = "aurora-world", editable = "packages/aurora_world" },
+    { name = "aurora-world", extras = ["environment"], editable = "packages/aurora_world" },
 ]
 
 [package.metadata.requires-dev]

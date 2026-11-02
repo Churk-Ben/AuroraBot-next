@@ -7,7 +7,7 @@ dependencies = [
     "aurora-bot>=0.1.0",
     "aurora-cli>=0.1.0",
     "aurora-api>=0.1.0",
-    "aurora-world>=0.1.0",
+    "aurora-world[environment]>=0.1.0",
 ]
 
 [build-system]

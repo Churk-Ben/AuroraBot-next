@@ -279,15 +279,19 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | `org.aurora.world:configs/sources` | config | 可选配置插件登记，声明来源选择列表及包内 TOML 模板 |
 | `org.aurora.world:state/config` | state_key | 可选配置插件登记，全局来源配置，非持久化 |
 | `org.aurora.world:handlers/sources/configure` | hook_handler | 可选配置插件登记，加载配置后选择来源，prepare 前完成引用检查 |
+| `org.aurora.world:sources/environment/time` | source | 可选环境插件登记，按配置周期采集宿主本地时间 |
+| `org.aurora.world:sources/environment/weather` | source | 可选环境插件登记，按配置地点和周期采集 Open-Meteo 当前天气；失败形成不可用观察 |
 
-来源提供方用自身命名空间声明定义，并设置 `register_to=org.aurora.world:registries/sources`；插件依赖须显式启用 aurora_world。`WorldSources.add(definition_id, source_id=..., config=...)` 在准备前选择定义并固定实例身份，`component()` 返回宿主 LifecycleComponent。可选 `aurora_world.configuration` 插件要求显式启用 aurora_config 和 aurora_world，安装使用 `aurora-world[config]`；`aurora_world.configuration.configured_sources_component` 通过 config 阶段完成 TOML 装配，模板位于配置目录的 `org.aurora.world/config.toml`。来源工厂只获得绑定身份的 emit 回调和配置，不获得原始 ctx。SourceInstance 提供 start/stop/aclose 及可选的托管 run 主循环；后台结束或失败封闭对应入口，失败不自动重启。状态、配置和资源不进入业务快照，后台错误只记录固定代码。只有所选来源进入对应 start 时才可提交，关闭后旧回调也会拒绝写入；W1 的低层记录接口仍独立可用。
+来源提供方用自身命名空间声明定义，并设置 `register_to=org.aurora.world:registries/sources`；插件依赖须显式启用 aurora_world。`WorldSources.add(definition_id, source_id=..., config=...)` 在准备前选择定义并固定实例身份，`component()` 返回宿主 LifecycleComponent。可选 `aurora_world.configuration` 插件要求显式启用 aurora_config 和 aurora_world，安装使用 `aurora-world[config]`；`aurora_world.configuration.configured_sources_component` 通过 config 阶段完成 TOML 装配，模板位于配置目录的 `org.aurora.world/config.toml`。默认 bot 在该配置定义已登记时装配来源组件。来源工厂只获得绑定身份的 emit 回调和配置，不获得原始 ctx。SourceInstance 提供 start/stop/aclose 及可选的托管 run 主循环；后台结束或失败封闭对应入口，失败不自动重启。状态、配置和资源不进入业务快照，后台错误只记录固定代码。只有所选来源进入对应 start 时才可提交，关闭后旧回调也会拒绝写入；W1 的低层记录接口仍独立可用。
+
+环境来源插件为 `aurora_world.environment`，要求显式启用 aurora_world，安装 extra 为 `aurora-world[environment]`，增加 config 和 httpx 包依赖。两个来源独立配置和停用；时间默认间隔 60 秒，天气默认 900 秒，地点标签及经纬度须在天气实例配置中给出。采样身份由启动会话与计数构成，重启只采集当前观察，不回放离线周期。天气失败是主循环仍可继续采样的不可用观察，区别于 source_status 的主循环失败；不增加事件总线或 agent 调度定义。
 
 `WorldPosition(journal_id, sequence, record_id)` 表示已经读取的记录位置；`sequence=0` 时不含 record_id。日志变化、位置超前或记录锚点不一致均拒绝静默恢复。记录与去重身份保留全部历史，不自动裁剪；接纳不保证已落盘。详见[设计中的接口与恢复规则](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源与 cadence 的其余能力按 [M4-W 计划](plan.md)交付：
 
 | 能力 | 定义归属 | 实施边界 |
 | --- | --- | --- |
 | 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 已实现上述状态与 Python 接口；不承载全部直接对话，不要求记录绑定某个 run |
-| 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | W2.1/W2.2 已交付登记、绑定接纳、可选 TOML 装配与后台托管；模拟/周期来源待 W2.3 |
+| 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | W2.1–W2.3 已交付登记、绑定接纳、声明配置、后台托管与时间/天气来源，并接入默认装配 |
 | MCP 客户端、世界来源桥与工具桥 | 待新增的 aurora_adapters 包，具体公共 ID 尚未登记 | 通知桥实现 world 来源契约，工具桥接入 agent；共用独立客户端所有者，不改变 world/agent 的定义归属 |
 | cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 在 bot 包内提供可选插件；插件名与完整 ID 随实现登记，不建立独立 cadence 包 |
 | 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
@@ -409,7 +413,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | bot conversation 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
 | config configuration 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
 | bot conversation 端点 | 已实现操作绑定 | `org.aurora.bot:operations/run/submit` 与 `org.aurora.bot:operations/run/cancel`；复用现有操作 |
-| world 来源 | 记录、来源装配、可选 TOML 与后台托管已实现，内置来源待后续切片 | 世界记录由 world 提供；来源不直接决定 agent 运行 |
+| world 来源 | 记录、来源装配、声明配置、后台托管与时间/天气来源已实现 | 世界记录由 world 提供；来源不直接决定 agent 运行 |
 | cadence | M4-W 规划读取与提交 | 订阅选定世界记录，向目标实例的既有 AgentRuntime 提交引导 |
 | ReAct 默认处理器 | `register_to` | `org.aurora.core:registries/hook_handlers` |
 | AgentRuntime | 宿主入口 | `get_agent`、`execute`、`is_executing`；不引用 DefaultAssembly |
@@ -422,7 +426,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
 | TUI/Panel 的订阅 | 连接与订阅支持 | `org.aurora.client:services/event_stream` |
 
-M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1/W2.2 已提供来源登记、可选声明配置与后台托管，内置来源及 cadence 待后续实现。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧配置和快照无需迁移；含世界记录的新快照恢复时必须显式启用 aurora_world，缺失定义不会被静默忽略。
+M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，cadence 待后续实现。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧配置和快照无需迁移；含世界记录的新快照恢复时必须显式启用 aurora_world，缺失定义不会被静默忽略。
 
 ## 14. 第三方声明示例
 

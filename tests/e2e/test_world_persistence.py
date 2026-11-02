@@ -119,7 +119,12 @@ assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 
 
 def test_world_distribution_owns_records_sources_and_lifecycle_definitions():
-    assert metadata.requires("aurora-world") == ["aurora-core>=0.1.0", "aurora-config>=0.1.0; extra == 'config'"]
+    assert metadata.requires("aurora-world") == [
+        "aurora-core>=0.1.0",
+        "aurora-config>=0.1.0; extra == 'config'",
+        "aurora-config>=0.1.0; extra == 'environment'",
+        "httpx<1,>=0.28; extra == 'environment'",
+    ]
     plugin = load_plugins(enabled=["aurora_world"])[0]
     assert plugin.requires == ()
     entries = {entry.id: entry for entry in plugin.entries}

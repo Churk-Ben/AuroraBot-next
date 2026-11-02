@@ -2,6 +2,17 @@
 
 ## 2026-11-02
 
+### W2.3：将可配置的时间与天气周期接入默认装配
+
+- 按用户要求将最小周期来源落实为时间和天气，新增 `aurora_world.environment` 插件及 `org.aurora.world:sources/environment/time`、`org.aurora.world:sources/environment/weather` 两个 SourceSpec，复用 W2.2 的身份绑定、配置和任务托管。基础 world 仍仅依赖 core，environment extra 引入 config/httpx；统一安装包包含该 extra，bot 增加 world/config 依赖，无 agent → world 的反向依赖。
+- 时间使用宿主本地时区，默认每 60 秒采样；天气按配置的地点标签、经纬度、间隔与总请求超时读取 [Open-Meteo 当前天气](https://open-meteo.com/en/docs)，默认间隔 900 秒。两者可分别选择、调整或移除，重启生效；模板保留空列表默认值及真实配置示例，不覆盖用户文件。每次启动立即采样，以会话身份和计数区分观察，不补发离线周期，不把轮询采样冒充外部事件修订。
+- 天气观察保留提供方、采样时间、有效时间、摄氏温度、WMO 天气代码与描述、km/h 风速。超时、HTTP/网络错误和无效响应形成不可用观察，不写异常原文、不伪造天气，不阻塞时间来源；当前请求不自动重试，下个周期重新采样。关闭先取消并等待在途请求，再释放 HTTP 客户端和落盘。
+- DefaultAssembly 在 world 配置定义已显式登记时装配一个来源所有者，生命周期依赖 bot 组件；bot 就绪后开放来源，关闭时先收束来源，再关闭 bot/模型。没有启用 world 配置插件时保持原装配行为。`scripts/serve_bot.py --world` 显式开放世界记录及来源状态，复用 TUI 状态页与 F7 配置编辑。周期只进入 world，尚未接入 cadence，不自动调用模型。
+- 根据用户选择，在本机 `data/config/host.toml` 加入 world、配置及环境插件，并创建 `data/config/org.aurora.world/config.toml`，初始地点为南京（32.0617, 118.7778），时间 60 秒、天气 900 秒、超时 10 秒；修改前的宿主配置备份位于 `build/w2-3-local-config-before/host.toml`。本机数据不进入提交。使用现有配置完成正式 DefaultAssembly 启动、本机 API 读取和正常关闭落盘；南京天气返回可用，未提交或激活模型运行。
+- 新增 21 项自动验收，使用可控时钟、模拟传输及假模型，覆盖参数校验、时钟前后跳变不补发、天气错误与下一周期恢复、取消在途请求、默认装配的 HTTP/WS 观察、显式交流仍可执行、重启应用间隔变更与记录恢复。完整 `pnpm exec uv run --locked aurora check` 通过：666 项 Python、97 项 TS、5 项原生终端测试，格式、lint 和类型检查均通过。普通回归不访问真实天气或模型；真实天气采样另通过显式验收完成。
+- 11 个 wheel 构建完成；环境来源在 `build/w2-3-isolated` 的干净环境安装，确认无 bot/agent/control/模型/CLI/API/MCP，模板和环境代码来自安装包，独立进程恢复后仅增加两条当前观察。另验证基础 core/world 安装、control 无 agent/模型、agent 无 bot/CLI/API/world，以及 bot wheel 的新增 world 依赖和插件发现。执行包验收使用本次构建 wheel 的精确路径，避免解析到缓存中的外部同名 aurora-agent 包。
+- 同步架构、公共 ID、计划与启动指南。新增两个来源定义，不改变既有快照格式，不自动迁移用户配置；W2.3 已交付，下一步为 M4.B1/B4 的 MCP 客户端与世界通知桥。live_workshop 的示例调度仍待 W4 替换，TUI 全面优化仍在独立待办。
+
 ### W2.2：声明来源配置与后台任务托管
 
 - 新增可选 `aurora_world.configuration` 插件和 `aurora-world[config]` 安装 extra；基础 world 仍仅依赖 core。配置复用 ConfigSpec/ConfigSchema/ConfigTemplate，宿主显式装配配置服务及 configured_sources_component。包内 config.toml 默认空来源列表，只生成缺失文件；config 阶段校验列表、唯一 source_id 和来源引用，prepare 才创建资源。未选择的来源不启动，来源专用参数由工厂校验，运行期配置覆盖不写回 TOML，也不热装配实例。

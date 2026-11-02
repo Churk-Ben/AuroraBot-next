@@ -171,7 +171,7 @@ uv run --locked python examples/live_workshop/main.py --data-dir build/workshop-
 
 该进程持续运行，模拟世界变化并通过示例内的调度策略触发巡检。工具内部组合四种控制组件，报告保存在本地台账中。按 Ctrl+C 关闭宿主、任务、模型和存储。
 
-`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳，以及 W2.2 的可选 TOML 装配和后台主循环托管，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。内置周期来源与 cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
+`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳、可选 TOML 装配与后台主循环托管，W2.3 还提供时间与天气周期来源，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
 
 TOML 路径需要安装 `aurora-world[config]`，显式启用 aurora_config、aurora_world、aurora_world.configuration 及来源提供插件；宿主同时装配 `configuration_component` 和 `configured_sources_component`。后者在 config 阶段读取 `org.aurora.world/config.toml`，默认空列表不启动任何来源。每个 `[[sources]]` 包含 source 定义 ID、唯一 source_id 和可选的 `[sources.config]`。来源参数不承载运行期凭证；修改配置需重新启动，状态覆盖不保存到文件。夹具的 `--configured` 模式验证此路径：
 
@@ -232,6 +232,41 @@ uv run --locked --env-file .env python scripts/serve_bot.py
 需要从 TUI 编辑 TOML 时，在上述命令末尾加 `--edit-config`，显式开放 `org.aurora.config:endpoints/configuration`。已有宿主需先正常关闭再用该参数启动；保存配置后再次正常重启生效。未加此参数时，F7 会提示配置入口未开放，直接交流与 ctx 访问仍可用。
 
 另一个终端运行 `pnpm --filter @aurorabot/tui start`。此后端按现有配置连接真实供应商，启动本身不激活 bot；TUI 发送消息才触发模型调用。工具是否可用由 bot 配置的 `tools` 决定。后端终端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一 `data` 目录。
+
+### 在默认装配中观察时间和天气
+
+工作区统一安装已包含环境来源；独立安装使用 `aurora-world[environment]`。在现有 host.toml 的 plugins 列表中显式加入 `aurora_world`、`aurora_world.configuration`、`aurora_world.environment`，保留原来的 bot、模型和 API 插件。默认装配会托管 world 配置选中的来源；没有启用 world 配置插件时保持原来的装配行为。
+
+编辑 `<data-dir>/config/org.aurora.world/config.toml`。缺失文件的模板默认为空列表，启用以下来源时移除 `sources = []`，不要保留两个同名声明：
+
+```toml
+[[sources]]
+source = "org.aurora.world:sources/environment/time"
+source_id = "environment/time"
+[sources.config]
+interval_seconds = 60
+
+[[sources]]
+source = "org.aurora.world:sources/environment/weather"
+source_id = "environment/weather"
+[sources.config]
+place = "南京"
+latitude = 32.0617
+longitude = 118.7778
+interval_seconds = 900
+timeout_seconds = 10
+```
+
+地点名称和经纬度须一起修改；时间使用宿主本地时区。每次启动立即采样，此后按各自间隔采样，不补发停机期间的周期。移除某个来源项可单独停用，`sources = []` 停用全部来源，修改后重启生效，模板不覆盖已有配置。时间间隔至少 1 秒，天气至少 60 秒，天气总请求超时至多 30 秒。
+
+```powershell
+uv run --locked --env-file .env python scripts/serve_bot.py --world --edit-config
+pnpm --filter @aurorabot/tui start
+```
+
+两个命令分别在两个终端运行。`--world` 开放世界记录与来源状态，TUI 状态页筛选 `org.aurora.world` 即可读取，F7 可编辑 TOML。观察包含采样时间、地点、温度、天气描述及数据有效时间；天气来自 [Open-Meteo 当前天气接口](https://open-meteo.com/en/docs)，属于天气模型数据，载荷保留提供方归属。超时、网络失败或无效响应写入 `status=unavailable` 和固定错误代码，不伪造天气；时间来源继续运行，下一个天气周期会重新采样。
+
+环境采样只进入世界记录，不自动形成引导或调用模型；默认装配继续由显式交流激活。世界日志沿用完整保存策略，每次采样是新的观察，即使天气数据有效时间相同也不冒充同一外部事件；恢复后只新增当前观察。来源状态显示主循环是否运行，天气是否可用以对应观察的 status 为准。
 
 ## 真实模型验收
 

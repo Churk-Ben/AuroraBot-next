@@ -27,5 +27,5 @@ def test_workspace_packages_import(name):
 def test_unified_distribution_dependencies():
     requirements = metadata.requires("aurorabot-ai")
     assert requirements is not None
-    for package in ("aurora-bot", "aurora-cli", "aurora-api", "aurora-world"):
+    for package in ("aurora-bot", "aurora-cli", "aurora-api", "aurora-world[environment]"):
         assert any(requirement.startswith(f"{package}>=") for requirement in requirements)
