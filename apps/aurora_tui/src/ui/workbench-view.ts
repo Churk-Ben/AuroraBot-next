@@ -1,5 +1,7 @@
 import type { CliRenderer, KeyEvent, PasteEvent } from '@opentui/core';
 
+import type { ViewPreferences } from '../state/preferences.ts';
+
 import { BoxRenderable, TextareaRenderable, TextRenderable } from '@opentui/core';
 
 import { Workbench } from '../state/workbench.ts';
@@ -23,6 +25,9 @@ export class WorkbenchView {
   readonly input: TextareaRenderable;
   page: 'chat' | 'state' = 'chat';
   readonly statusPage: StatusPage;
+  get preferences(): ViewPreferences {
+    return { page: this.page, showTools: this.conversation.showTools };
+  }
   private readonly composer: BoxRenderable;
   private disposed = false;
   private readonly footer: TextRenderable;
@@ -38,7 +43,7 @@ export class WorkbenchView {
   private readonly tabs: TextRenderable;
   private readonly unsubscribe: () => void;
 
-  constructor(renderer: CliRenderer, model: Workbench, quit: () => void) {
+  constructor(renderer: CliRenderer, model: Workbench, quit: () => void, preferences?: ViewPreferences) {
     this.renderer = renderer;
     this.model = model;
     this.quit = quit;
@@ -68,7 +73,7 @@ export class WorkbenchView {
     header.add(this.stateTab);
     this.identity = text(renderer, '', { fg: colors.muted, flexGrow: 1, textAlign: 'right', truncate: true });
     header.add(this.identity);
-    this.conversation = new ConversationPage(renderer, model, () => this.hints());
+    this.conversation = new ConversationPage(renderer, model, () => this.hints(), preferences?.showTools);
     this.statusPage = new StatusPage(renderer, model);
     this.help = new ShortcutHelp(renderer);
     this.root.add(this.conversation.root);
@@ -127,8 +132,7 @@ export class WorkbenchView {
     renderer.keyInput.on('keypress', this.key);
     renderer.keyInput.on('paste', this.paste);
     renderer.on('resize', this.resize);
-    this.render();
-    this.input.focus();
+    this.switchPage(preferences?.page ?? 'chat');
   }
 
   dispose(): void {

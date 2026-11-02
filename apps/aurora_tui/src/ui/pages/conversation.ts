@@ -41,8 +41,11 @@ export class ConversationPage {
   readonly root: BoxRenderable;
   readonly scroll: ScrollBoxRenderable;
   unread = false;
+  get showTools(): boolean {
+    return this.details;
+  }
   private readonly cards = new Map<RunGroup, Card>();
-  private details = false;
+  private details: boolean;
   private readonly expanded = new Set<RunGroup>();
   private readonly history: BoxRenderable;
   private historySource?: Workbench['history'];
@@ -51,10 +54,11 @@ export class ConversationPage {
   private readonly onScroll: () => void;
   private readonly pending: TextRenderable;
   private readonly renderer: CliRenderer;
-  constructor(renderer: CliRenderer, model: Workbench, onScroll: () => void) {
+  constructor(renderer: CliRenderer, model: Workbench, onScroll: () => void, showTools = false) {
     this.renderer = renderer;
     this.model = model;
     this.onScroll = onScroll;
+    this.details = showTools;
     this.markdownStyle = createMarkdownStyle(renderer);
     this.root = new BoxRenderable(renderer, { flexDirection: 'column', flexGrow: 1, minHeight: 0 });
     this.scroll = new ScrollBoxRenderable(renderer, {

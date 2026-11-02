@@ -1,15 +1,76 @@
 import type { TestRendererSetup } from '@opentui/core/testing';
 
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 // oxlint-disable-next-line vitest/no-import-node-test -- 原生 FFI 验收需要 Node 直接加载，不能经过 Vitest 转换。
 import { test } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 
 import { createTestRenderer } from '@opentui/core/testing';
 
+import { loadPreferences, saveViewPreferences } from '../src/state/preferences.ts';
 import { BOT, Workbench } from '../src/state/workbench.ts';
 import { WorkbenchView } from '../src/ui/workbench-view.ts';
 import { FakeClient, settle } from './fake-client.ts';
+
+test('重开终端恢复页面、焦点和工具偏好，不恢复草稿或运行请求', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'aurora-tui-native-'));
+  const path = join(directory, 'tui.json');
+  const terminal = await createTestRenderer({ width: 100, height: 30 });
+  let model = new Workbench(new FakeClient());
+  let view = new WorkbenchView(terminal.renderer, model, () => {});
+  try {
+    const initial = await loadPreferences(path);
+    await model.start();
+    await terminal.mockInput.pasteBracketedText('不保存的草稿');
+    terminal.mockInput.pressKey('t', { ctrl: true });
+    terminal.mockInput.pressTab();
+    await terminal.mockInput.pasteBracketedText('临时筛选');
+    const current = view.preferences;
+    view.dispose();
+    await model.close();
+    await saveViewPreferences(path, initial, current);
+    const stored = await loadPreferences(path);
+    assert.equal(stored.page, 'state');
+    assert.equal(stored.showTools, true);
+    const content = await readFile(path, 'utf8');
+    assert.doesNotMatch(content, /草稿|筛选|request|session|run_id/);
+    const client = new FakeClient();
+    model = new Workbench(client);
+    view = new WorkbenchView(terminal.renderer, model, () => {}, stored);
+    await model.start();
+    await terminal.renderOnce();
+    assert.match(terminal.captureCharFrame(), /只读浏览/);
+    assert.equal(view.statusPage.filter.focused, true);
+    assert.equal(view.statusPage.filter.value, '');
+    assert.equal(view.input.plainText, '');
+    assert.equal(client.sent.length, 0);
+    terminal.mockInput.pressTab();
+    client.set({
+      id: BOT.work,
+      location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' },
+      value: {
+        execution_id: 'turn-one',
+        text: '模型输出',
+        tool_calls: [{ id: 'call', name: 'echo', arguments: { text: '恢复展开详情' } }],
+      },
+    });
+    await terminal.renderOnce();
+    assert.equal(view.input.focused, true);
+    assert.match(terminal.captureCharFrame(), /恢复展开详情/);
+    terminal.mockInput.pressKey('t', { ctrl: true });
+    await terminal.renderOnce();
+    assert.doesNotMatch(terminal.captureCharFrame(), /恢复展开详情/);
+    assert.equal(view.preferences.showTools, false);
+  } finally {
+    view.dispose();
+    await model.close();
+    await terminal.dispose();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('真实终端渲染保留草稿、切页焦点、工具展开与滚动位置', async () => {
   const terminal = await createTestRenderer({ width: 100, height: 30, kittyKeyboard: true });

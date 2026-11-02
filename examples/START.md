@@ -102,7 +102,22 @@ pnpm --filter @aurorabot/tui start --connect http://127.0.0.1:10270 --instance m
 
 模型输出及历史模型消息默认按 Markdown 渲染，包括标题、列表、强调、代码块和表格；流式输出会增量更新。用户输入和工具参数/结果保持原文展示。
 
-PgUp/PgDn 翻阅，F3 回到底部。向上滚动时新输出不抢占位置；切页保留草稿、滚动位置和工具展开状态。结果不确定时 F5 核对，F4 明确重试最近一条未确认请求，保持原身份；重启后旧请求不自动重放。Ctrl+C 只退出 TUI，后端继续运行；在后端终端按 Ctrl+C 才关闭宿主。界面保留本次连接观察到的运行活动，断线期间不补发历史事件；配置编辑和本地偏好持久化尚未实现。
+PgUp/PgDn 翻阅，F3 回到底部。向上滚动时新输出不抢占位置；切页保留草稿、滚动位置和工具展开状态。结果不确定时 F5 核对，F4 明确重试最近一条未确认请求，保持原身份；重启后旧请求不自动重放。Ctrl+C 只退出 TUI，后端继续运行；在后端终端按 Ctrl+C 才关闭宿主。界面保留本次连接观察到的运行活动，断线期间不补发历史事件；后端配置编辑与 ctx 写操作尚未实现。
+
+连接设置可以显式保存，下次启动无需重复传参。保存命令立即退出，不要求交互终端，也不连接后端：
+
+```powershell
+pnpm --filter @aurorabot/tui start --connect http://127.0.0.1:10270 --instance main --save-preferences
+pnpm --filter @aurorabot/tui start
+```
+
+启动优先级为命令行参数、本地偏好、内置默认值。普通启动的 `--connect` / `--instance` 只覆盖本次连接；只有 `--save-preferences` 才保存连接选择。切换到不同地址且未指定 `--instance` 时，自动选择新后端提供的首个实例，不沿用旧后端的实例。地址仅接受不含凭证、查询参数和片段的 HTTP(S) URL。
+
+本地偏好默认位于 Windows 的 `%APPDATA%/AuroraBot/tui.json`（无 APPDATA 时使用用户目录下的 `AppData/Roaming`），其他系统使用 `$XDG_CONFIG_HOME/aurorabot/tui.json` 或 `~/.config/aurorabot/tui.json`。`--preferences PATH` 可指定独立文件；相对路径以 TUI 进程工作目录为准，跨目录使用时建议传绝对路径。`--help` 显示当前默认路径。
+
+正常退出时自动保存改变的页面和 Ctrl+T 全局工具展开偏好，下次启动恢复页面与输入焦点。按运行单独展开的工具、筛选词、草稿、消息和请求身份不保存。保存前重新读取文件并合并本次改变的界面字段；多个进程同时写同一文件时，最后一次完整写入生效，需要独立偏好时指定不同文件。
+
+文件使用版本 1 的 JSON，允许字段为 `version`、`connect`、`instance`、`page`（`chat` / `state`）和 `showTools`（布尔值）。删除 `instance` 字段恢复自动选择。缺失文件使用默认值；无效 JSON、未知版本或字段会报告错误并保留原文件，需手动修正或换用其他偏好文件。写入失败会在终端恢复后报告，不影响后端运行。本地偏好不进入后端 TOML、ctx 或业务快照。
 
 也可以使用共享 Node 客户端（在工作区执行）：
 
