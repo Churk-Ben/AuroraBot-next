@@ -1,15 +1,25 @@
-"""world 插件发现入口；只登记持久记录定义，不创建来源或后台任务。"""
+"""world 插件发现入口；登记记录、来源接收方与生命周期声明，不创建运行资源。"""
 
+from aurora_core import entry_from
+from aurora_core.bootstrap import REGISTRY_DIRECTORY
 from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.registry import RegistryEntry
 
 from .records import RECORDS, validate_records
+from .sources import SOURCES, SourceReceiver, WorldSources
 
 
 def plugin() -> Plugin:
     """提供可显式启用的插件清单。"""
     return Plugin(
         "aurora_world",
-        (RegistryEntry(RECORDS, "state_key", StateKey(validate_records), "aurora_world"),),
+        (
+            RegistryEntry(RECORDS, "state_key", StateKey(validate_records), "aurora_world"),
+            RegistryEntry(SOURCES, "registry", SourceReceiver(), "aurora_world", register_to=REGISTRY_DIRECTORY),
+            *(
+                entry_from(method, provider="aurora_world")
+                for method in (WorldSources.prepare, WorldSources.start, WorldSources.stop, WorldSources.clean)
+            ),
+        ),
     )

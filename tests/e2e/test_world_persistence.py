@@ -14,7 +14,7 @@ from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import load_plugins, register_plugins
 from aurora_core.persistence import ContextPersistence
 from aurora_core.snapshots import JsonSnapshotStore
-from aurora_world import RECORDS, WorldRecords
+from aurora_world import RECORDS, SOURCES, WorldRecords
 
 
 def environment(path):
@@ -115,11 +115,19 @@ assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
     assert first["sequences"] == [1, 2] and restored["sequences"] == [1, 2, 3]
 
 
-def test_world_distribution_owns_only_its_persistent_record_definition():
+def test_world_distribution_owns_records_sources_and_lifecycle_definitions():
     assert metadata.requires("aurora-world") == ["aurora-core>=0.1.0"]
     plugin = load_plugins(enabled=["aurora_world"])[0]
     assert plugin.requires == ()
-    assert len(plugin.entries) == 1
-    entry = plugin.entries[0]
+    entries = {entry.id: entry for entry in plugin.entries}
+    assert len(entries) == 6
+    assert all(
+        entry.id.namespace == "org.aurora.world" and entry.provider == "aurora_world" for entry in entries.values()
+    )
+    assert entries[SOURCES].kind == "registry"
+    assert {str(entry.id) for entry in entries.values() if entry.kind == "hook_handler"} == {
+        f"org.aurora.world:handlers/sources/{phase}" for phase in ("prepare", "start", "stop", "clean")
+    }
+    entry = entries[RECORDS]
     assert entry.id == RECORDS and entry.kind == "state_key" and entry.provider == "aurora_world"
     assert isinstance(entry.target, StateKey) and entry.target.persistent

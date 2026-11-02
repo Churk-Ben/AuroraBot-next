@@ -54,7 +54,7 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | `aurora_api` | client 与后端 ctx 交互所需的 HTTP/WS 传输、端点、事件信封及实际需要的契约导出 | 不作为插件接入总线，不预设任意 operation 的远端分发器 |
 | `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
 | `aurora_logging` | 宿主与库共用的日志级别、控制台输出、回溯与文件落盘配置 | 不依赖业务包，不参与 ctx 或插件登记 |
-| `aurora_world` | 世界记录、来源去重与位置读取已交付；来源接入和环境状态按 M4-W 扩展 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
+| `aurora_world` | 世界记录、来源去重、位置读取及进程内来源装配已交付；TOML/内置来源按 M4-W 扩展 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
 
 代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`model_adapter` 只依赖 core 并被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、model_adapter、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
 
@@ -105,7 +105,7 @@ ID 不自动映射为文件路径、导入路径、HTTP URL、执行顺序或组
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
 | `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
 | `aurora_logging` | `org.aurora.logging` | Python 运行时；当前未登记公共定义 |
-| `aurora_world` | `org.aurora.world` | Python 运行时；已登记世界记录状态 |
+| `aurora_world` | `org.aurora.world` | Python 运行时；已登记世界记录、来源注册表及生命周期处理器 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
 | `aurora_tui` | `org.aurora.tui` | TUI 本地 |
 | `aurora_panel` | `org.aurora.panel` | WebUI 本地 |
@@ -361,7 +361,7 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。M4.W1 已确定以下记录侧 D11 规则，转交一致性与消费恢复由 M4.W3 补齐。接收回执不承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
 
-- `aurora_world` 仅依赖 core，插件只登记 `org.aurora.world:state/records`，使用全局 `location={}`。`WorldRecords(ctx)` 不写状态、不启动任务；`append(source_id=..., message_id=..., payload=...)` 同步接纳严格 JSON 内容，不要求 bot、run 或消费者存在。首次追加创建 journal_id，记录包含独立 record_id、来源身份和从 1 递增的序号。
+- `aurora_world` 仅依赖 core，记录状态为 `org.aurora.world:state/records`，使用全局 `location={}`。`WorldRecords(ctx)` 不写状态、不启动任务；`append(source_id=..., message_id=..., payload=...)` 同步接纳严格 JSON 内容，不要求 bot、run 或消费者存在。首次追加创建 journal_id，记录包含独立 record_id、来源身份和从 1 递增的序号。来源登记与生命周期使用下面的 W2.1 接口，不改变记录格式。
 - source_id 是来源实例身份，须由接入方稳定地区分平台、账户、通道等实际消息 ID 作用域；message_id 在该来源下稳定。两个字段按原字符串精确比较，不自动规范化。同身份且内容相同返回原记录及 `duplicate=True`，不写入或再次通知；不同内容抛出 `MessageConflictError`。JSON 对象键序不影响去重，数组顺序以及布尔值、整数、浮点数的编码保留区别；凭证在写入前由来源排除。
 - `get(source_id=..., message_id=...)` 读取原记录；`read(after=..., source_id=..., limit=100)` 按全局序号返回独立副本。after 为 `WorldPosition(journal_id, sequence, record_id)`，严格读取该位置之后的记录；来源过滤不改变序号。日志缺失、身份变化、位置超前或对应 record_id 不一致时抛出 `CursorError`，防止旧快照恢复后序号复用造成静默跳过。
 - 消费者先 `ctx.subscribe(callback, key=RECORDS, location={})`，再按位置读取历史及后续记录；通知只提示重新读取，恢复不补发旧事件。句柄通过 `ctx.unsubscribe` 释放。world 不额外建立事件总线或转交队列，也不替消费者保存已读位置。
@@ -395,9 +395,13 @@ finally:
 
 M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
 
-来源接入与 MCP 的后续实现采用以下边界，当前尚未交付：
+W2.1 已交付进程内来源接入，MCP 和声明配置仍按以下边界继续实现：
 
-- world 提供通用来源登记与运行期接纳入口。来源工厂取得绑定 source_id 的提交回调，由宿主管理实例的 prepare/start/stop/clean；配置复用 aurora_config。模拟来源、自研环境周期和 MCP 来源共用该入口，环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。
+- world 已提供 SourceSpec、SourceInstance 和 WorldSources。第三方 `kind=source` 定义登记到 `org.aurora.world:registries/sources`；同一 ctx 的来源由一个 WorldSources 所有者装配，add 选择定义、固定唯一 source_id 和复制 JSON 配置，尊重当前登记接收方的拒绝规则。component 连接既有生命周期插槽，发现、登记与连接均不创建来源资源。
+- prepare 调用来源工厂，传入 source_id、`emit(message_id=..., payload=...)` 及配置副本；来源返回具有异步 start/stop/aclose 的 SourceInstance。回调不能更换 source_id，工厂不接收原始 ctx；定义替换不影响已经选定的工厂。同一来源定义可以装配多个不同身份的实例，启动后不再接受新的装配。
+- 进入某个实例 start 时开放其接纳入口，允许来源在启动动作中提交首条消息；prepare 期间拒绝投递。启动失败或取消会封闭全部入口，已经接纳的记录不撤销。stop_accepting 同步且永久封闭回调，连相同身份的重复投递也拒绝；重试清理不会重新开放。接口限宿主线程使用。
+- stop 逆序等待已开始启动的来源结束任务，clean 逆序释放已创建实例；成功动作不在失败重试时重复。工厂返回前的失败/取消由工厂释放部分资源，返回后由所有者托管。宿主仍负责最终落盘，接纳不意味着已经保存。来源自行创建的后台任务须在 stop 中结束；后台失败的统一观察与 TOML 装配由 W2.2 补齐，当前不声称已完成完整来源服务。
+- 来源配置后续复用 aurora_config；模拟来源、自研环境周期和 MCP 来源共用上述入口。环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。可运行的独立装配及恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，不增加另一套来源事件总线。
 - 可选包 `aurora_adapters` 中的 `mcp` 模块持有协议客户端，世界来源桥与 agent 工具桥分别启用。SDK 类型与协议转换留在 adapter，world 不依赖 MCP 或 agent，MCP 工具也无需启用 world。先实现实际 MCP 消费者，再决定新增公共定义，不预建所有外部来源共用的 Adapter 框架。
 - 官方 Python SDK 2.x 与 MCP `2026-07-28` 分别作为 SDK/协议基线；首先支持本机测试服务的 Streamable HTTP。通过 `subscriptions/listen` 接收选定资源变化，按配置决定是否读取资源内容，再转换为世界输入。工具目录变化、调用进度、取消及订阅控制信息由适配器/调用管理处理，业务事件需要额外明确的内容与身份约定。[SDK 说明](https://py.sdk.modelcontextprotocol.io/whats-new/)、[订阅协议](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions)。
 - 来源有稳定事件 ID 或修订号时用于构造 message_id；只有资源 URI、最新内容或通知到达时间时不承诺跨重连去重与完整历史。缓冲须有界，溢出或来源失败必须有明确状态；断线后不静默补发未知业务，不自动重试结果不明的工具动作。
@@ -507,7 +511,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | `packages/aurora_cli/` | CLI |
 | `packages/aurora_api/` | 后端传输 |
 | `packages/aurora_logging/` | 日志配置 |
-| `packages/aurora_world/` | 世界记录、来源身份与位置读取；来源接入待实现 |
+| `packages/aurora_world/` | 世界记录、来源身份与位置读取、进程内来源装配；声明配置与内置来源待实现 |
 | `packages/aurora_client/` | TS 共享 ctx 访问与连接 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 终端与 Web 界面 |
 | `apps/docsite/`、`apps/landing/` | 静态应用 |
@@ -537,7 +541,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录已交付，接续 M4.W2 来源生命周期，再推进 cadence 与双路径验收；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录及 W2.1 进程内来源装配已交付，接续 W2.2 声明配置与来源服务，再按队列推进 MCP、cadence 与双路径验收；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 

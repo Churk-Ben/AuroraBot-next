@@ -171,7 +171,7 @@ uv run --locked python examples/live_workshop/main.py --data-dir build/workshop-
 
 该进程持续运行，模拟世界变化并通过示例内的调度策略触发巡检。工具内部组合四种控制组件，报告保存在本地台账中。按 Ctrl+C 关闭宿主、任务、模型和存储。
 
-`aurora_world` 已提供独立的世界记录、来源去重与按位置读取，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源生命周期与 cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
+`aurora_world` 已提供独立的世界记录、来源去重、按位置读取，以及 W2.1 的来源工厂登记、固定身份接纳和基本生命周期绑定，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源 TOML 装配、内置周期来源与 cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
 
 在另一个终端观察报告及控制状态：
 

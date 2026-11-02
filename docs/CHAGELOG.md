@@ -2,6 +2,15 @@
 
 ## 2026-11-02
 
+### W2.1：来源登记与固定身份接纳
+
+- 新增 `org.aurora.world:registries/sources`，接收 `kind=source` 的 SourceSpec 工厂定义。WorldSources 在 prepare 前选择来源、复制 JSON 参数并绑定唯一 source_id，尊重实际接收方的拒绝规则；SourceFactory 只获得固定身份的 emit 回调及配置，不接收原始 ctx。定义替换不暗中改变已选择的工厂，定义发现与生命周期连接不创建来源或后台任务。
+- SourceInstance 提供异步 start/stop/aclose；四个 `org.aurora.world:handlers/sources/*` 声明连接到 core 的 prepare/start/stop/clean。进入对应来源 start 时开放回调，prepare 期间、停止接纳后及清理后均拒绝投递；不能通过回调更换来源身份，来源只能在宿主线程提交。重复与冲突沿用 W1，不重复写入记录。
+- 启动失败、取消或启动期间停止接纳会永久封闭入口；已接纳的记录保留，宿主收尾落盘。工厂返回前负责自身部分资源，返回后由所有者托管；停止和清理按逆序执行，失败保留资源供重试，成功动作不重复。来源后台任务仍由实例 stop 负责收束，统一后台失败观察及 TOML 装配留至 W2.2。
+- 新增 28 项验收，覆盖声明诊断、两个来源身份隔离、配置副本、跨线程拒绝、旧回调失效、接收方拒绝、连接回滚、工厂替换、启动失败与取消、停止/清理失败后的重试。完整 `pnpm exec uv run --locked aurora check` 通过：626 项 Python、97 项 TS、5 项原生终端测试；未调用真实模型或 MCP 服务。
+- 11 个 wheel 构建完成，最终 world wheel 在 `build/w2-1-isolated` 的干净环境安装验证；环境只有 core/world，无 agent、bot、control、model_adapter、CLI、API、config 或 MCP。更新既有 world_roundtrip 夹具，经来源工厂与生命周期完成接纳、停止拒绝及跨进程恢复，序号由 `[1, 2]` 继续到 `[1, 2, 3]`，不新增示例路径。
+- 同步公共 ID、架构、计划与启动指南。新增五项非持久公共定义，原记录状态、插件名、依赖及快照格式不变，无配置或数据迁移；W2.1 已完成，下一步 W2.2 声明配置与来源服务，W2.3 周期来源及 MCP 双路径尚未交付。
+
 ### 明确 world 来源与 MCP 双路径的推进计划
 
 - 根据已确认的设计方向，将 M4.W2 划分为来源契约、配置/生命周期、模拟及周期来源验收三个切片；来源通过绑定 source_id 的接纳入口投递，生命周期复用 core，不承担 bot 调度。完整自研环境周期的业务行为尚未定义，本次只安排最小周期来源验证扩展点。
