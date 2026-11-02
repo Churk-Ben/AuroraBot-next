@@ -2,6 +2,16 @@
 
 ## 2026-11-02
 
+### W2.2：声明来源配置与后台任务托管
+
+- 新增可选 `aurora_world.configuration` 插件和 `aurora-world[config]` 安装 extra；基础 world 仍仅依赖 core。配置复用 ConfigSpec/ConfigSchema/ConfigTemplate，宿主显式装配配置服务及 configured_sources_component。包内 config.toml 默认空来源列表，只生成缺失文件；config 阶段校验列表、唯一 source_id 和来源引用，prepare 才创建资源。未选择的来源不启动，来源专用参数由工厂校验，运行期配置覆盖不写回 TOML，也不热装配实例。
+- SourceInstance 增加可选 run 主循环，由 WorldSources 创建、观察和收束；正常退出、异常及意外取消均封闭对应入口，其他来源继续接纳，不自动重启。后台异常使用固定错误代码，不将异常文本或配置写入观察状态和来源日志。自行创建的其他任务仍由实例 stop 负责，失败来源的剩余资源在宿主关闭时释放。
+- 新增非持久的 `org.aurora.world:state/sources`，按 source_id 观察定义、阶段、接纳开关及错误；配置插件另登记 configs/sources、state/config 和 handlers/sources/configure。来源配置及运行状态不进入业务快照；原记录格式和插件名不变，无旧数据迁移，不自动改写用户配置。
+- 关闭先封闭入口，调用实例 stop，再取消并等待托管主循环，之后释放资源和最终落盘。关闭失败或超时保留任务及资源供重试；不重复已经成功的 stop，不再次取消正在执行 finally 的主循环，部分启动失败和取消同样等待已启动任务收尾。
+- 新增 19 项验收，覆盖结构与重复身份、显式插件依赖、TOML 选择与无效引用、配置文件保留、后台退出/失败隔离、异常消费、部分启动失败、关闭超时与失败重试。完整 `pnpm exec uv run --locked aurora check` 通过：645 项 Python、97 项 TS、5 项原生终端测试，格式、lint 和类型检查均通过；未调用真实模型或 MCP 服务。
+- 11 个 wheel 构建完成；分别在 `build/w2-2-core-world` 和 `build/w2-2-config-world` 干净环境安装验证。前者只有 core/world，后者另含 config 及其 JSON Schema 依赖，均无 agent、bot、control、模型、CLI、API 或 MCP；确认模板来自安装包。既有 world_roundtrip 夹具增加 `--configured`，两条路径均经独立进程恢复原记录身份，序号从 `[1, 2]` 继续到 `[1, 2, 3]`，快照仅保留业务记录。
+- 同步架构、公共 ID、计划及启动指南；W2.2 已交付，下一步 W2.3 模拟与最小周期来源，再接入 MCP 双路径。TUI 全面优化保留在独立待办，README.md 和 AGENTS.md 未修改。
+
 ### W2.1：来源登记与固定身份接纳
 
 - 新增 `org.aurora.world:registries/sources`，接收 `kind=source` 的 SourceSpec 工厂定义。WorldSources 在 prepare 前选择来源、复制 JSON 参数并绑定唯一 source_id，尊重实际接收方的拒绝规则；SourceFactory 只获得固定身份的 emit 回调及配置，不接收原始 ctx。定义替换不暗中改变已选择的工厂，定义发现与生命周期连接不创建来源或后台任务。

@@ -1,5 +1,7 @@
 """来源工厂登记、固定身份的接纳入口及宿主生命周期绑定。"""
 
+import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -19,6 +21,13 @@ from aurora_core.registry import RegistryEntry
 from .records import WorldReceipt, WorldRecords, _identity
 
 SOURCES = Id("org.aurora.world:registries/sources")
+SOURCE_STATUS = Id("org.aurora.world:state/sources")
+logger = logging.getLogger(__name__)
+
+
+def validate_source_status(value: object) -> None:
+    """运行观察值只包含 JSON；状态不进入业务快照。"""
+    encode_json(value)
 
 
 class SourceUnavailableError(RuntimeError):
@@ -35,17 +44,21 @@ class SourceEmit(Protocol):
 class SourceInstance:
     """来源的异步生命周期动作；start 返回表示启动完成，不等待来源整个寿命。
 
-    stop 必须结束自有任务，aclose 释放资源；失败后相应动作须能再次调用。
+    可选 run 主循环由所有者监督；stop 结束其余自有任务，aclose 释放资源。
+    停止和释放失败后须能再次调用，run 退出后不自动重启。
     工厂返回前的失败和取消由工厂清理，返回后资源交给 WorldSources 托管。
     """
 
     start: Callable[[], Awaitable[None]]
     stop: Callable[[], Awaitable[None]]
     aclose: Callable[[], Awaitable[None]]
+    run: Callable[[], Awaitable[None]] | None = None
 
     def __post_init__(self) -> None:
         if not all(callable(action) for action in (self.start, self.stop, self.aclose)):
             raise TypeError("来源实例必须提供可调用的 start/stop/aclose")
+        if self.run is not None and not callable(self.run):
+            raise TypeError("来源主循环必须可调用")
 
 
 class SourceFactory(Protocol):
@@ -73,12 +86,19 @@ class SourceReceiver:
 @dataclass
 class _Binding:
     source_id: str
+    definition_id: Id
     factory: SourceFactory
     config: dict[str, object]
     instance: SourceInstance | None = None
     accepting: bool = False
     started: bool = False
     stopped: bool = False
+    stop_completed: bool = False
+    cancel_requested: bool = False
+    task: asyncio.Task[None] | None = None
+    observed: bool = False
+    status: str | None = None
+    error: str | None = None
 
 
 class WorldSources:
@@ -128,7 +148,7 @@ class WorldSources:
         if type(values) is not dict:
             raise TypeError("来源配置必须为 JSON 对象")
         encode_json(values)
-        self._bindings[source_id] = _Binding(source_id, entry.target.factory, deepcopy(values))
+        self._bindings[source_id] = _Binding(source_id, identity, entry.target.factory, deepcopy(values))
 
     def component(self, *, depends_on: tuple[str, ...] = ()) -> LifecycleComponent:
         """连接来源所有者的生命周期；不创建来源、任务或状态。"""
@@ -157,9 +177,51 @@ class WorldSources:
 
     def _emit(self, binding: _Binding, *, message_id: str, payload: object) -> WorldReceipt:
         self._check_owner()
+        self._observe_task(binding)
         if not binding.accepting or self._quiesced:
             raise SourceUnavailableError("来源尚未启动或已经停止接纳")
         return self._records.append(source_id=binding.source_id, message_id=message_id, payload=payload)
+
+    def _publish(self, binding: _Binding, status: str | None = None) -> None:
+        if status is not None:
+            binding.status = status
+        if binding.status is not None:
+            self._ctx.set(
+                SOURCE_STATUS,
+                {
+                    "definition_id": str(binding.definition_id),
+                    "status": binding.status,
+                    "accepting": binding.accepting,
+                    "error": binding.error,
+                },
+                location={"source_id": binding.source_id},
+            )
+
+    def _fail(self, binding: _Binding, code: str) -> None:
+        binding.accepting = False
+        binding.error = code
+        self._publish(binding, "failed")
+        logger.error("世界来源失败：source_id=%s code=%s", binding.source_id, code)
+
+    def _observe_task(self, binding: _Binding, task: asyncio.Task[None] | None = None) -> None:
+        task = binding.task
+        if task is None or not task.done() or binding.observed:
+            return
+        binding.observed = True
+        binding.accepting = False
+        if task.cancelled():
+            if not self._quiesced:
+                self._fail(binding, "background_cancelled")
+        else:
+            error = task.exception()
+            if error is not None and not (self._quiesced and isinstance(error, SourceUnavailableError)):
+                self._fail(binding, "background_failed")
+            elif not self._quiesced:
+                self._publish(binding, "completed")
+
+    async def _run(self, binding: _Binding) -> None:
+        assert binding.instance is not None and binding.instance.run is not None
+        await binding.instance.run()
 
     @hook_handler("org.aurora.world:handlers/sources/prepare", slot=PREPARE)
     async def prepare(self) -> None:
@@ -169,6 +231,7 @@ class WorldSources:
         self._prepare_called = True
         try:
             for binding in self._bindings.values():
+                self._publish(binding, "preparing")
                 instance = await binding.factory(
                     source_id=binding.source_id, emit=partial(self._emit, binding), config=deepcopy(binding.config)
                 )
@@ -177,7 +240,9 @@ class WorldSources:
                 binding.instance = instance
                 if self._quiesced:
                     raise SourceUnavailableError("来源准备期间已停止接纳")
+                self._publish(binding, "prepared")
         except BaseException:
+            self._fail(binding, "prepare_failed")
             self.stop_accepting()
             raise
         self._prepared = True
@@ -194,10 +259,16 @@ class WorldSources:
                     raise SourceUnavailableError("来源启动期间已停止接纳")
                 assert binding.instance is not None
                 binding.accepting = binding.started = True
+                self._publish(binding, "starting")
                 await binding.instance.start()
                 if self._quiesced:
                     raise SourceUnavailableError("来源启动期间已停止接纳")
+                self._publish(binding, "running")
+                if binding.instance.run is not None:
+                    binding.task = asyncio.create_task(self._run(binding), name=f"world-source:{binding.source_id}")
+                    binding.task.add_done_callback(partial(self._observe_task, binding))
         except BaseException:
+            self._fail(binding, "start_failed")
             self.stop_accepting()
             raise
 
@@ -206,15 +277,29 @@ class WorldSources:
         self._check_owner()
         self._quiesced = True
         for binding in self._bindings.values():
-            binding.accepting = False
+            if binding.accepting:
+                binding.accepting = False
+                self._publish(binding)
 
     @hook_handler("org.aurora.world:handlers/sources/stop", slot=STOP)
     async def stop(self) -> None:
         self.stop_accepting()
         for binding in reversed(tuple(self._bindings.values())):
             if binding.instance is not None and binding.started and not binding.stopped:
-                await binding.instance.stop()
+                self._publish(binding, "stopping")
+                try:
+                    if not binding.stop_completed:
+                        await binding.instance.stop()
+                        binding.stop_completed = True
+                finally:
+                    if binding.task is not None and not binding.task.done() and not binding.cancel_requested:
+                        binding.cancel_requested = True
+                        binding.task.cancel()
+                if binding.task is not None:
+                    await asyncio.wait({binding.task})
+                    self._observe_task(binding)
                 binding.stopped = True
+                self._publish(binding, "stopped")
 
     @hook_handler("org.aurora.world:handlers/sources/clean", slot=CLEAN)
     async def clean(self) -> None:
@@ -225,3 +310,4 @@ class WorldSources:
                     raise RuntimeError("来源任务尚未停止，不能释放资源")
                 await binding.instance.aclose()
                 binding.instance = None
+                self._publish(binding, "closed")

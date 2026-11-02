@@ -2,6 +2,7 @@
 
 from .records import RECORDS, CursorError, MessageConflictError, WorldPosition, WorldReceipt, WorldRecord, WorldRecords
 from .sources import (
+    SOURCE_STATUS,
     SOURCES,
     SourceEmit,
     SourceFactory,
@@ -14,6 +15,7 @@ from .sources import (
 __all__ = [
     "RECORDS",
     "SOURCES",
+    "SOURCE_STATUS",
     "CursorError",
     "MessageConflictError",
     "SourceEmit",

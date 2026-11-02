@@ -395,13 +395,16 @@ finally:
 
 M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
 
-W2.1 已交付进程内来源接入，MCP 和声明配置仍按以下边界继续实现：
+W2.1/W2.2 已交付来源接入、声明配置与后台托管，MCP 仍按以下边界继续实现：
 
 - world 已提供 SourceSpec、SourceInstance 和 WorldSources。第三方 `kind=source` 定义登记到 `org.aurora.world:registries/sources`；同一 ctx 的来源由一个 WorldSources 所有者装配，add 选择定义、固定唯一 source_id 和复制 JSON 配置，尊重当前登记接收方的拒绝规则。component 连接既有生命周期插槽，发现、登记与连接均不创建来源资源。
 - prepare 调用来源工厂，传入 source_id、`emit(message_id=..., payload=...)` 及配置副本；来源返回具有异步 start/stop/aclose 的 SourceInstance。回调不能更换 source_id，工厂不接收原始 ctx；定义替换不影响已经选定的工厂。同一来源定义可以装配多个不同身份的实例，启动后不再接受新的装配。
 - 进入某个实例 start 时开放其接纳入口，允许来源在启动动作中提交首条消息；prepare 期间拒绝投递。启动失败或取消会封闭全部入口，已经接纳的记录不撤销。stop_accepting 同步且永久封闭回调，连相同身份的重复投递也拒绝；重试清理不会重新开放。接口限宿主线程使用。
-- stop 逆序等待已开始启动的来源结束任务，clean 逆序释放已创建实例；成功动作不在失败重试时重复。工厂返回前的失败/取消由工厂释放部分资源，返回后由所有者托管。宿主仍负责最终落盘，接纳不意味着已经保存。来源自行创建的后台任务须在 stop 中结束；后台失败的统一观察与 TOML 装配由 W2.2 补齐，当前不声称已完成完整来源服务。
-- 来源配置后续复用 aurora_config；模拟来源、自研环境周期和 MCP 来源共用上述入口。环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。可运行的独立装配及恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，不增加另一套来源事件总线。
+- SourceInstance 可提供异步 run 主循环，所有者在 start 返回后创建和监督任务；正常返回封闭该来源并标记 completed，异常或非关闭期间的取消标记 failed，只封闭该来源，不自动重启，其他来源继续工作。被动回调来源可不提供 run；自行创建的其他任务仍须由实例 stop 收束。失败来源的剩余资源在宿主关闭时释放。
+- `org.aurora.world:state/sources` 按 `location={"source_id": ...}` 提供 definition_id、status、accepting 和 error；运行状态不持久化，error 使用固定代码，不保存后台异常文本或配置。后台失败可通过 ctx 订阅观察。正常阶段依次为 preparing/prepared/starting/running、stopping/stopped/closed；completed 或 failed 表示运行结束，收尾更新阶段但保留 error。
+- stop 逆序调用实例 stop，再取消并等待托管主循环；clean 逆序释放已创建实例。关闭超时保留任务和资源供重试，不重复成功的 stop 或再次取消正在执行的 finally；全部任务退出后才释放资源和最终落盘。工厂返回前的失败/取消由工厂释放部分资源，返回后由所有者托管，接纳不意味着已经保存。
+- TOML 装配通过可选的 `aurora_world.configuration` 插件接入 aurora_config，安装 extra 为 `aurora-world[config]`；基础 world 仍仅依赖 core。宿主显式启用 aurora_world、aurora_config 和配置插件，并装配 configuration_component 与 configured_sources_component；后者依赖前者，在 config 阶段选择全部来源，prepare 才调用工厂。模板复制到配置目录的 `org.aurora.world/config.toml`，只补齐缺失文件，默认 sources 为空。每项声明 source 公共 ID、唯一 source_id 和 config 对象；通用结构及引用在创建前校验，来源专用参数由工厂校验。配置状态非持久化，改 ctx 不写回文件，也不热装配来源。
+- 模拟来源、自研环境周期和 MCP 来源共用上述入口。环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行；内置周期来源仍待 W2.3。可运行的程序及 TOML 装配恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，后者使用 `--configured`，不增加另一套来源事件总线。
 - 可选包 `aurora_adapters` 中的 `mcp` 模块持有协议客户端，世界来源桥与 agent 工具桥分别启用。SDK 类型与协议转换留在 adapter，world 不依赖 MCP 或 agent，MCP 工具也无需启用 world。先实现实际 MCP 消费者，再决定新增公共定义，不预建所有外部来源共用的 Adapter 框架。
 - 官方 Python SDK 2.x 与 MCP `2026-07-28` 分别作为 SDK/协议基线；首先支持本机测试服务的 Streamable HTTP。通过 `subscriptions/listen` 接收选定资源变化，按配置决定是否读取资源内容，再转换为世界输入。工具目录变化、调用进度、取消及订阅控制信息由适配器/调用管理处理，业务事件需要额外明确的内容与身份约定。[SDK 说明](https://py.sdk.modelcontextprotocol.io/whats-new/)、[订阅协议](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions)。
 - 来源有稳定事件 ID 或修订号时用于构造 message_id；只有资源 URI、最新内容或通知到达时间时不承诺跨重连去重与完整历史。缓冲须有界，溢出或来源失败必须有明确状态；断线后不静默补发未知业务，不自动重试结果不明的工具动作。
@@ -511,7 +514,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | `packages/aurora_cli/` | CLI |
 | `packages/aurora_api/` | 后端传输 |
 | `packages/aurora_logging/` | 日志配置 |
-| `packages/aurora_world/` | 世界记录、来源身份与位置读取、进程内来源装配；声明配置与内置来源待实现 |
+| `packages/aurora_world/` | 世界记录、来源身份与位置读取、来源装配、可选声明配置与后台托管；内置来源待实现 |
 | `packages/aurora_client/` | TS 共享 ctx 访问与连接 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 终端与 Web 界面 |
 | `apps/docsite/`、`apps/landing/` | 静态应用 |
@@ -541,7 +544,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录及 W2.1 进程内来源装配已交付，接续 W2.2 声明配置与来源服务，再按队列推进 MCP、cadence 与双路径验收；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录及 W2.1/W2.2 来源装配、声明配置与后台托管已交付，接续 W2.3 模拟与周期来源，再按队列推进 MCP、cadence 与双路径验收；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 

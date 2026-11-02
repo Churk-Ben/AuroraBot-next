@@ -1,0 +1,9 @@
+# 来源定义由已启用插件提供；只有列出的实例才会启动。
+sources = []
+
+# 使用来源时移除上面的空列表声明，并按以下结构填写：
+# [[sources]]
+# source = "dev.workshop:sources/sensor"
+# source_id = "workshop/sensor"
+# [sources.config]
+# interval = 1

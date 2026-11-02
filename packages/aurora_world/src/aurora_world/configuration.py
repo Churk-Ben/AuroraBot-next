@@ -1,0 +1,99 @@
+"""显式启用的 TOML 来源装配；需要安装 aurora-world[config]。"""
+
+from typing import cast
+
+from aurora_config import ConfigSchema, ConfigSpec, ConfigTemplate, config_entries
+from aurora_core import Id, entry_from, hook_handler
+from aurora_core.ctx import Context
+from aurora_core.discovery import Plugin
+from aurora_core.hooks import HookConnections
+from aurora_core.lifecycle import CONFIG, LifecycleComponent
+
+from .records import _identity
+from .sources import WorldSources
+
+CONFIGURATION = Id("org.aurora.world:configs/sources")
+CONFIG_STATE = Id("org.aurora.world:state/config")
+
+
+def _check_sources(value: object) -> None:
+    identities = set()
+    for source in cast(dict, value)["sources"]:
+        identity = source["source_id"]
+        _identity(identity)
+        if identity in identities:
+            raise ValueError("来源实例身份重复")
+        identities.add(identity)
+
+
+SOURCE_CONFIG = ConfigSchema(
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "sources": {
+                "type": "array",
+                "default": [],
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["source", "source_id"],
+                    "properties": {
+                        "source": {"type": "string", "format": "aurora-id"},
+                        "source_id": {"type": "string"},
+                        "config": {"type": "object", "default": {}},
+                    },
+                },
+            }
+        },
+    },
+    check=_check_sources,
+)
+
+
+class _SourceConfiguration:
+    def __init__(self, ctx: Context, sources: WorldSources) -> None:
+        self._ctx, self._sources = ctx, sources
+
+    @hook_handler("org.aurora.world:handlers/sources/configure", slot=CONFIG)
+    def configure(self) -> None:
+        values = cast(dict, SOURCE_CONFIG.parse(self._ctx.get(CONFIG_STATE)))
+        for source in values["sources"]:
+            self._sources.add(Id(source["source"]), source_id=source["source_id"], config=source["config"])
+
+
+def configured_sources_component(
+    ctx: Context,
+    hooks: HookConnections,
+    *,
+    instance_id: str = "aurora_world/sources",
+    depends_on: tuple[str, ...] = (),
+) -> LifecycleComponent:
+    """先加载和选择全部声明，prepare 才创建来源；依赖 aurora_config 组件。"""
+    sources = WorldSources(ctx, hooks, instance_id=instance_id)
+    configuration = _SourceConfiguration(ctx, sources)
+    entry = entry_from(configuration.configure, provider="aurora_world.configuration")
+    link = hooks.connect(
+        CONFIG, entry.id, slot_instance=instance_id, handler_instance=instance_id, target=configuration.configure
+    )
+    try:
+        return sources.component(depends_on=tuple(dict.fromkeys(("aurora_config", *depends_on))))
+    except Exception:
+        hooks.disconnect(link)
+        raise
+
+
+def plugin() -> Plugin:
+    """登记配置及装配声明；依赖插件须由宿主显式启用。"""
+    return Plugin(
+        "aurora_world.configuration",
+        (
+            *config_entries(
+                CONFIGURATION,
+                ConfigSpec(CONFIG_STATE, ConfigTemplate("aurora_world"), SOURCE_CONFIG),
+                provider="aurora_world.configuration",
+            ),
+            entry_from(_SourceConfiguration.configure, provider="aurora_world.configuration"),
+        ),
+        requires=("aurora_world", "aurora_config"),
+    )

@@ -14,6 +14,7 @@ from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, Lifecycle, install_lifecycle_slots
 from aurora_core.registry import RegistryEntry
 from aurora_world import (
+    SOURCE_STATUS,
     SOURCES,
     MessageConflictError,
     SourceInstance,
@@ -135,7 +136,13 @@ def test_before_start_and_after_stop_callbacks_cannot_reopen(environment):
         await sources.clean()
         with pytest.raises(RuntimeError):
             await sources.prepare()
-        assert ctx.list() == ()
+        assert WorldRecords(ctx).read() == ()
+        assert ctx.get(SOURCE_STATUS, location={"source_id": "sensor/a"}) == {
+            "definition_id": str(SOURCE),
+            "status": "closed",
+            "accepting": False,
+            "error": None,
+        }
 
     asyncio.run(scenario())
 

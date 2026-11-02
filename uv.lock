@@ -365,8 +365,17 @@ dependencies = [
     { name = "aurora-core" },
 ]
 
+[package.optional-dependencies]
+config = [
+    { name = "aurora-config" },
+]
+
 [package.metadata]
-requires-dist = [{ name = "aurora-core", editable = "packages/aurora_core" }]
+requires-dist = [
+    { name = "aurora-config", marker = "extra == 'config'", editable = "packages/aurora_config" },
+    { name = "aurora-core", editable = "packages/aurora_core" },
+]
+provides-extras = ["config"]
 
 [[package]]
 name = "aurorabot-ai"

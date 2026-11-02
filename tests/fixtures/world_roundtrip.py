@@ -1,4 +1,4 @@
-"""仅安装 core/world 时执行消息接纳、订阅与宿主快照往返。"""
+"""验证 core/world 的程序装配或可选 config 装配及快照往返。"""
 
 import asyncio
 import json
@@ -25,9 +25,12 @@ from aurora_world import (
 )
 
 
-async def main(root):
+async def main(root, *, configured=False):
     registry = bootstrap()
-    register_plugins(registry, load_plugins(enabled=["aurora_world"]))
+    enabled = ["aurora_world"]
+    if configured:
+        enabled.extend(("aurora_config", "aurora_world.configuration"))
+    register_plugins(registry, load_plugins(enabled=enabled))
     install_lifecycle_slots(registry)
     ctx = Context(registry)
     hooks = HookConnections(registry)
@@ -46,14 +49,29 @@ async def main(root):
 
     identity = Id("dev.world:sources/manual")
     registry.register(RegistryEntry(identity, "source", SourceSpec(factory), "test", register_to=SOURCES))
-    sources = WorldSources(ctx, hooks)
-    sources.add(identity, source_id="workshop/sensor")
     storage = StorageService(root)
+    if configured:
+        from aurora_config import configuration_component, copy_missing
+        from aurora_world.configuration import configured_sources_component
+
+        copy_missing(
+            storage.configuration_directory() / "org.aurora.world" / "config.toml",
+            f'[[sources]]\nsource = "{identity}"\nsource_id = "workshop/sensor"\n'.encode(),
+        )
+        components = [
+            configured_sources_component(ctx, hooks),
+            configuration_component(registry, ctx, hooks, storage),
+        ]
+    else:
+        sources = WorldSources(ctx, hooks)
+        sources.add(identity, source_id="workshop/sensor")
+        components = [sources.component()]
+    store = storage.snapshot_store()
     host = Lifecycle(
         ctx,
         hooks,
-        [sources.component()],
-        persistence=ContextPersistence(ctx, storage.snapshot_store(), interval=60),
+        components,
+        persistence=ContextPersistence(ctx, store, interval=60),
         storage=storage,
     )
     await host.start()
@@ -85,8 +103,9 @@ async def main(root):
         pass
     else:
         raise AssertionError("关闭后仍接纳来源消息")
+    assert all(record.address.key == RECORDS for record in store.load())
     print(json.dumps(result, ensure_ascii=False))
 
 
 if __name__ == "__main__":
-    asyncio.run(main(Path(sys.argv[1])))
+    asyncio.run(main(Path(sys.argv[1]), configured="--configured" in sys.argv[2:]))

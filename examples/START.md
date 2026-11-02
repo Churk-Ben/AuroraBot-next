@@ -171,7 +171,15 @@ uv run --locked python examples/live_workshop/main.py --data-dir build/workshop-
 
 该进程持续运行，模拟世界变化并通过示例内的调度策略触发巡检。工具内部组合四种控制组件，报告保存在本地台账中。按 Ctrl+C 关闭宿主、任务、模型和存储。
 
-`aurora_world` 已提供独立的世界记录、来源去重、按位置读取，以及 W2.1 的来源工厂登记、固定身份接纳和基本生命周期绑定，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源 TOML 装配、内置周期来源与 cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
+`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳，以及 W2.2 的可选 TOML 装配和后台主循环托管，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。内置周期来源与 cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
+
+TOML 路径需要安装 `aurora-world[config]`，显式启用 aurora_config、aurora_world、aurora_world.configuration 及来源提供插件；宿主同时装配 `configuration_component` 和 `configured_sources_component`。后者在 config 阶段读取 `org.aurora.world/config.toml`，默认空列表不启动任何来源。每个 `[[sources]]` 包含 source 定义 ID、唯一 source_id 和可选的 `[sources.config]`。来源参数不承载运行期凭证；修改配置需重新启动，状态覆盖不保存到文件。夹具的 `--configured` 模式验证此路径：
+
+```powershell
+uv run --locked python tests/fixtures/world_roundtrip.py .aurora/world-config-check --configured
+```
+
+重复运行同一存储目录可验证去重与恢复。后台失败状态位于 `org.aurora.world:state/sources`，按 source_id 查询或订阅；失败关闭对应来源入口，其他来源继续接纳，资源在宿主关闭时释放。配置及运行状态均不进入业务快照。
 
 在另一个终端观察报告及控制状态：
 

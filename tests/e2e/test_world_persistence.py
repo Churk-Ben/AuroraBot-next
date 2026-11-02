@@ -75,7 +75,8 @@ def test_receipt_precedes_flush_and_failed_flush_preserves_retryable_records(tmp
     asyncio.run(scenario())
 
 
-def test_world_runs_and_restores_without_execution_or_host_packages(tmp_path):
+@pytest.mark.parametrize("configured", [False, True])
+def test_world_runs_and_restores_without_execution_or_host_packages(tmp_path, configured):
     launcher = """
 import importlib.abc
 import runpy
@@ -95,10 +96,12 @@ runpy.run_path(source, run_name='__main__')
 assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 """
     fixture = Path(__file__).resolve().parents[1] / "fixtures" / "world_roundtrip.py"
+    if configured:
+        launcher = launcher.replace(", 'aurora_config'", "")
     results = []
     for _ in range(2):
         result = subprocess.run(
-            [sys.executable, "-c", launcher, str(fixture), str(tmp_path)],
+            [sys.executable, "-c", launcher, str(fixture), str(tmp_path), *(["--configured"] if configured else [])],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -116,11 +119,11 @@ assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 
 
 def test_world_distribution_owns_records_sources_and_lifecycle_definitions():
-    assert metadata.requires("aurora-world") == ["aurora-core>=0.1.0"]
+    assert metadata.requires("aurora-world") == ["aurora-core>=0.1.0", "aurora-config>=0.1.0; extra == 'config'"]
     plugin = load_plugins(enabled=["aurora_world"])[0]
     assert plugin.requires == ()
     entries = {entry.id: entry for entry in plugin.entries}
-    assert len(entries) == 6
+    assert len(entries) == 7
     assert all(
         entry.id.namespace == "org.aurora.world" and entry.provider == "aurora_world" for entry in entries.values()
     )
