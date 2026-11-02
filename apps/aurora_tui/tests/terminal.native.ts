@@ -1,6 +1,9 @@
+import type { TestRendererSetup } from '@opentui/core/testing';
+
 import assert from 'node:assert/strict';
 // oxlint-disable-next-line vitest/no-import-node-test -- 原生 FFI 验收需要 Node 直接加载，不能经过 Vitest 转换。
 import { test } from 'node:test';
+import { setTimeout } from 'node:timers/promises';
 
 import { createTestRenderer } from '@opentui/core/testing';
 
@@ -147,3 +150,80 @@ test('帮助面板分栏、阻止底层操作，并保留问号输入、草稿�
     await terminal.dispose();
   }
 });
+
+test('模型 Markdown 与历史消息渲染，流式代码块独立于其他轮次', async () => {
+  const terminal = await createTestRenderer({ width: 100, height: 48 });
+  const client = new FakeClient();
+  client.records = [
+    {
+      id: BOT.messages,
+      location: { instance_id: 'main' },
+      value: {
+        messages: [
+          { role: 'user', content: '**历史原文**' },
+          { role: 'assistant', content: '## 历史标题\n\n**历史强调**' },
+        ],
+      },
+    },
+  ];
+  const model = new Workbench(client);
+  const view = new WorkbenchView(terminal.renderer, model, () => {});
+  try {
+    await model.start();
+    await settle();
+    await terminal.renderOnce();
+    const history = await rendered(terminal, /历史标题/);
+    assert.match(history, /\*\*历史原文\*\*/);
+    assert.match(history, /历史标题/);
+    assert.doesNotMatch(history, /## 历史标题|\*\*历史强调\*\*/);
+    model.submit('保留 **我的原文**');
+    await settle();
+    const record = { id: BOT.work, location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' } };
+    const prefix =
+      '# 渲染标题\n\n**加粗内容** 与 `行内代码`\n\n- 列表甲\n- 列表乙\n\n| 项目 | 状态 |\n| --- | --- |\n| 渲染 | 正常 |\n\n';
+    client.set({ ...record, value: { execution_id: 'turn-one', text: `${prefix}\`\`\`js\nconst answer =` } });
+    await terminal.renderOnce();
+    await rendered(terminal, /const answer =/);
+    client.set({
+      ...record,
+      value: { execution_id: 'turn-one', text: `${prefix}\`\`\`js\nconst answer = 42;\n\`\`\`` },
+    });
+    client.set({ ...record, value: { execution_id: 'turn-two', text: '## 下一轮\n\n**独立内容**' } });
+    const receipt = [...client.receipts.values()][0];
+    assert.ok(receipt);
+    receipt.run_status = 'completed';
+    await model.refresh();
+    await terminal.renderOnce();
+    const frame = await rendered(terminal, /独立内容/);
+    assert.match(frame, /\*\*我的原文\*\*/);
+    assert.match(frame, /渲染标题/);
+    assert.match(frame, /加粗内容/);
+    assert.match(frame, /列表甲/);
+    assert.match(frame, /渲染.*正常/);
+    assert.match(frame, /const answer = 42;/);
+    assert.match(frame, /独立内容/);
+    assert.doesNotMatch(frame, /# 渲染标题|\*\*加粗内容\*\*|```|## 下一轮|\*\*独立内容\*\*/);
+    terminal.resize(48, 24);
+    await terminal.renderOnce();
+    assert.match(terminal.captureCharFrame(), /独立内容/);
+  } finally {
+    view.dispose();
+    await model.close();
+    await terminal.dispose();
+  }
+});
+
+async function rendered(terminal: TestRendererSetup, pattern: RegExp): Promise<string> {
+  const deadline = Date.now() + 3000;
+  while (true) {
+    await terminal.renderOnce();
+    const frame = terminal.captureCharFrame();
+    if (pattern.test(frame)) return frame;
+    assert.ok(
+      Date.now() < deadline,
+      `Markdown 渲染超时：${pattern}
+${frame}`,
+    );
+    await setTimeout(10);
+  }
+}

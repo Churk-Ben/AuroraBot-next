@@ -139,6 +139,7 @@ export class WorkbenchView {
     this.renderer.keyInput.off('paste', this.paste);
     this.renderer.off('resize', this.resize);
     this.root.destroyRecursively();
+    this.conversation.dispose();
   }
 
   switchPage(page: 'chat' | 'state'): void {

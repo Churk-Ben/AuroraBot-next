@@ -59,7 +59,7 @@ function address(record: Pick<StateRecord, 'id' | 'location'>): string {
 export class Workbench {
   connection: ConnectionState = 'connecting';
   readonly groups: RunGroup[] = [];
-  history = '';
+  history: { role: string; text: string }[] = [];
   instance = '';
   readonly messages: Message[] = [];
   notice = '';
@@ -242,16 +242,12 @@ export class Workbench {
     );
     const messages = object(record?.value)?.messages;
     this.history = Array.isArray(messages)
-      ? messages
-          .slice(-12)
-          .map((value) => {
-            const item = object(value);
-            if (!item || !['assistant', 'user'].includes(String(item.role))) return '';
-            return `${item.role === 'user' ? '你' : '模型输出'}\n${String(item.content ?? '').slice(0, 4000)}`;
-          })
-          .filter(Boolean)
-          .join('\n\n')
-      : '';
+      ? messages.slice(-12).flatMap((value) => {
+          const item = object(value);
+          if (!item || !['assistant', 'user'].includes(String(item.role))) return [];
+          return [{ role: String(item.role), text: String(item.content ?? '').slice(0, 4000) }];
+        })
+      : [];
   }
 
   private changed(): void {

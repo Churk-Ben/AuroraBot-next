@@ -1,4 +1,4 @@
-import type { CliRenderer } from '@opentui/core';
+import type { CliRenderer, SyntaxStyle } from '@opentui/core';
 
 import type { RunGroup } from '../../state/workbench.ts';
 
@@ -6,6 +6,8 @@ import { BoxRenderable, ScrollBoxRenderable, TextRenderable } from '@opentui/cor
 
 import { Workbench } from '../../state/workbench.ts';
 import { colors } from '../../theme/colors.ts';
+import { createMarkdownStyle } from '../../theme/markdown.ts';
+import { ModelOutput } from '../components/model-output.ts';
 import { text, visibleText } from '../text.ts';
 
 const messages = {
@@ -28,6 +30,8 @@ interface Card {
   box: BoxRenderable;
   body: TextRenderable;
   bodyText: string;
+  outputs: BoxRenderable;
+  modelOutputs: Map<string, ModelOutput>;
   stop: TextRenderable;
   title: TextRenderable;
   tools: TextRenderable;
@@ -40,7 +44,9 @@ export class ConversationPage {
   private readonly cards = new Map<RunGroup, Card>();
   private details = false;
   private readonly expanded = new Set<RunGroup>();
-  private readonly history: TextRenderable;
+  private readonly history: BoxRenderable;
+  private historySource?: Workbench['history'];
+  private readonly markdownStyle: SyntaxStyle;
   private readonly model: Workbench;
   private readonly onScroll: () => void;
   private readonly pending: TextRenderable;
@@ -49,6 +55,7 @@ export class ConversationPage {
     this.renderer = renderer;
     this.model = model;
     this.onScroll = onScroll;
+    this.markdownStyle = createMarkdownStyle(renderer);
     this.root = new BoxRenderable(renderer, { flexDirection: 'column', flexGrow: 1, minHeight: 0 });
     this.scroll = new ScrollBoxRenderable(renderer, {
       id: 'chat-scroll',
@@ -64,7 +71,7 @@ export class ConversationPage {
       contentOptions: { paddingX: 2, paddingY: 1, gap: 1 },
     });
     this.root.add(this.scroll);
-    this.history = text(renderer, '', { fg: colors.muted });
+    this.history = new BoxRenderable(renderer, { flexDirection: 'column', gap: 1, flexShrink: 0 });
     this.pending = text(renderer, '', { fg: colors.muted });
     this.scroll.add(this.history);
     this.scroll.add(this.pending);
@@ -78,11 +85,25 @@ export class ConversationPage {
     this.unread = false;
     this.onScroll();
   }
+  dispose(): void {
+    this.markdownStyle.destroy();
+  }
   render(): void {
     const atBottom = this.atBottom();
     const { model } = this;
-    this.history.visible = Boolean(model.history);
-    this.history.content = visibleText(`历史上下文\n\n${model.history}`);
+    this.history.visible = model.history.length > 0;
+    if (this.historySource !== model.history) {
+      for (const child of this.history.getChildren()) child.destroyRecursively();
+      this.history.add(text(this.renderer, '历史上下文', { fg: colors.muted }));
+      for (const message of model.history) {
+        if (message.role === 'assistant') {
+          const output = new ModelOutput(this.renderer, this.markdownStyle);
+          output.update(message.text, false);
+          this.history.add(output);
+        } else this.history.add(text(this.renderer, `你\n${message.text}`));
+      }
+      this.historySource = model.history;
+    }
     const pending = model.messages.filter((message) => !message.receipt);
     this.pending.visible = pending.length > 0;
     this.pending.content =
@@ -106,6 +127,7 @@ export class ConversationPage {
         });
         const title = text(this.renderer, '', { fg: colors.muted });
         const body = text(this.renderer, '');
+        const outputs = new BoxRenderable(this.renderer, { flexDirection: 'column', gap: 1, flexShrink: 0 });
         const tools = text(this.renderer, '', {
           fg: colors.muted,
           onMouseDown: () => {
@@ -120,9 +142,9 @@ export class ConversationPage {
             void model.cancel(group);
           },
         });
-        for (const child of [title, body, tools, stop]) box.add(child);
+        for (const child of [title, body, outputs, tools, stop]) box.add(child);
         this.scroll.add(box);
-        card = { box, title, body, bodyText: '', tools, stop };
+        card = { box, title, body, bodyText: '', outputs, modelOutputs: new Map(), tools, stop };
         this.cards.set(group, card);
         contentChanged = true;
       }
@@ -137,12 +159,24 @@ export class ConversationPage {
           (message) =>
             `你${message.status === 'accepted' ? '' : ` · ${messages[message.status]}`}\n${message.request.text}`,
         );
-      const outputs = [...group.outputs.values()].filter(Boolean).map((text) => `模型输出\n${text}`);
-      const content = visibleText([...guides, ...outputs].join('\n\n') || '正在等待运行活动…');
+      const content = visibleText(guides.join('\n\n'));
+      card.body.visible = Boolean(content);
       if (card.bodyText !== content) {
         card.body.content = content;
         card.bodyText = content;
         contentChanged = true;
+      }
+      const latest = [...group.outputs.keys()].at(-1);
+      for (const [execution, value] of group.outputs) {
+        let output = card.modelOutputs.get(execution);
+        if (!output) {
+          output = new ModelOutput(this.renderer, this.markdownStyle);
+          card.outputs.add(output);
+          card.modelOutputs.set(execution, output);
+        }
+        const streaming =
+          execution === latest && group.status === 'pending' && (!group.observed || group.observed === 'running');
+        if (output.update(value, streaming)) contentChanged = true;
       }
       const expanded = this.details || this.expanded.has(group);
       card.tools.visible = group.tools.size > 0;
