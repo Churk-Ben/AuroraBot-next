@@ -275,6 +275,8 @@ uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_id
 
 ## 11. 接续队列与提交粒度
 
+TUI 的全面体验、布局、性能与兼容性优化单列为 [优化待办](tui_optimization_todo.md)，不阻塞下列主线。联调发现的正确性与资源释放问题随主线修复。
+
 M0–M2 及执行包拆分已交付，M3 已有本机 ctx 传输、按需契约生成、共享 TS client 和直接交流。D10 的传输关联已通过 M3.6 验收，OpenTUI 交流/状态页、本地偏好、ctx 写操作及声明 TOML 编辑已交付，下一步完成 M3.9 多客户端与断线联调。世界输入在 M4-W 独立交付；浏览器与远程访问按实际接入需求补齐 D08。harness 的最小宿主验证不阻塞 M3。
 
 | 顺序 | 任务范围 | 交付证据 |
