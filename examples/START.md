@@ -185,10 +185,10 @@ assembly = "org.aurora.bot:assemblies/default"
 已有 `data/config/` 配置时，使用正式 CLI 宿主启动。`data/config/host.toml` 的插件列表须包含默认 bot 所需插件及 `aurora_api`，并选择 `org.aurora.bot:assemblies/default`。模型由 `profiles.toml` 与 `bindings.toml` 决定；profile 的 `credential` 保存环境变量名，凭证由 uv 从根目录 `.env` 加载。
 
 ```powershell
-uv run --locked --env-file .env aurora --data-dir data serve --port 10270 `
-  --keys '["org.aurora.bot:state/agents","org.aurora.bot:state/messages","org.aurora.bot:state/run","org.aurora.bot:state/react_work"]' `
-  --endpoints '["org.aurora.bot:endpoints/conversation"]'
+uv run --locked --env-file .env python scripts/serve_bot.py
 ```
+
+脚本默认使用 `--data-dir data --port 10270`，可显式覆盖。它在 Python 内构造四项 bot 状态和直接交流端点的 JSON 参数，再交给正式 CLI 宿主，避免 Windows PowerShell 的原生参数传递移除 JSON 双引号；不加载另一套配置或装配实现。
 
 另一个终端运行 `pnpm --filter @aurorabot/tui start`。此后端按现有配置连接真实供应商，启动本身不激活 bot；TUI 发送消息才触发模型调用。工具是否可用由 bot 配置的 `tools` 决定。后端终端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一 `data` 目录。
 

@@ -1,5 +1,13 @@
 # 变更记录
 
+## 2026-11-02
+
+### 避免 PowerShell 启动 bot 后端时丢失 JSON 引号
+
+- 新增 `scripts/serve_bot.py`，默认使用 `data` 和端口 `10270`，从既有 bot 公共 ID 构造状态白名单与直接交流端点参数，直接通过 Python 启动正式 CLI。配置、凭证解析、生命周期及落盘仍由已有宿主负责，不修改 JSON 校验规则。
+- 示例指南改用 `uv run --locked --env-file .env python scripts/serve_bot.py`，无需在 PowerShell 命令中传递嵌套 JSON 引号；支持 `--data-dir`、`--port` 和 `--help`。
+- 验收：Windows PowerShell 的脚本入口和正式 CLI JSON 参数解析通过；在宿主执行边界检查四项状态、交流端点、端口与已有装配选择，未调用真实模型。Ruff 格式/lint、Pyright 和 23 项 CLI/远程 CLI 回归通过。脚本在同一进程调用 CLI 入口，保留既有退出码和 Ctrl+C 生命周期收尾。
+
 ## 2026-11-01
 
 ### 使用现有 data 配置启动 TUI 的真实模型后端
