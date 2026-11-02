@@ -2,6 +2,13 @@
 
 ## 2026-11-02
 
+### 明确 world 来源与 MCP 双路径的推进计划
+
+- 根据已确认的设计方向，将 M4.W2 划分为来源契约、配置/生命周期、模拟及周期来源验收三个切片；来源通过绑定 source_id 的接纳入口投递，生命周期复用 core，不承担 bot 调度。完整自研环境周期的业务行为尚未定义，本次只安排最小周期来源验证扩展点。
+- MCP 客户端计划从 bot 内部实现调整至待新增的 `aurora_adapters.mcp`，由独立组件持有资源，world 来源桥与 agent 工具桥分别显式启用。记录官方 SDK 2.x 与 MCP `2026-07-28` 的版本区别，首版采用本机 Streamable HTTP 测试服务；旧协议回退、stdio 及未验收功能不预先列为已支持。
+- 保留 M4.B1/B2/B3 编号，新增 M4.B4 世界通知桥；推进顺序为 W2 → B1/B4 → B2/B3 → W3/W4。补齐工具发现先于 bot prepare、通知语义分流、无稳定事件身份的限制、工具集合重装配、共享客户端关闭及未知结果不自动重试等验收约束。
+- 同步架构与公共 ID 目录，移除从未登记的 bot mcp_servers 规划项；没有新增实际公共 ID、插件、配置或运行代码，无数据迁移。仅检查文档格式、相对链接、锚点和差异，不运行无关测试；README.md、AGENTS.md 保持原样。
+
 ### M4.W1：独立世界记录与来源身份
 
 - `aurora_world` 提供 `WorldRecords.append/get/read`、`WorldRecord`、`WorldReceipt` 和 `WorldPosition`，只依赖 core。插件登记全局持久状态 `org.aurora.world:state/records`，发现与构造不写入状态、不创建资源；接收消息无需 bot、agent、模型、目标实例或 run。变化观察复用 `ctx.subscribe`，不新增重复的操作、事件总线或投递队列。

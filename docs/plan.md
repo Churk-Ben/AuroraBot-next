@@ -43,7 +43,7 @@ M3 进行中：已有本机 HTTP/WS ctx 传输及 Python 客户端，M3.4 提供
 
 - M1 的 ctx 访问语义确定后，可推进 M3 的 API/client ctx 路径；不等待全部 bot 能力。
 - ModelClient 类型与假模型可在 M1 期间准备，真实装配与生命周期接入依赖 M1。
-- M4 多模型、MCP 依赖 M2；Panel 依赖 M3 共享 client；静态站点可先建立独立构建入口，使用说明随已验收行为补齐。
+- M4 多模型及 MCP 工具桥依赖 M2；MCP 客户端与世界通知桥可在无 bot 环境验收，通知桥依赖 M4.W2。Panel 依赖 M3 共享 client；静态站点可先建立独立构建入口，使用说明随已验收行为补齐。
 - M3.6 已实现直接交流回执与取消关联；ctx 查看、配置、订阅及连接状态可独立推进。
 - M4-W 依赖 M1 的状态与生命周期、M2 的 AgentRuntime；两条输入路径并存验收复用 M3.6，复杂聚类、调度和真实平台适配不纳入首个 world/cadence 切片。
 
@@ -175,11 +175,22 @@ M4 各分支独立实现与验收。world/cadence、多模型或 MCP 未配置�
 
 ### 8.2 M4-B：最小 MCP 扩展
 
+按已确认的接入方向，MCP 协议实现放在待新增的可选包 `aurora_adapters`，模块为 `aurora_adapters.mcp`；bot 负责产品装配。客户端资源由独立生命周期组件持有，世界来源桥和 agent 工具桥分别显式启用。协议类型留在适配层：world 接收普通 JSON 世界消息，agent 接收既有 ToolSpec/ExecutionPlug。不要求 world 安装 MCP 或 agent，也不因只使用 MCP 工具而强制启用 world。
+
+首版选用官方 Python SDK 2.x，以 MCP `2026-07-28` 为协议基线，依赖在实现时锁定具体版本。先验收本机测试服务的 Streamable HTTP 连接和通知流，stdio 子进程传输作为后续独立切片；未验收的旧协议回退及其他协议能力不列入支持范围。SDK 与协议版本分别记录，依据见[官方 SDK 说明](https://py.sdk.modelcontextprotocol.io/whats-new/)及[协议版本说明](https://modelcontextprotocol.io/docs/2026-07-28/learn/versioning)。
+
 | 任务 | 编码内容与落点 | 依赖 | 验收 |
 | --- | --- | --- | --- |
-| M4.B1 配置与运行时 | bot 的 `mcp/`；mcp_servers 注册、server 配置、mcp_runtime 服务；选择首个传输方式与测试服务 | M2.8 | 可建立及释放一个真实测试服务连接；配置错误和启动失败可定位；连接对象不落盘 |
-| M4.B2 工具适配 | 发现工具并转为 bot 工具定义；处理名称冲突、参数、返回值和错误 | M4.B1、M2.6 | 经现有 before_call/after_call 路径调用一个 MCP 工具；服务断开不导致无限等待 |
-| M4.B3 生命周期验收 | 取消、超时、服务退出、进程/连接清理场景 | M4.B2 | bot 关闭完成连接清理；故障不破坏非 MCP 工具；支持范围明确，不宣称完整协议覆盖 |
+| M4.B1 配置与客户端所有权 | `aurora_adapters.mcp` 的声明配置、客户端创建、能力检查及生命周期；使用 aurora_config 和独立客户端所有者 | M1 生命周期与配置服务 | 无 bot/agent 时连接本机 MCP 测试服务；未知能力、启动失败和关闭可诊断；发现插件不访问网络；凭证及客户端对象不落盘 |
+| M4.B4 世界通知桥 | 将选定资源变化及已约定业务事件转换为 world 来源输入，复用 M4.W2；订阅和工具桥共享客户端所有者 | M4.B1、M4.W2 | MCP 通知写入 world；选定资源可读取内容；稳定来源消息重复不重复记录；断线、身份缺失及有界缓冲溢出明确反馈，不静默丢弃或承诺历史补发 |
+| M4.B2 工具适配 | 工具发现后登记 agent ToolSpec，创建 ExecutionPlug；处理稳定名称、schema、内容块、结构化结果及错误 | M4.B1、M2.6 | 在 bot prepare 检查前完成发现和登记；经 before_call/after_call 调用 MCP 工具；业务错误、协议错误、超时及结果未知可区分；无 world 的工具宿主可运行 |
+| M4.B3 共享资源生命周期验收 | 通知桥与工具桥共用客户端时的退出、取消、超时及断线；验证分发依赖 | M4.B4、M4.B2 | 停止一个来源不关闭在途工具所需连接；宿主停止接纳、收束消费者后再关闭客户端，最后落盘；连接/任务不泄漏，通知侧独立安装不引入 agent/bot |
+
+保留 B1/B2/B3 的原任务编号，新增 B4 表示世界通知桥；实际推进顺序是 B1 → B4 → B2 → B3。首版客户端所有权不依赖 bot；仅通知桥导入 world，仅工具桥导入 agent，安装依赖与模块导入都需验证这两条路径可独立使用。
+
+通知按语义分流：`notifications/resources/updated` 提示资源变化，可按配置进一步读取；工具目录变化只标记适配器目录待更新，首版重新装配生效，不在运行中热改工具集合；调用进度、取消和订阅控制信息由对应运行资源处理。业务事件须有明确载荷约定，不把任意协议通知直接当作用户输入。来源无稳定事件 ID/修订时，以本地观察记录接纳并说明去重边界；URI 或载荷哈希不能充当通用事件身份。读取资源最新内容也不保证还原全部中间变化。
+
+启动顺序通过现有 LifecycleComponent 的依赖表达：配置加载完成后创建 MCP 客户端并发现工具，再进入使用这些定义的 bot prepare；消费者就绪后开放来源投递。关闭先停止接纳，再结束来源/转发任务与工具调用，客户端所有者在依赖者清理后关闭，最终由宿主 flush。断线不自动重试工具副作用；首版不支持的多轮输入请求等能力明确拒绝，不伪装为成功结果。
 
 ### 8.3 M4-C：Vue Panel
 
@@ -208,6 +219,16 @@ M4 各分支独立实现与验收。world/cadence、多模型或 MCP 未配置�
 | M4.W3 原样转发 cadence | bot 的可选 cadence 插件，按配置订阅/读取 world，记录消费位置和消息至引导的关联，经既有 AgentRuntime 提交 | M4.W1、M2.4、D11 | 一条消息形成一条引导；运行中继续接纳；重复来源不会无意生成重复引导；转交结果不确定时明确暂停待核对，不自动重放 |
 | M4.W4 双路径与安装验收 | 将 live_workshop 改为消费正式 world/cadence，移除示例自有激活调度；测试关闭、重启与直接交流并存 | M4.W2、M4.W3、M3.6 | 模拟消息经 world/cadence 到 bot，直接交流同时可用且仅有一个调度所有者；未启用 world/cadence 时直接交流正常；wheel 隔离安装及资源检查通过 |
 
+M4.W2 按三个可独立验收的小步实现；下列是待实现契约，不代表已有来源插槽或可用插件：
+
+| 切片 | 实现边界 | 验收证据 |
+| --- | --- | --- |
+| W2.1 来源定义与实例接纳 | 来源登记接收器接纳工厂定义；工厂获得绑定稳定 source_id 的接纳回调，提交 message_id/payload 并获取 WorldReceipt；实例通过既有生命周期插槽接入 | 两个来源实例独立投递；禁止身份串用；重复/冲突沿用 W1；未启动或停止接纳后拒绝投递；定义发现不启动任务 |
+| W2.2 配置与托管生命周期 | 来源配置复用 ConfigSpec/ConfigSchema/ConfigTemplate；prepare 创建资源，start 开放输入，stop 收束自有任务，clean 释放资源；部分启动失败也可清理 | 正常关闭时全部已接纳记录最终落盘；准备/启动/停止/清理失败及重试有用例；来源失败可观察，不留后台任务或偷偷重启 |
+| W2.3 模拟与周期来源验证 | 用可控模拟来源和最小周期来源检验同一接口；周期只生成环境观察，不激活 agent；完整自研环境周期的行为另行确定 | 无 bot/agent/MCP 的宿主能接收、读取和恢复；使用可控时钟验证停止后不再发出新输入；重启默认不补发离线周期；wheel 验证配置资源和依赖边界 |
+
+W1 记录接口保持低层同步存储职责；停止接纳的控制由 W2 来源入口承担，来源通过注入入口提交，不能持有原始记录对象绕过关闭流程。来源登记与长驻生命周期按实际工厂行为确定，不把通知流伪装成一次 ReAct 工具执行；不为未来信源预先定义通用 Adapter 基类。新增 ID、插件名和依赖只在实现对应消费者时登记。
+
 cadence 只负责把世界输入形成并投递为引导，不自行启动第二个 ReAct 调度循环，不绕过 AgentRuntime 直接改写 inbox/progress。每次运行的取消不自动停用来源或 cadence；暂停外部输入、未来唤醒工具、复杂调度与真实平台连接分别作为后续切片。关机先停止输入接纳，收束来源、转发和运行资源，再由宿主保存最终状态；恢复数据不自动重试工具动作或未知结果的投递。
 
 ### 8.6 M4-E：集成与交付检查
@@ -227,7 +248,8 @@ cadence 只负责把世界输入形成并投递为引导，不自行启动第二
 | `packages/aurora_control/src/aurora_control/` | execution、components | 仅依赖 core；执行契约与控制组合不引入模型或 agent 依赖 |
 | `packages/aurora_agent/src/aurora_agent/` | react、react_defaults、model、tools、runtime | 不依赖 bot、CLI 或 API；资源、状态地址与恢复策略由宿主提供 |
 | `packages/aurora_model_adapter/src/aurora_model_adapter/` | protocols、models、factories、adapters | 依赖 core；上层仅消费统一协议 |
-| `packages/aurora_bot/src/aurora_bot/` | assembly、assembly_config、operations、cli、cadence、multi_model、agents、mcp | 产品入口与装配；cadence 为可选插件，向既有 AgentRuntime 提交引导；不复制世界记录或调度循环 |
+| `packages/aurora_bot/src/aurora_bot/` | assembly、assembly_config、operations、cli、cadence、multi_model、agents | 产品入口与装配；cadence 为可选插件，向既有 AgentRuntime 提交引导；不复制世界记录或调度循环 |
+| `packages/aurora_adapters/src/aurora_adapters/`（待新增） | mcp 客户端所有者、世界来源桥、agent 工具桥 | MCP 类型留在适配层；世界与工具桥分别按实际消费者启用，不使 world 反向依赖 MCP/agent |
 | `packages/aurora_cli/src/aurora_cli/` | main、commander、commands、configuration、parsing | 接收命令，不复制 ctx 或 bot 逻辑 |
 | `packages/aurora_api/src/aurora_api/` | app、config、endpoints、contracts | 只提供明确的传输绑定，不导入 bot 实现 |
 | `packages/aurora_logging/src/aurora_logging/` | 日志配置与输出 | 不依赖业务包，不登记公共定义 |
@@ -281,9 +303,12 @@ M0–M2 及执行包拆分已交付，M3 已有本机 ctx 传输、按需契约�
 
 | 顺序 | 任务范围 | 交付证据 |
 | --- | --- | --- |
-| 1 | M4.W2–M4.W4 来源生命周期与 cadence | 基于已交付的 world 记录接入来源与原样转发；双路径共用调度所有者；关闭、失败和恢复验收 |
-| 2 | M3.1–M3.3 浏览器与远程访问边界 | 本机路径已验证；浏览器接入前确定来源与认证规则，保持对外数据范围受限 |
-| 3 | harness 最小宿主 | 无 bot 环境完成装配、提交、取消、恢复与关闭；默认路径不依赖 bot 配置或 CLI |
+| 1 | M4.W2 来源契约、配置与生命周期 | 模拟/周期来源共用接纳接口；独立宿主的关闭、失败与恢复验收 |
+| 2 | M4.B1、M4.B4 MCP 客户端与世界通知桥 | 独立客户端所有者；真实本机 MCP 通知通过来源接口写入 world；不依赖 bot/agent |
+| 3 | M4.B2、M4.B3 MCP 工具桥与共享关闭 | 工具接入 agent 插槽；与通知桥共享资源而不互相误关；取消、超时及故障验收 |
+| 4 | M4.W3、M4.W4 cadence 与双路径集成 | 世界记录原样形成引导；直接交流共用 AgentRuntime；替换 live_workshop 示例调度并验证安装 |
+| 5 | M3.1–M3.3 浏览器与远程访问边界 | 本机路径已验证；浏览器接入前确定来源与认证规则，保持对外数据范围受限 |
+| 6 | harness 最小宿主 | 无 bot 环境完成装配、提交、取消、恢复与关闭；默认路径不依赖 bot 配置或 CLI |
 
 M3.6 的信封字段、URL、生成契约和回归已同步；未实现的界面能力不作为已交付成果。agent 包边界已由测试固定；直接交流与世界转发共用其已有提交机制，不要求 agent 依赖 world 或界面。
 

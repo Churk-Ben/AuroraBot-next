@@ -234,7 +234,7 @@ commands、hook_slots、resources 等逻辑注册表可以基于总表提供分�
 | --- | --- |
 | `org.aurora.core:registries/registries` | 由宿主直接引导建立；自身描述是否在目录中列出属于实现选择 |
 | core 其余逻辑注册表 | 登记到上述注册表目录 |
-| CLI commands、模型 adapters、bot tools/agents/mcp_servers、API endpoints、config 配置声明 | 对应提供方存在时登记到上述目录 |
+| CLI commands、模型 adapters、agent tools、bot agents、API endpoints、config 配置声明；外部 adapter 定义待实现 | 对应提供方存在时登记到上述目录 |
 | TS 本地与静态构建目录 | 在各自环境管理，不自动登记到 Python core |
 
 通用 resources 注册表可以接收 resource、assembly、contract 等已约定类型。登记项保留自己的 kind，由接收方按需要选择加载与校验方式；不因进入 resources 就改成另一种身份。prompt、theme、keymap 等具体内容可附带必要描述，不强制建立完整子类型系统。
@@ -338,7 +338,7 @@ aurora_agent 提供 ReActAgent 和 prepare、infer、act、observe、finish、er
 
 ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正整数；控制组合只负责外层调用结构。AgentRuntime 管理提交、激活、等待和取消，通过宿主提供的 agent 获取、执行和占用查询接入；运行句柄仅存在于进程内。默认装配在启动后绑定 runtime；恢复出的中断运行标记为 failed，不自动续跑。
 
-引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具、多模型选择与聚合、agent 通信及 MCP 由 bot 插件提供，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
+引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具执行由 agent 提供，多模型选择与聚合、agent 通信由 bot 扩展装配；MCP 计划通过独立 adapters 包接入世界来源与 agent 工具接口，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
 
 ### 7.7 直接交流与世界输入
 
@@ -394,6 +394,17 @@ finally:
 正式 cadence 不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。`live_workshop` 当前的模拟世界与自有调度属于示例，M4.W4 将其改为正式能力的消费者；不能直接把示例循环当成可交付的 cadence。世界来源和 cadence 持有自己的后台资源，关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。
 
 M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
+
+来源接入与 MCP 的后续实现采用以下边界，当前尚未交付：
+
+- world 提供通用来源登记与运行期接纳入口。来源工厂取得绑定 source_id 的提交回调，由宿主管理实例的 prepare/start/stop/clean；配置复用 aurora_config。模拟来源、自研环境周期和 MCP 来源共用该入口，环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。
+- 可选包 `aurora_adapters` 中的 `mcp` 模块持有协议客户端，世界来源桥与 agent 工具桥分别启用。SDK 类型与协议转换留在 adapter，world 不依赖 MCP 或 agent，MCP 工具也无需启用 world。先实现实际 MCP 消费者，再决定新增公共定义，不预建所有外部来源共用的 Adapter 框架。
+- 官方 Python SDK 2.x 与 MCP `2026-07-28` 分别作为 SDK/协议基线；首先支持本机测试服务的 Streamable HTTP。通过 `subscriptions/listen` 接收选定资源变化，按配置决定是否读取资源内容，再转换为世界输入。工具目录变化、调用进度、取消及订阅控制信息由适配器/调用管理处理，业务事件需要额外明确的内容与身份约定。[SDK 说明](https://py.sdk.modelcontextprotocol.io/whats-new/)、[订阅协议](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/subscriptions)。
+- 来源有稳定事件 ID 或修订号时用于构造 message_id；只有资源 URI、最新内容或通知到达时间时不承诺跨重连去重与完整历史。缓冲须有界，溢出或来源失败必须有明确状态；断线后不静默补发未知业务，不自动重试结果不明的工具动作。
+- MCP 工具在 bot 的 prepare 检查前完成发现与 ToolSpec 登记，再将实例 ExecutionPlug 接入 ToolExecutor。名称冲突、schema、结构化内容与错误由工具桥处理，before_call/after_call、超时与取消沿用 agent；首版工具目录变化标记待重新装配，不在运行中热改集合。
+- MCP 客户端由独立生命周期组件持有，世界与工具桥只持有使用引用。配置完成后创建资源，消费者就绪后开放输入；停止接纳后结束来源与运行任务，待依赖者清理完再关闭客户端，最后由宿主落盘。单个来源停止不能关闭在途工具仍使用的客户端。
+
+推进顺序为来源契约与模拟/周期验收 → MCP 客户端与世界通知桥 → MCP 工具桥及共享资源验收 → cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
 
 ## 8. 模型适配与绑定
 

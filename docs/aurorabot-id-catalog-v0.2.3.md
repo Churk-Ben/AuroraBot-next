@@ -76,7 +76,6 @@
 | `org.aurora.model_adapter:registries/adapters` | `org.aurora.core:registries/registries` |
 | `org.aurora.agent:registries/tools` | `org.aurora.core:registries/registries` |
 | `org.aurora.bot:registries/agents` | `org.aurora.core:registries/registries` |
-| `org.aurora.bot:registries/mcp_servers` | `org.aurora.core:registries/registries` |
 | `org.aurora.api:registries/endpoints` | `org.aurora.core:registries/registries` |
 
 resources 可以接收 `resource`、`assembly`、`contract` 等约定的 kind，保留原 kind，由接收方选择必要的加载和校验方式。提示词、主题等内容不必为登记而建立完整子类型体系。
@@ -262,6 +261,8 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 
 多 agent 通信、多模型聚合、MCP 和额外消息传输属于后续扩展，未实现的规划名称不作为已登记定义列出。具体定义以所选插件的 `id list` 输出为准，名称存在不代表组件已连接或执行。
 
+MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再预留 bot 的 mcp_servers 注册表。该旧规划 ID 从未登记，无配置或快照迁移；适配器定义的完整 ID 和插件入口随 M4-B 实现登记，不提供旧名兼容层。MCP 工具桥复用实际存在的 `org.aurora.agent:registries/tools`、工具 ExecutionPlug 及执行器插槽，bot 只负责装配。
+
 ### 6.5 世界记录与 cadence 的归属
 
 `aurora_world` 的[插件入口](../packages/aurora_world/src/aurora_world/plugin.py)已登记下列持久状态，启用时不创建来源或任务，仅依赖 core。包提供进程内 `WorldRecords.append/get/read`；变化观察复用 core 的 ctx 订阅，不另建世界 operation 或事件的同义 ID。
@@ -276,6 +277,7 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | --- | --- | --- |
 | 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 已实现上述状态与 Python 接口；不承载全部直接对话，不要求记录绑定某个 run |
 | 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | M4.W2 先接入模拟来源；来源连接为运行期资源，配置复用 aurora_config |
+| MCP 客户端、世界来源桥与工具桥 | 待新增的 aurora_adapters 包，具体公共 ID 尚未登记 | 通知桥实现 world 来源契约，工具桥接入 agent；共用独立客户端所有者，不改变 world/agent 的定义归属 |
 | cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 在 bot 包内提供可选插件；插件名与完整 ID 随实现登记，不建立独立 cadence 包 |
 | 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
 
