@@ -96,8 +96,11 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
                 assert await clocks[0].waiting.get() == (3 if restart else 2)
                 assert await clocks[1].waiting.get() == 900
                 records = WorldRecords(ctx).read()
-                assert records[: len(previous)] == previous
-                assert len(records) == len(previous) + 2
+                previous_weather = tuple(record for record in previous if record.source_id == "environment/weather")
+                assert records[: len(previous_weather)] == previous_weather
+                assert len(records) == len(previous_weather) + 2
+                if previous:
+                    assert records[-1].position.sequence == previous[-1].position.sequence + 2
                 assert len({record.message_id for record in records}) == len(records)
                 assert clients[0].requests == []
                 async with serve(registry, keys=[RECORDS, SOURCE_STATUS], port=0) as url, CtxClient(url) as client:
@@ -116,7 +119,8 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
                         change = await asyncio.wait_for(anext(changes), timeout=2)
                         assert change["value"]["records"][-1]["payload"]["kind"] == "time"
                     value = cast(dict, await client.request("get", key=str(RECORDS), location={}))
-                    assert len(value["records"]) == len(records) + 1
+                    assert len(value["records"]) == len(records)
+                    assert value["records"][-1]["sequence"] == records[-1].position.sequence + 1
                 assert clients[0].requests == []
                 result = await assembly.runtime.submit("显式交流").run.wait()
                 assert result.status == "completed" and clients[0].requests

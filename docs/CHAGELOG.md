@@ -2,6 +2,16 @@
 
 ## 2026-11-02
 
+### 限定环境记录保留窗口
+
+- 按用户要求，时间默认只保留最新 1 条；天气按 observed_at 采样时间保留最近一小时内最多 4 条，满一小时即过期，包括不可用观察。时间和天气分别提供 retain_count，天气另提供 retain_seconds，默认 1、4、3600；与采样间隔独立配置。包内模板、启动指南及本机南京来源配置已同步，修改后重启生效。
+- SourceInstance 可声明 RecordRetention，WorldSources 在全部来源 prepare 完成及每次接纳时统一应用已创建来源的保留规则，时间写入也会清理过期天气；无输入时不另设清理任务。策略仅作用于绑定来源，其他来源默认保留全部记录。追加与裁剪一次提交，失败不消耗序号、不改变旧窗口；实际数据与快照均裁剪，不只是界面隐藏。
+- world 日志升级为 v2，增加 next_sequence、pruned_through 和 pruned_record_id，保留稀疏但单调递增的原序号和存活记录身份。v1 日志仍严格校验和读取，读取及无变化裁剪不改写，下次实际变更升级；旧程序不能读取 v2。仅保留窗口内的身份参与去重，已裁剪消息重投视为新输入，不另存无限增长的历史墓碑。没有更改公共 ID 或插件名。
+- 读取位置早于最高裁剪序号时明确报 CursorError，即使指定来源过滤也不隐瞒全局历史缺口；恰好处于边界时凭保存的记录身份继续读取，允许已消费的上一条时间记录被替换后正常追读。省略 after 读取当前窗口，缺口由消费者明确处理；旧快照回退造成同序号不同身份时仍拒绝读取。
+- 新增 17 项验收并同步原有环境恢复断言，覆盖来源隔离、原子通知、数量与小时边界、时间写入清理天气、空窗口序号、有限去重、裁剪位置、无效边界、失败回滚及 v1/v2 恢复。完整 `pnpm exec uv run --locked aurora check` 通过：683 项 Python、97 项 TS、5 项原生终端测试，格式、lint 和类型检查通过；未调用真实天气或模型。
+- 11 个 wheel 构建完成，在 `build/world-retention-isolated` 干净环境验证环境来源、保留规则与跨进程恢复，环境无 bot/agent/control/模型/CLI/API/MCP。另将本机旧版世界状态复制到 `build/world-retention-existing-copy`，验证安装包能启动裁剪并保留原序号继续采样。当前本机后端仍在运行，在线快照由其继续持有，新规则在正常重启时应用。
+- 同步架构、公共 ID 目录和 D11 保留边界；主线仍接续 MCP 客户端与世界通知桥，cadence 后续须按裁剪缺口规则处理消费位置。
+
 ### W2.3：将可配置的时间与天气周期接入默认装配
 
 - 按用户要求将最小周期来源落实为时间和天气，新增 `aurora_world.environment` 插件及 `org.aurora.world:sources/environment/time`、`org.aurora.world:sources/environment/weather` 两个 SourceSpec，复用 W2.2 的身份绑定、配置和任务托管。基础 world 仍仅依赖 core，environment extra 引入 config/httpx；统一安装包包含该 extra，bot 增加 world/config 依赖，无 agent → world 的反向依赖。

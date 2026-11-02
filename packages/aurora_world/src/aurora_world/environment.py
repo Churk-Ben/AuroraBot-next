@@ -13,6 +13,7 @@ from aurora_core import Id
 from aurora_core.discovery import Plugin
 from aurora_core.registry import RegistryEntry
 
+from .records import RecordRetention
 from .sources import SOURCES, SourceEmit, SourceInstance, SourceSpec
 
 TIME = Id("org.aurora.world:sources/environment/time")
@@ -51,7 +52,10 @@ TIME_CONFIG = ConfigSchema(
     {
         "type": "object",
         "additionalProperties": False,
-        "properties": {"interval_seconds": {"type": "number", "minimum": 1, "maximum": 86400, "default": 60}},
+        "properties": {
+            "interval_seconds": {"type": "number", "minimum": 1, "maximum": 86400, "default": 60},
+            "retain_count": {"type": "integer", "minimum": 1, "default": 1},
+        },
     }
 )
 WEATHER_CONFIG = ConfigSchema(
@@ -65,6 +69,8 @@ WEATHER_CONFIG = ConfigSchema(
             "longitude": {"type": "number", "minimum": -180, "maximum": 180},
             "interval_seconds": {"type": "number", "minimum": 60, "maximum": 86400, "default": 900},
             "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 10},
+            "retain_count": {"type": "integer", "minimum": 1, "default": 4},
+            "retain_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 3600},
         },
     }
 )
@@ -84,6 +90,7 @@ def _periodic(
     interval: float,
     sleep: Callable[[float], Awaitable[None]],
     *,
+    retention: RecordRetention,
     aclose: Callable[[], Awaitable[None]] = _noop,
 ) -> SourceInstance:
     session = uuid4().hex
@@ -96,7 +103,7 @@ def _periodic(
             emit(message_id=f"{session}/{sequence}", payload=payload)
             await sleep(interval)
 
-    return SourceInstance(_noop, _noop, aclose, run)
+    return SourceInstance(_noop, _noop, aclose, run, retention)
 
 
 async def create_time(
@@ -114,7 +121,9 @@ async def create_time(
         current = now()
         return {"kind": "time", "observed_at": current.isoformat(), "timezone": current.tzname()}
 
-    return _periodic(emit, observe, values["interval_seconds"], sleep)
+    return _periodic(
+        emit, observe, values["interval_seconds"], sleep, retention=RecordRetention(values["retain_count"])
+    )
 
 
 def _current_weather(value: object) -> dict[str, object]:
@@ -153,6 +162,15 @@ async def create_weather(
 ) -> SourceInstance:
     """有界请求当前天气；失败形成明确观察，下个周期再采样，不重试本次请求。"""
     values = cast(dict, WEATHER_CONFIG.parse(config))
+
+    def expired(payload: object) -> bool:
+        if not isinstance(payload, dict) or not isinstance(payload.get("observed_at"), str):
+            raise TypeError("天气记录缺少采样时间，不能判断保留范围")
+        observed = datetime.fromisoformat(payload["observed_at"])
+        if observed.tzinfo is None:
+            raise ValueError("天气记录采样时间必须包含时区")
+        return (now() - observed).total_seconds() >= values["retain_seconds"]
+
     client = httpx.AsyncClient(transport=transport, timeout=values["timeout_seconds"], follow_redirects=False)
 
     async def observe() -> dict[str, object]:
@@ -192,7 +210,14 @@ async def create_weather(
             return {**payload, "status": "available", **weather}
         return {**payload, "status": "unavailable", "error": error}
 
-    return _periodic(emit, observe, values["interval_seconds"], sleep, aclose=client.aclose)
+    return _periodic(
+        emit,
+        observe,
+        values["interval_seconds"],
+        sleep,
+        retention=RecordRetention(values["retain_count"], expired),
+        aclose=client.aclose,
+    )
 
 
 def plugin() -> Plugin:

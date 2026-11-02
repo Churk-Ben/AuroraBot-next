@@ -193,7 +193,7 @@ def test_invalid_positions_limits_and_cross_thread_access_are_rejected(world):
 @pytest.mark.parametrize(
     "damage",
     [
-        lambda data: data.update(version=2),
+        lambda data: data.update(version=99),
         lambda data: data.update(version=True),
         lambda data: data.update(journal_id=""),
         lambda data: data.update(records={}),

@@ -1,6 +1,7 @@
 """单宿主内的世界记录、来源去重和持久读取位置。"""
 
 import json
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TypedDict, cast
@@ -65,6 +66,20 @@ class CursorError(ValueError):
     """读取位置不属于当前日志或超出已保存范围，须由消费者核对。"""
 
 
+@dataclass(frozen=True)
+class RecordRetention:
+    """单个来源的保留上限；expired 判断载荷副本，未声明的来源保留全部记录。"""
+
+    limit: int
+    expired: Callable[[object], bool] | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.limit) is not int or self.limit < 1:
+            raise ValueError("记录保留数量必须为正整数")
+        if self.expired is not None and not callable(self.expired):
+            raise TypeError("记录过期判断必须可调用")
+
+
 class _StoredRecord(TypedDict):
     sequence: int
     record_id: str
@@ -77,22 +92,40 @@ class _Journal(TypedDict):
     version: int
     journal_id: str
     records: list[_StoredRecord]
+    next_sequence: int
+    pruned_through: int
+    pruned_record_id: str | None
 
 
 def validate_records(value: object) -> None:
-    """校验完整日志和唯一身份；恢复损坏或不支持的快照时明确拒绝。"""
+    """校验 v1 完整日志或 v2 保留窗口；裁剪不能复用序号或掩盖未声明的缺口。"""
     encode_json(value)
-    if not isinstance(value, dict) or set(value) != {"version", "journal_id", "records"}:
-        raise ValueError("世界日志结构无效")
-    if type(value["version"]) is not int or value["version"] != 1:
+    if not isinstance(value, dict):
+        raise TypeError("世界日志结构无效")
+    if type(value.get("version")) is not int or value["version"] not in (1, 2):
         raise ValueError("不支持的世界日志版本")
+    fields = {"version", "journal_id", "records"}
+    if value["version"] == 2:
+        fields |= {"next_sequence", "pruned_through", "pruned_record_id"}
+    if set(value) != fields:
+        raise ValueError("世界日志结构无效")
     _identity(value["journal_id"])
     records = value["records"]
     if not isinstance(records, list):
         raise TypeError("世界记录必须为列表")
+    next_sequence = value.get("next_sequence", len(records) + 1)
+    pruned = value.get("pruned_through", 0)
+    if type(next_sequence) is not int or type(pruned) is not int or not 0 <= pruned < next_sequence:
+        raise ValueError("世界日志序号边界无效")
+    anchor = value.get("pruned_record_id")
+    if pruned:
+        _identity(anchor)
+    elif anchor is not None:
+        raise ValueError("尚未裁剪的日志不能声明裁剪锚点")
     identities: set[tuple[str, str]] = set()
     record_ids: set[str] = set()
-    for sequence, record in enumerate(records, start=1):
+    previous = 0
+    for record in records:
         if not isinstance(record, dict) or set(record) != {
             "sequence",
             "record_id",
@@ -101,8 +134,15 @@ def validate_records(value: object) -> None:
             "payload",
         }:
             raise ValueError("世界记录结构无效")
-        if type(record["sequence"]) is not int or record["sequence"] != sequence:
-            raise ValueError("世界记录序号必须从 1 连续递增")
+        sequence = record["sequence"]
+        if (
+            type(sequence) is not int
+            or not previous < sequence < next_sequence
+            or sequence == pruned
+            or (sequence > previous + 1 and sequence - 1 > pruned)
+        ):
+            raise ValueError("世界记录序号与保留边界不一致")
+        previous = sequence
         for field in ("record_id", "source_id", "message_id"):
             _identity(record[field])
         identity = (record["source_id"], record["message_id"])
@@ -110,6 +150,10 @@ def validate_records(value: object) -> None:
             raise ValueError("世界记录身份重复")
         identities.add(identity)
         record_ids.add(record["record_id"])
+    if max(previous, pruned) != next_sequence - 1:
+        raise ValueError("世界日志末尾序号缺失")
+    if anchor in record_ids:
+        raise ValueError("已裁剪的记录身份不能仍在保留窗口内")
 
 
 def _record(journal: _Journal, value: _StoredRecord) -> WorldRecord:
@@ -135,8 +179,9 @@ class WorldRecords:
     订阅使用 ctx.subscribe(callback, key=RECORDS, location={})，通知只提示重新读取，
     不承担历史补发；先订阅再 read，并以 WorldPosition 排除重复读取。
 
-    日志随宿主 ContextPersistence 保存，接纳与落盘之间存在崩溃窗口。首版保留全部
-    记录，不自动裁剪，不提供删除或重写接口；宿主不得通过通用 ctx 写入破坏日志历史。
+    日志随宿主 ContextPersistence 保存，接纳与落盘之间存在崩溃窗口。默认保留全部，
+    显式保留规则只裁剪指定来源；去重只覆盖仍保留的消息，已裁剪消息再次提交视为新输入。
+    v1 在内存中读取，下一次写入升级 v2；序号单调递增，裁剪不改变存活记录身份。
     每次操作复制完整日志，适用于首版有限规模输入，不承诺大容量消息存储性能。
     """
 
@@ -146,29 +191,83 @@ class WorldRecords:
     def _load(self) -> _Journal | None:
         if not self._ctx.list(key=RECORDS, location={}):
             return None
-        return cast(_Journal, self._ctx.get(RECORDS))
+        journal = cast(_Journal, self._ctx.get(RECORDS))
+        if journal["version"] == 1:
+            journal.update(
+                version=2, next_sequence=len(journal["records"]) + 1, pruned_through=0, pruned_record_id=None
+            )
+        return journal
 
-    def append(self, *, source_id: str, message_id: str, payload: object) -> WorldReceipt:
-        """同身份同内容返回原记录且不发布通知；不同内容抛出 MessageConflictError。"""
+    @staticmethod
+    def _retain(journal: _Journal, retention: Mapping[str, RecordRetention]) -> int:
+        removed: set[int] = set()
+        for source_id, policy in retention.items():
+            _identity(source_id)
+            if not isinstance(policy, RecordRetention):
+                raise TypeError("来源保留规则必须为 RecordRetention")
+            kept = 0
+            for record in reversed(journal["records"]):
+                if record["source_id"] != source_id:
+                    continue
+                if kept >= policy.limit or (policy.expired is not None and policy.expired(deepcopy(record["payload"]))):
+                    removed.add(record["sequence"])
+                else:
+                    kept += 1
+        if removed:
+            latest = max(removed)
+            if latest > journal["pruned_through"]:
+                journal["pruned_through"] = latest
+                journal["pruned_record_id"] = next(
+                    record["record_id"] for record in journal["records"] if record["sequence"] == latest
+                )
+            journal["records"] = [record for record in journal["records"] if record["sequence"] not in removed]
+        return len(removed)
+
+    def prune(self, retention: Mapping[str, RecordRetention]) -> int:
+        """原子裁剪指定来源；没有删除时不写状态、不升级快照或通知订阅者。"""
+        journal = self._load()
+        if journal is None:
+            return 0
+        removed = self._retain(journal, retention)
+        if removed:
+            self._ctx.set(RECORDS, journal)
+        return removed
+
+    def append(
+        self,
+        *,
+        source_id: str,
+        message_id: str,
+        payload: object,
+        retention: Mapping[str, RecordRetention] | None = None,
+    ) -> WorldReceipt:
+        """保留窗口内按身份去重；追加与裁剪一次提交，仅裁剪也会发布变化。"""
         _identity(source_id)
         _identity(message_id)
         encode_json(payload)
         journal = self._load()
         if journal is None:
-            journal = _Journal(version=1, journal_id=uuid4().hex, records=[])
+            journal = _Journal(
+                version=2, journal_id=uuid4().hex, records=[], next_sequence=1, pruned_through=0, pruned_record_id=None
+            )
         for record in journal["records"]:
             if (record["source_id"], record["message_id"]) == (source_id, message_id):
                 if _content(record["payload"]) != _content(payload):
                     raise MessageConflictError("该来源消息身份已对应不同内容")
-                return WorldReceipt(_record(journal, record), duplicate=True)
+                receipt = WorldReceipt(_record(journal, record), duplicate=True)
+                if self._retain(journal, retention or {}):
+                    self._ctx.set(RECORDS, journal)
+                return receipt
         record = _StoredRecord(
-            sequence=len(journal["records"]) + 1,
+            sequence=journal["next_sequence"],
             record_id=uuid4().hex,
             source_id=source_id,
             message_id=message_id,
             payload=deepcopy(payload),
         )
         journal["records"].append(record)
+        journal["next_sequence"] += 1
+        self._retain(journal, retention or {})
         self._ctx.set(RECORDS, journal)
         return WorldReceipt(_record(journal, record), duplicate=False)
 
@@ -188,7 +287,8 @@ class WorldRecords:
     ) -> tuple[WorldRecord, ...]:
         """按全局序号读取严格晚于 after 的记录，来源过滤不改变序号。
 
-        位置属于别的日志、日志缺失、序号超前或锚定记录不一致时拒绝读取，不静默回退。
+        日志缺失、身份不符、序号超前或位置早于裁剪边界时拒绝读取，不静默回退。
+        恰好位于裁剪边界的位置凭保留的记录身份继续读取；不提供 after 时读取当前窗口。
         每次最多返回 limit 条；无匹配记录时返回空元组。
         """
         if after is not None and not isinstance(after, WorldPosition):
@@ -201,15 +301,25 @@ class WorldRecords:
         if after is not None and (
             journal is None
             or after.journal_id != journal["journal_id"]
-            or after.sequence > len(journal["records"])
-            or (after.sequence > 0 and journal["records"][after.sequence - 1]["record_id"] != after.record_id)
+            or after.sequence >= journal["next_sequence"]
+            or after.sequence < journal["pruned_through"]
+            or (
+                after.sequence > 0
+                and not (after.sequence == journal["pruned_through"] and after.record_id == journal["pruned_record_id"])
+                and not any(
+                    record["sequence"] == after.sequence and record["record_id"] == after.record_id
+                    for record in journal["records"]
+                )
+            )
         ):
             raise CursorError("世界读取位置与当前日志不一致，请核对记录或恢复范围")
         if journal is None:
             return ()
         start = after.sequence if after is not None else 0
         result = []
-        for record in journal["records"][start:]:
+        for record in journal["records"]:
+            if record["sequence"] <= start:
+                continue
             if source_id is None or record["source_id"] == source_id:
                 result.append(_record(journal, record))
                 if len(result) == limit:

@@ -91,13 +91,15 @@ def test_clock_has_no_catch_up_and_stops_without_another_observation():
         assert records.read() == ()
         await sources.start()
         assert await clock.waiting.get() == 60
+        observed = [records.read()[0]]
         for seconds in (86400, -86400):
             clock.advance(seconds)
             assert await clock.waiting.get() == 60
+            observed.append(records.read()[0])
         values = records.read()
-        assert len(values) == 3
-        assert values[0].payload == values[2].payload
-        assert len({value.message_id for value in values}) == 3
+        assert len(values) == 1 and values[0].position.sequence == 3
+        assert observed[0].payload == observed[2].payload
+        assert len({value.message_id for value in observed}) == 3
         await sources.stop()
         clock.advance(60)
         await asyncio.sleep(0)
@@ -199,6 +201,92 @@ def test_pending_weather_request_is_bounded_and_cancelled_before_transport_close
         assert events == ["request.finished", "transport.closed"]
         if not timeout:
             assert WorldRecords(ctx).read() == ()
+        hooks.close()
+        ctx.close()
+
+    asyncio.run(scenario())
+
+
+def test_weather_keeps_four_samples_within_one_hour_and_prunes_on_prepare():
+    async def scenario():
+        clock = Schedule()
+        factory = partial(
+            create_weather,
+            now=clock.now,
+            sleep=clock.sleep,
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=weather_data())),
+        )
+        ctx, hooks, sources = environment(factory, LOCATION)
+        records = WorldRecords(ctx)
+        records.append(
+            source_id="environment/test",
+            message_id="old",
+            payload={
+                "observed_at": (clock.current - timedelta(hours=2)).isoformat(),
+                "status": "unavailable",
+            },
+        )
+        await sources.prepare()
+        assert records.read() == ()
+        await sources.start()
+        await clock.waiting.get()
+        for _ in range(4):
+            clock.advance(900)
+            await clock.waiting.get()
+        retained = records.read()
+        assert len(retained) == 4
+        assert [record.position.sequence for record in retained] == [3, 4, 5, 6]
+        assert [cast(dict, record.payload)["observed_at"] for record in retained] == [
+            (clock.current - timedelta(seconds=seconds)).isoformat() for seconds in (2700, 1800, 900, 0)
+        ]
+        clock.advance(3600)
+        await clock.waiting.get()
+        assert len(records.read()) == 1 and records.read()[0].position.sequence == 7
+        await sources.stop()
+        await sources.clean()
+        hooks.close()
+        ctx.close()
+
+    asyncio.run(scenario())
+
+
+def test_time_updates_expire_weather_without_an_extra_weather_request():
+    async def scenario():
+        weather_clock, time_clock = Schedule(), Schedule()
+        requests = []
+
+        def respond(request):
+            requests.append(request)
+            return httpx.Response(200, json=weather_data())
+
+        ctx, hooks, sources = environment(
+            partial(
+                create_weather, now=weather_clock.now, sleep=weather_clock.sleep, transport=httpx.MockTransport(respond)
+            ),
+            LOCATION,
+        )
+        identity = Id("dev.test:sources/time")
+        ctx.registry.register(
+            RegistryEntry(
+                identity,
+                "source",
+                SourceSpec(partial(create_time, now=time_clock.now, sleep=time_clock.sleep)),
+                "test",
+                register_to=SOURCES,
+            )
+        )
+        sources.add(identity, source_id="time")
+        await sources.prepare()
+        await sources.start()
+        await weather_clock.waiting.get()
+        await time_clock.waiting.get()
+        weather_clock.current += timedelta(hours=1)
+        time_clock.advance(3600)
+        await time_clock.waiting.get()
+        assert len(requests) == 1
+        assert [record.source_id for record in WorldRecords(ctx).read()] == ["time"]
+        await sources.stop()
+        await sources.clean()
         hooks.close()
         ctx.close()
 

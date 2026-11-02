@@ -269,7 +269,7 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 
 | 当前定义 | kind | 定位与职责 |
 | --- | --- | --- |
-| `org.aurora.world:state/records` | state_key | 全局 `location={}`，保存版本化日志、来源消息身份、记录身份及连续序号；由 WorldRecords 追加，随宿主 ctx 快照保存 |
+| `org.aurora.world:state/records` | state_key | 全局 `location={}`，保存版本化日志、来源消息身份、记录身份、递增序号及裁剪边界；由 WorldRecords 追加和裁剪，随宿主 ctx 快照保存 |
 | `org.aurora.world:state/sources` | state_key | 按 source_id 定位运行阶段、接纳开关及固定错误代码；非持久化 |
 | `org.aurora.world:registries/sources` | registry | 接收 `kind=source`、target 为 SourceSpec 的工厂定义，登记到 core 注册表目录 |
 | `org.aurora.world:handlers/sources/prepare` | hook_handler | 接入 core prepare，创建已选来源实例 |
@@ -286,7 +286,7 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 
 环境来源插件为 `aurora_world.environment`，要求显式启用 aurora_world，安装 extra 为 `aurora-world[environment]`，增加 config 和 httpx 包依赖。两个来源独立配置和停用；时间默认间隔 60 秒，天气默认 900 秒，地点标签及经纬度须在天气实例配置中给出。采样身份由启动会话与计数构成，重启只采集当前观察，不回放离线周期。天气失败是主循环仍可继续采样的不可用观察，区别于 source_status 的主循环失败；不增加事件总线或 agent 调度定义。
 
-`WorldPosition(journal_id, sequence, record_id)` 表示已经读取的记录位置；`sequence=0` 时不含 record_id。日志变化、位置超前或记录锚点不一致均拒绝静默恢复。记录与去重身份保留全部历史，不自动裁剪；接纳不保证已落盘。详见[设计中的接口与恢复规则](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源与 cadence 的其余能力按 [M4-W 计划](plan.md)交付：
+`WorldPosition(journal_id, sequence, record_id)` 表示已读取位置；`sequence=0` 时不含 record_id。日志变化、位置超前或锚点不一致均拒绝静默恢复。v2 日志以 next_sequence 和 pruned_through/pruned_record_id 保存序号及裁剪边界；旧版 v1 可读，下次变更升级，旧程序不能读取 v2。位置低于裁剪边界会报 CursorError，恰好位于边界时可凭正确身份继续读取；省略 after 则返回当前窗口。默认完整保留；环境时间保留最新 1 条，天气按采样时间保留一小时内最多 4 条，可配置保留数量与时长。仅仍保留的消息参与去重，其他来源不受环境策略影响；接纳不保证落盘。详见[设计中的接口与恢复规则](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源与 cadence 的其余能力按 [M4-W 计划](plan.md)交付：
 
 | 能力 | 定义归属 | 实施边界 |
 | --- | --- | --- |

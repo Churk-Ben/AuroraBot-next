@@ -18,7 +18,7 @@ from aurora_core.json_data import encode_json
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import RegistryEntry
 
-from .records import WorldReceipt, WorldRecords, _identity
+from .records import RecordRetention, WorldReceipt, WorldRecords, _identity
 
 SOURCES = Id("org.aurora.world:registries/sources")
 SOURCE_STATUS = Id("org.aurora.world:state/sources")
@@ -47,18 +47,22 @@ class SourceInstance:
     可选 run 主循环由所有者监督；stop 结束其余自有任务，aclose 释放资源。
     停止和释放失败后须能再次调用，run 退出后不自动重启。
     工厂返回前的失败和取消由工厂清理，返回后资源交给 WorldSources 托管。
+    retention 仅约束绑定来源；prepare 完成和每次接纳时统一应用全部已选来源的规则。
     """
 
     start: Callable[[], Awaitable[None]]
     stop: Callable[[], Awaitable[None]]
     aclose: Callable[[], Awaitable[None]]
     run: Callable[[], Awaitable[None]] | None = None
+    retention: RecordRetention | None = None
 
     def __post_init__(self) -> None:
         if not all(callable(action) for action in (self.start, self.stop, self.aclose)):
             raise TypeError("来源实例必须提供可调用的 start/stop/aclose")
         if self.run is not None and not callable(self.run):
             raise TypeError("来源主循环必须可调用")
+        if self.retention is not None and not isinstance(self.retention, RecordRetention):
+            raise TypeError("来源保留规则必须为 RecordRetention")
 
 
 class SourceFactory(Protocol):
@@ -180,7 +184,16 @@ class WorldSources:
         self._observe_task(binding)
         if not binding.accepting or self._quiesced:
             raise SourceUnavailableError("来源尚未启动或已经停止接纳")
-        return self._records.append(source_id=binding.source_id, message_id=message_id, payload=payload)
+        return self._records.append(
+            source_id=binding.source_id, message_id=message_id, payload=payload, retention=self._retention()
+        )
+
+    def _retention(self) -> dict[str, RecordRetention]:
+        return {
+            binding.source_id: binding.instance.retention
+            for binding in self._bindings.values()
+            if binding.instance is not None and binding.instance.retention is not None
+        }
 
     def _publish(self, binding: _Binding, status: str | None = None) -> None:
         if status is not None:
@@ -241,6 +254,7 @@ class WorldSources:
                 if self._quiesced:
                     raise SourceUnavailableError("来源准备期间已停止接纳")
                 self._publish(binding, "prepared")
+            self._records.prune(self._retention())
         except BaseException:
             self._fail(binding, "prepare_failed")
             self.stop_accepting()

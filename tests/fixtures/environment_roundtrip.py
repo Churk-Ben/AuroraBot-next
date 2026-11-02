@@ -98,7 +98,9 @@ timeout_seconds = 10
     try:
         await asyncio.wait_for(settled.wait(), timeout=15)
         records = WorldRecords(ctx).read()
-        assert len(records) == len(before) + 2
+        assert len([record for record in records if record.source_id == "environment/time"]) == 1
+        assert 1 <= len([record for record in records if record.source_id == "environment/weather"]) <= 4
+        assert records[-1].position.sequence > max((record["sequence"] for record in before), default=0)
         assert len({record.message_id for record in records}) == len(records)
         result = {"count": len(records), "observations": [record.payload for record in records[-2:]]}
     finally:
