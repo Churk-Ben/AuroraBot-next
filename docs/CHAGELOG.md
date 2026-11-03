@@ -2,6 +2,11 @@
 
 ## 2026-11-03
 
+### 归档 build 历史产物
+
+- 将 build 下的 166 项旧产物及清点文件移动到仓库外 `E:/Aurora/AuroraBot-next-archives/build-20261103-225238`，保留原目录名，附带 `archive-inventory.json` 与 `move-manifest.csv` 便于查找和后续删除。内容包括历史 wheel、隔离安装环境、验收数据、临时脚本和日志；没有删除文件。
+- build 仅保留 wheels 目录中的 12 个最新分发包及其忽略文件。移动前确认源/目标绝对路径边界及没有进程引用 build，移动后核对 348725 个归档文件的数量和逻辑大小（约 7.04 GiB），保留文件的 SHA-256 一致。data、开发用 .venv 和源码不受影响；本次只做文件整理，不运行无关测试。
+
 ### 配置本地 data 的 world 试用环境
 
 - 保留现有 host 插件、模型绑定和运行期凭证，将 world 的旧来源保留参数移至统一 `[view]`：近期 3600 秒、32000 字符预算、8000 字符单条预览、30 秒刷新；时间保留 1 条，南京天气保留一小时内最多 4 条。原配置备份为 `data/config/org.aurora.world/config.toml.before-world-view`。
