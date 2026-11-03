@@ -361,17 +361,18 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 首版 cadence 对订阅范围内的世界消息原样转发：一条消息形成一条引导，保留内容与来源关联，暂不做语义聚类、合并或延迟调度。消息身份、重复识别、消费位置和转交回执用于可靠交付；来源消息、世界记录、引导、run_id 与 execution_id 分别管理。世界消息可能在一个已有运行中被接纳，不假设一条消息对应一个独立 run。
 
-world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。M4.W1 已确定以下记录侧 D11 规则，M4.W3 已补齐转交关联与消费恢复。接收回执不承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
+world 的事件数据库与 ctx 变化通知配合使用，cadence 按数据库位置重新读取事件；瞬时通知不承担历史补发。来源插件只提交来源身份、消息身份与原始载荷，存储和 ctx 呈现由 world 统一管理。恢复状态不代表透明续跑或工具动作可重试。
 
-- `aurora_world` 仅依赖 core，记录状态为 `org.aurora.world:state/records`，使用全局 `location={}`。`WorldRecords(ctx)` 不写状态、不启动任务；`append(source_id=..., message_id=..., payload=...)` 同步接纳严格 JSON 内容，不要求 bot、run 或消费者存在。首次追加创建 journal_id，记录包含独立 record_id、来源身份和从 1 递增的序号。来源登记与生命周期使用下面的 W2.1 接口，不改变记录格式。
-- source_id 是来源实例身份，须由接入方稳定地区分平台、账户、通道等实际消息 ID 作用域；message_id 在该来源下稳定。两个字段按原字符串精确比较，不自动规范化。保留窗口内同身份同内容返回原记录及 `duplicate=True`，没有触发裁剪时不写入或再次通知；不同内容抛出 `MessageConflictError`。JSON 对象键序不影响去重，数组顺序以及布尔值、整数、浮点数的编码保留区别；凭证在写入前由来源排除。
-- `get(source_id=..., message_id=...)` 读取原记录；`read(after=..., source_id=..., limit=100)` 按全局序号返回独立副本。after 为 `WorldPosition(journal_id, sequence, record_id)`，严格读取该位置之后的记录；来源过滤不改变序号。日志缺失、身份变化、位置超前或对应 record_id 不一致时抛出 `CursorError`，防止旧快照恢复后序号复用造成静默跳过。
-- 消费者先 `ctx.subscribe(callback, key=RECORDS, location={})`，再按位置读取历史及后续记录；通知只提示重新读取，恢复不补发旧事件。句柄通过 `ctx.unsubscribe` 释放。world 不额外建立事件总线或转交队列，也不替消费者保存已读位置。
-- 当前日志版本为 2，以 next_sequence 保存单调递增序号，以 pruned_through/pruned_record_id 保存最高裁剪位置及身份；记录允许在裁剪范围内出现空缺，不重排或复用序号。仍接受严格校验的 v1 连续日志，读取不改写，下一次追加或实际裁剪时升级；日志身份和存活记录身份保持不变，旧程序不能读取 v2。记录追加、去重与裁剪在一次 ctx.set 中提交，随 ContextPersistence 保存。正常结束来源后由宿主最终 flush；接纳到落盘之间仍有崩溃窗口，未知版本或损坏数据明确失败。
-- 默认来源保留全部记录；SourceInstance 可声明 RecordRetention 数量上限及业务过期判断，WorldSources 在 prepare 完成及每次接纳时应用全部已创建来源的规则。时间默认保留最新 1 条；天气按 observed_at 保留一小时内最多 4 条（满一小时即过期，包括不可用观察），独立配置 retain_count/retain_seconds。时间写入也会清理过期天气，无输入时不另设清理任务；其他来源不受影响。裁剪删除载荷和去重身份，不额外保存无限增长的墓碑，窗口外重投视为新输入。
-- 消费位置低于最高裁剪位置时抛出 CursorError，即便指定来源过滤也不静默跨过全局历史缺口；恰好位于裁剪边界时，身份与 pruned_record_id 匹配即可继续读取，避免已消费的上一条时间记录被替换后无法追读。没有 after 时读取当前保留窗口，由消费者明确决定缺口处理；旧快照回退后相同序号的不同身份仍被拒绝。宿主不能用通用 ctx 写入改写历史。读取和写入仍复制保留日志，limit 只限制返回数量，不承诺大容量存储性能。
+- `aurora_world` 仅依赖 core。宿主创建 `WorldRecords(ctx, storage)` 并显式注入 WorldSources、配置组件和 cadence；对象不进入 ctx 或全局注册表。构造不打开资源，记录组件在 prepare 阶段打开 `namespaces/ns-org.aurora.world/events.sqlite3`，在 start 启动呈现刷新，stop 等待刷新任务结束，clean 关闭数据库。普通事件逐条事务提交后才发布 ctx 视图；数据库失败不消费序号，视图失败可凭相同消息重试修复。
+- source_id 标识来源实例及消息身份作用域，message_id 在该来源下稳定；同身份同内容返回原记录及 `duplicate=True`，不同内容抛出 MessageConflictError。去重覆盖数据库完整历史，不受近期呈现裁剪影响。载荷必须为严格 JSON，凭证由来源在提交前排除。
+- `get(source_id=..., message_id=...)`、`get_by_id(record_id)` 查询完整事件，`read(after=..., source_id=..., limit=100)` 按数据库递增序号分页返回副本。`WorldPosition(journal_id, sequence, record_id)` 绑定数据库和记录身份；错库、超前、错误锚点以及旧日志迁移前已存在的裁剪缺口仍明确报 CursorError。
+- `org.aurora.world:state/records` 使用全局地址，v3 结构包含 journal_id、latest_sequence 和近期文本 records；每条有 sequence、record_id、source_id、message_id、received_at、text、abridged。默认仅展示接收时间最近 3600 秒，按新到旧累计 32000 字符预算，以完整条目停止，允许边界条目浮动。单条正文超过 8000 字符时显示标记及预览，可凭 record_id 查询原文；元数据计入预算。来源时间保留在原始载荷，不决定窗口。
+- 时间和天气属于环境观察，保存在 `org.aurora.world:state/environment`，按 source_id 定位；时间默认最新 1 条，天气按宿主接收时间保留一小时内最多 4 条，不进入普通事件数据库或 cadence 消费序列。WorldSources 按内置环境定义选择呈现规则；自定义来源可在 world 的 sources.presentation 显式选择 events/time/weather。来源工厂不声明 retention，也不接触 ctx。
+- 保留预算统一配置于 `org.aurora.world/config.toml` 的 `[view]`，普通视图和环境观察随有限 ctx 快照保存，启动以数据库重建普通视图、清理过期天气。默认每 30 秒及每次接纳时刷新，无新输入也会过期；恢复需同时保留数据库与 ctx 快照。ctx 修改不会改写事件历史，消费位置由消费者保存。
+- 消费者先订阅 RECORDS 再从数据库读取；窗口裁剪不会丢失积压事件。首次 cadence 消费从数据库可用历史开始。环境观察只供当前环境读取，需要可靠转发的来源应显式使用 events 呈现。
+- v1/v2 ctx 日志启动时明确要求迁移，不自动覆盖用户数据。停机后执行 `uv run --locked python -m aurora_world.migrate --root <数据目录>`，备份原快照，逐条导入已有记录并保留日志、记录、序号和裁剪锚点。旧日志没有通用接收时间，迁移时以导入时刻作为 received_at；已有环境记录也原样归档，新环境采样只进入环境状态。旧来源配置中的 retain_count/retain_seconds 须手动移至 `[view]` 的 time_count/weather_count/weather_seconds，模板不覆盖已有配置。
 
-最小进程内使用方式（仅内存，持久化由宿主另行装配）：
+最小进程内使用方式（显式内存数据库；持久宿主传入 StorageService）：
 
 ```python
 from aurora_core.bootstrap import bootstrap
@@ -383,6 +384,7 @@ registry = bootstrap()
 register_plugins(registry, load_plugins(enabled=["aurora_world"]))
 ctx = Context(registry)
 world = WorldRecords(ctx)
+world.open()
 changes = []
 handle = ctx.subscribe(changes.append, key=RECORDS, location={})
 try:
@@ -391,18 +393,19 @@ try:
     assert world.read(after=receipt.record.position) == ()
 finally:
     ctx.unsubscribe(handle)
+    world.close()
     ctx.close()
 ```
 
-M4.W3 已提供 `aurora_bot.cadence` 可选插件，不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。DefaultAssembly 在登记 cadence 配置定义时装配一个转发所有者，依赖 bot 组件；启用 world 配置时，来源组件进一步依赖 cadence，确保先订阅再开放来源。关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。`live_workshop` 当前的模拟世界与自有调度仍属示例，M4.W4 再将其改为正式能力消费者。
+M4.W3 已提供 `aurora_bot.cadence` 可选插件，不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。DefaultAssembly 在登记 cadence 配置定义时装配一个转发所有者，依赖 bot 和 world 记录组件；启用 world 配置时，来源组件进一步依赖 cadence，确保先订阅再开放来源。关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。`live_workshop` 当前的模拟世界与自有调度仍属示例，M4.W4 再将其改为正式能力消费者。
 
 cadence 的首版 D11 转交规则如下：
 
 - 配置复用 aurora_config，模板位于 `aurora_bot.cadence/config.tomls/cadence.toml`，复制到 `<data-dir>/config/org.aurora.bot/cadence.toml`。`source_ids` 精确选择来源实例，默认空列表不转发。配置状态不持久化，运行期修改不热装配，也不写回 TOML。插件须同时显式启用 `aurora_bot.assembly`、`aurora_world` 和 `aurora_config` 及各自依赖。
-- 先订阅全局世界记录，再按位置读取；通知只唤醒读取，不携带独立的待转交队列。首次消费从当前保留窗口开始，此后不静默跳过裁剪缺口。按全局记录顺序扫描，未选择的来源只推进位置；每条选定记录的 payload 原样传入同一 AgentRuntime.submit，不加前缀、不合并，不等待业务完成。取消期间的明确写入前拒绝会等待原运行收尾再读取；取消运行不永久停用 cadence。
+- 先订阅全局世界记录，再按位置读取；通知只唤醒读取，不携带独立的待转交队列。首次消费从数据库可用历史开始，此后不静默跳过裁剪缺口。按全局记录顺序扫描，未选择的来源只推进位置；每条选定记录的 payload 原样传入同一 AgentRuntime.submit，不加前缀、不合并，不等待业务完成。取消期间的明确写入前拒绝会等待原运行收尾再读取；取消运行不永久停用 cadence。
 - `org.aurora.bot:state/cadence` 按 `location={"instance_id": ...}` 持久保存 version、来源选择绑定、完整 position、pending、receipts 和 error。每次提交先保存 pending 原消息，再同步提交；成功回执与新位置一次写入并清除 pending。回执保留原消息、guidance_id、引导 sequence 和 run_id；接纳不代表业务完成。正常恢复不会再次提交已关联记录，尚未转交的保留记录可以继续形成新引导。
 - 提交异常、回执保存失败或恢复出 pending 均以 `TransferUncertain` 暂停；日志缺失、换代、锚点不符或裁剪缺口以 `CursorInvalid` 暂停；来源选择与已有消费绑定不符以 `SelectionChanged` 暂停。显式激活占用且没有 Runtime 句柄时为 `RuntimeBusy`，其他转发故障为 `ForwarderFailed`。诊断只使用固定代码，暂停不影响直接交流，重启不自动清除。首版不提供自动核对、重置游标或重放操作；恢复流程由宿主明确审核，不能凭相似文本或残留运行状态推断转交成功。
-- pending、回执、inbox 和世界记录随宿主异步快照保存，提交过程没有异步等待，但不构成外部副作用的持久事务；崩溃可能回到较早快照，不能宣称恰好一次执行。来源去重仍限于 world 保留窗口，已裁剪来源消息重投按新世界记录处理。首版完整保存关联及原始载荷，不自动裁剪；大规模日志与人工核对工具留待后续。
+- pending、回执和 inbox 随宿主异步快照保存，普通世界事件独立事务入库，提交过程没有异步等待，但不构成外部副作用的持久事务；崩溃可能回到较早快照，不能宣称恰好一次执行。来源去重覆盖 world 数据库历史，呈现裁剪不会生成新的来源消息身份。首版完整保存关联及原始载荷，不自动裁剪；大规模日志与人工核对工具留待后续。
 
 M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
 

@@ -2,6 +2,18 @@
 
 ## 2026-11-03
 
+### 统一 world 事件归档与 ctx 有界呈现
+
+- 来源插件只通过绑定身份的 emit 提交消息；移除 SourceInstance.retention、RecordRetention 及来源内裁剪。WorldRecords 由宿主持有并显式注入来源、MCP 桥和 cadence，构造不打开资源，配置完成后由记录组件创建数据库和呈现刷新任务。
+- 普通事件逐条事务保存于 `namespaces/ns-org.aurora.world/events.sqlite3`，去重覆盖归档历史；get/get_by_id/read 返回完整原文，消费游标不受 ctx 窗口裁剪影响。数据库提交后才更新呈现，写库失败不消费身份或序号，呈现失败可用同一消息重试；周期刷新失败记录固定诊断并在下一周期重建，不重放事件。
+- `state/records` 更新为 v3 近期文本视图：默认最近 3600 秒、32000 字符预算，按完整条目边界浮动；单条超过 8000 字符时保留标记、预览和记录 ID。预算包括条目元数据，按宿主接收时间裁剪，默认每 30 秒和每次接纳时刷新，空闲也会过期。有限视图随快照保存，启动以数据库重建。
+- 新增 `org.aurora.world:state/environment`，按 source_id 保存时间最新 1 条、天气一小时内最多 4 条；不进入普通事件数据库或消费序列。来源只保留采样参数，呈现统一配置于 world TOML 的 `[view]`。需要归档和转交的环境来源可显式选择 `presentation = "events"`；cadence 选择普通环境观察时明确拒绝启动。新增记录服务 prepare/start/stop/clean 四个公共 handler ID，插件入口和包依赖保持不变。
+- 衔接已提交的 M4.W3：默认装配按 bot → world 记录服务 → cadence → world 来源启动，cadence 读取同一数据库服务，保留原样转交、未知投递暂停和直接交流并存语义。覆盖视图已清空仍转交全部积压、视图裁剪后来源去重、环境归档显式选择及重复启动保护。
+- v1/v2 ctx 日志启动时要求显式迁移，不覆盖用户配置或自动丢弃状态。停机后执行 `uv run --locked python -m aurora_world.migrate --root <数据目录>`，备份原快照到 `framework/ctx.before-world-database.json`，保留已有日志、记录、序号和裁剪锚点。迁移失败可重试；旧记录接收时间采用导入时刻，原有环境历史原样归档。旧 retain_count/retain_seconds 须手动移至 `[view]` 的 time_count/weather_count/weather_seconds；后续备份与恢复同时包含数据库和 ctx 快照。
+- 同步架构、公共 ID、计划、五条示例体系中的启动指南及进程夹具；serve_bot 的 world 状态列表加入环境地址。未修改 README.md、AGENTS.md、用户审查报告或实际用户数据；未调用真实模型或外部业务服务。
+- 12 个最终 wheel 构建成功；使用显式本地 wheel 约束完成隔离安装，验证 world/core 独立接收与重启去重、control 无 agent/模型、agent 无 bot/CLI/API，以及 bot 无 CLI/API 的假模型 cadence 转交和恢复。最终 wheel 环境的 105 项 world 回归通过，包含配置资源、环境采样、归档与裁剪、错误重试、迁移和生命周期；50 个本地文档链接、13 个锚点和 9 段 TOML 示例通过。
+- 最终 `uv run --locked aurora check` 全部通过：1036 项 Python、97 项 TS、5 项原生终端测试，格式、lint 及 Python/TS 类型检查通过；仅有已有的 Pydantic ReadOnly 提示。
+
 ### M4.W3：接入最小原样转发 cadence
 
 - 新增 bot 包内可选 `aurora_bot.cadence` 插件，显式依赖默认装配、world 与 config。TOML 的 source_ids 精确选择来源，默认空列表不转发；仅补齐缺失的 `org.aurora.bot/cadence.toml`，配置非持久化。新增配置、消费状态与 prepare/start/stop 共 6 个公共 ID，不替换旧定义或插件，不改写已有用户配置和快照。

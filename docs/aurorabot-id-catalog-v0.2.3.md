@@ -270,7 +270,12 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 
 | 当前定义 | kind | 定位与职责 |
 | --- | --- | --- |
-| `org.aurora.world:state/records` | state_key | 全局 `location={}`，保存版本化日志、来源消息身份、记录身份、递增序号及裁剪边界；由 WorldRecords 追加和裁剪，随宿主 ctx 快照保存 |
+| `org.aurora.world:state/records` | state_key | 全局 `location={}`，v3 有界近期文本视图及最新事件序号；WorldRecords 从自有数据库重建，有限视图随 ctx 快照保存 |
+| `org.aurora.world:state/environment` | state_key | 按 source_id 定位的有限环境观察；时间与天气仅存 ctx，不进入普通事件序列 |
+| `org.aurora.world:handlers/records/prepare` | hook_handler | 配置就绪后打开 world 事件数据库并重建呈现 |
+| `org.aurora.world:handlers/records/start` | hook_handler | 启动统一呈现过期刷新 |
+| `org.aurora.world:handlers/records/stop` | hook_handler | 等待呈现刷新任务结束 |
+| `org.aurora.world:handlers/records/clean` | hook_handler | 关闭 world 自有数据库连接 |
 | `org.aurora.world:state/sources` | state_key | 按 source_id 定位运行阶段、接纳开关及固定错误代码；非持久化 |
 | `org.aurora.world:registries/sources` | registry | 接收 `kind=source`、target 为 SourceSpec 的工厂定义，登记到 core 注册表目录 |
 | `org.aurora.world:handlers/sources/prepare` | hook_handler | 接入 core prepare，创建已选来源实例 |
@@ -283,11 +288,11 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | `org.aurora.world:sources/environment/time` | source | 可选环境插件登记，按配置周期采集宿主本地时间 |
 | `org.aurora.world:sources/environment/weather` | source | 可选环境插件登记，按配置地点和周期采集 Open-Meteo 当前天气；失败形成不可用观察 |
 
-来源提供方用自身命名空间声明定义，并设置 `register_to=org.aurora.world:registries/sources`；插件依赖须显式启用 aurora_world。`WorldSources.add(definition_id, source_id=..., config=...)` 在准备前选择定义并固定实例身份，`component()` 返回宿主 LifecycleComponent。可选 `aurora_world.configuration` 插件要求显式启用 aurora_config 和 aurora_world，安装使用 `aurora-world[config]`；`aurora_world.configuration.configured_sources_component` 通过 config 阶段完成 TOML 装配，模板位于配置目录的 `org.aurora.world/config.toml`。默认 bot 在该配置定义已登记时装配来源组件。来源工厂只获得绑定身份的 emit 回调和配置，不获得原始 ctx。SourceInstance 提供 start/stop/aclose 及可选的托管 run 主循环；后台结束或失败封闭对应入口，失败不自动重启。状态、配置和资源不进入业务快照，后台错误只记录固定代码。只有所选来源进入对应 start 时才可提交，关闭后旧回调也会拒绝写入；W1 的低层记录接口仍独立可用。
+来源提供方用自身命名空间声明定义，并设置 `register_to=org.aurora.world:registries/sources`；插件依赖须显式启用 aurora_world。`WorldSources.add(definition_id, source_id=..., config=...)` 在准备前选择定义并固定实例身份，`component()` 返回宿主 LifecycleComponent。可选 `aurora_world.configuration` 插件要求显式启用 aurora_config 和 aurora_world，安装使用 `aurora-world[config]`；`aurora_world.configuration.configured_sources_component` 通过 config 阶段完成 TOML 装配，模板位于配置目录的 `org.aurora.world/config.toml`。默认 bot 在该配置定义已登记时装配来源组件。来源工厂只获得绑定身份的 emit 回调和配置，不获得原始 ctx。SourceInstance 提供 start/stop/aclose 及可选的托管 run 主循环；后台结束或失败封闭对应入口，失败不自动重启。来源运行状态、配置和资源不进入业务快照，后台错误只记录固定代码。只有所选来源进入对应 start 时才可提交，关闭后旧回调也会拒绝写入；W1 的低层记录接口仍独立可用。
 
 环境来源插件为 `aurora_world.environment`，要求显式启用 aurora_world，安装 extra 为 `aurora-world[environment]`，增加 config 和 httpx 包依赖。两个来源独立配置和停用；时间默认间隔 60 秒，天气默认 900 秒，地点标签及经纬度须在天气实例配置中给出。采样身份由启动会话与计数构成，重启只采集当前观察，不回放离线周期。天气失败是主循环仍可继续采样的不可用观察，区别于 source_status 的主循环失败；不增加事件总线或 agent 调度定义。
 
-`WorldPosition(journal_id, sequence, record_id)` 表示已读取位置；`sequence=0` 时不含 record_id。日志变化、位置超前或锚点不一致均拒绝静默恢复。v2 日志以 next_sequence 和 pruned_through/pruned_record_id 保存序号及裁剪边界；旧版 v1 可读，下次变更升级，旧程序不能读取 v2。位置低于裁剪边界会报 CursorError，恰好位于边界时可凭正确身份继续读取；省略 after 则返回当前窗口。默认完整保留；环境时间保留最新 1 条，天气按采样时间保留一小时内最多 4 条，可配置保留数量与时长。仅仍保留的消息参与去重，其他来源不受环境策略影响；接纳不保证落盘。详见[设计中的接口与恢复规则](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。来源与 cadence 的其余能力按 [M4-W 计划](plan.md)交付：
+`WorldPosition(journal_id, sequence, record_id)` 表示数据库消费位置，sequence=0 时不含 record_id。普通事件逐条入库，去重覆盖完整历史，ctx 的一小时/字符预算不改变游标；环境观察使用独立身份，不占普通事件序号。来源只提交事件，WorldView 统一管理呈现，SourceInstance 不再提供 retention。v1/v2 日志须停机后显式执行 `python -m aurora_world.migrate --root <数据目录>`，保留备份、记录身份与原裁剪边界。记录服务需显式注入来源组件与 cadence；构造后通过 open 或生命周期 prepare 打开资源。详见[设计第 7.7 节](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。
 
 | 能力 | 定义归属 | 实施边界 |
 | --- | --- | --- |
@@ -335,9 +340,9 @@ B4 通过 `aurora-adapters[mcp-world]` extra 增加 world/config 依赖。插件
 | `org.aurora.adapters:sources/mcp/resources` | `source` | 资源通知来源，登记至 org.aurora.world:registries/sources |
 | `org.aurora.adapters:state/mcp/world` | `state_key` | 非持久桥接诊断；location 为 source_id |
 
-来源配置使用既有 world 的 sources.config，不增加配置文件或第二个来源所有者。`mcp_world_component(ctx, hooks, clients)` 替代通用 configured_sources_component，注入共享客户端并依赖其 instance_id；来源工厂只接收固定身份的 emit，客户端借用与协议类型留在适配层。诊断包括 phase/error、close_error、tools_dirty、accepted/duplicates/discarded 和 identity_modes；world 的 sources 状态仍表示托管主循环的状态。
+来源配置使用既有 world 的 sources.config，不增加配置文件或第二个来源所有者。`mcp_world_component(ctx, hooks, clients, records)` 替代通用 configured_sources_component，注入共享客户端并依赖其 instance_id；来源工厂只接收固定身份的 emit，客户端借用与协议类型留在适配层。诊断包括 phase/error、close_error、tools_dirty、accepted/duplicates/discarded 和 identity_modes；world 的 sources 状态仍表示托管主循环的状态。
 
-资源 URI 精确匹配；notification/resource 模式用独立本地观察身份，event 模式读取严格 `{message_id, payload}` 单文本资源，以连接、URI、message_id 组合成世界消息身份。消息身份不是公共 ID；相同身份异文拒绝，去重仍只覆盖 world 的保留窗口。只有成功 emit 后才表示 world 内存接纳，不承诺即时落盘。正常停止期间尚未接纳的缓冲或在途观察通过 discarded、固定错误码和日志明确报告，不伪装为已保存或自动重放。
+资源 URI 精确匹配；notification/resource 模式用独立本地观察身份，event 模式读取严格 `{message_id, payload}` 单文本资源，以连接、URI、message_id 组合成世界消息身份。消息身份不是公共 ID；相同身份异文拒绝，去重覆盖 world 事件数据库历史。成功 emit 表示事件已提交数据库并更新 ctx 呈现，不表示已转交或执行。正常停止期间尚未接纳的缓冲或在途观察通过 discarded、固定错误码和日志明确报告，不伪装为已保存或自动重放。
 
 工具插件 `aurora_adapters.mcp.tools` 要求显式启用 `aurora_adapters.mcp` 和 `aurora_agent.tools` 及其依赖；`aurora-adapters[mcp-tools]` 安装工具桥依赖，不引入 world/bot/CLI/API。
 
@@ -486,7 +491,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
 | TUI/Panel 的订阅 | 连接与订阅支持 | `org.aurora.client:services/event_stream` |
 
-M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，W3 已实现最小 cadence，W4 示例替换与双路径整体验收待实施。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧配置和快照无需迁移；含世界记录的新快照恢复时必须显式启用 aurora_world，缺失定义不会被静默忽略。
+M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，W3 已实现最小 cadence，W4 示例替换与双路径整体验收待实施。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧 v1/v2 世界日志需要显式迁移；环境保留配置需移至 world 的 [view]。含世界状态的快照恢复须显式启用 aurora_world，缺失定义不会被静默忽略。
 
 ## 14. 第三方声明示例
 
