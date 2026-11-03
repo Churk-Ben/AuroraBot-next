@@ -114,7 +114,7 @@ async def run(root: Path) -> dict:
             connection_path.parent.mkdir(parents=True, exist_ok=True)
             source_path.parent.mkdir(parents=True, exist_ok=True)
             connection_path.write_text(
-                f'[[connections]]\nconnection_id="local"\nurl="http://127.0.0.1:{port}/mcp"\nrequest_timeout=10\n',
+                f'schema_version=2\n[servers.local]\ntype="remote"\nprotocol="2026-07-28"\nurl="http://127.0.0.1:{port}/mcp"\ntimeout.execution=10\n',
                 encoding="utf-8",
             )
             selection = ""

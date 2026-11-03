@@ -1,17 +1,20 @@
-# 显式选择 Streamable HTTP 服务；修改后重启生效。
-connections = []
-tools = []
+# 服务名就是连接身份；模板仅补缺失文件，旧配置须显式迁移。
+schema_version = 2
 
-# [[connections]]
-# connection_id = "local"
+[servers]
+
+# 当前可运行路径为 remote + 2026-07-28；legacy/auto 和 local 待后续交付。
+# [servers.local]
+# type = "remote"
 # url = "http://127.0.0.1:8000/mcp"
-# required_capabilities = ["resources", "tools"]
-# connect_timeout = 10.0
-# request_timeout = 30.0
-# token_env = "AURORA_MCP_TOKEN" # 仅填写环境变量名，不填写凭证。
-
-# 使用 [[tools]] 时删除上方 tools = []，并显式启用 aurora_adapters.mcp.tools。
-# [[tools]]
-# connection_id = "local"
-# remote_name = "echo"
-# name = "local_echo" # 模型名称与 tools/mcp/local_echo 公共 ID；重启后重新发现。
+# protocol = "2026-07-28"
+# required_capabilities = ["tools"]
+# timeout = { startup = 10, catalog = 30, execution = 30, shutdown = 10 }
+#
+# [servers.local.headers]
+# Authorization = "Bearer {env:AURORA_MCP_TOKEN}"
+#
+# 当前工具桥须显式选择名称和别名；include=[] 不发现、不登记工具。
+# [servers.local.tools]
+# include = ["echo"]
+# aliases = { echo = "local_echo" }

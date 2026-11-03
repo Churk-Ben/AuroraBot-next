@@ -292,19 +292,37 @@ async with clients.connection("local") as client:
 
 SDK 对象仅在适配层使用，不存入 ctx 或传给 world/agent。借用期间不要跨任务退出或自行关闭客户端，退出后不要保留引用继续使用；长期消费者在自己的 stop 阶段收束。停止整个宿主会封闭借用入口并取消剩余借用，等待它们的 finally 完成后才释放连接。
 
-缺失配置文件会在 `<data-dir>/config/org.aurora.adapters/config.toml` 生成空列表模板。启用连接时删除 `connections = []`，将下面的表追加到文件末尾；根级 `tools = []` 须位于所有 `[[...]]` 表之前：
+缺失配置文件会在 `<data-dir>/config/org.aurora.adapters/config.toml` 生成 `schema_version = 2` 与空 `[servers]` 模板。下面是一份可运行的连接声明；服务名 `local` 就是原 connection_id，名称不表示传输类型：
 
 ```toml
-[[connections]]
-connection_id = "local"
+schema_version = 2
+
+[servers.local]
+type = "remote"
 url = "http://127.0.0.1:8000/mcp"
+protocol = "2026-07-28"
 required_capabilities = ["tools", "resources"]
-connect_timeout = 10.0
-request_timeout = 30.0
-# token_env = "AURORA_MCP_TOKEN"
+timeout = { startup = 10, catalog = 30, execution = 30, shutdown = 10 }
+
+# [servers.local.headers]
+# Authorization = "Bearer {env:AURORA_MCP_TOKEN}"
 ```
 
-token_env 只填写运行期环境变量名。地址不可包含凭证、查询串或片段；修改配置后重启生效。支持 HTTP(S) Streamable HTTP，已验收本机 HTTP；SDK 固定 2.3.0，协议固定 2026-07-28，拒绝旧协议，不自动处理多轮输入。客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；ready 表示启动准备完成，没有后台健康探测。失败不自动重连或重放请求。关闭等待超时可再次等待，真正的关闭异常需诊断后重建宿主。
+headers 支持 `{env:NAME}` 引用和固定前缀；Authorization 等凭证字段不能填写纯字面量。引用只在 prepare 创建连接时解析，不进入 ctx、快照或日志；缺失或非法值报告服务名与字段位置。`enabled = false` 不创建连接、解析凭证或登记工具。地址不可包含凭证、查询串、片段或环境引用；修改配置后重启生效。
+
+B5.1 只运行 HTTP(S) Streamable HTTP + 显式 `protocol = "2026-07-28"`。声明支持 local/remote 和 legacy/auto/固定新版，默认协议为 legacy；未实现的 local 和 legacy/auto 在创建任何连接前明确拒绝，分别报 unsupported_transport/unsupported_protocol。local 的工作区路径解析与子进程启动随 B5.3 交付。SDK 固定 2.3.0，不自动处理多轮输入。
+
+根级 `[timeout]` 提供公共超时，各服务逐字段覆盖；startup/catalog/execution/shutdown 默认分别为 10/30/30/10 秒，限制握手、完整目录发现、单次工具调用和每服务每次 stop/clean 等待。工具执行同时受 agent 外层超时约束。SDK 请求与 HTTP 空闲读取上限取前三者的最大值，各操作通过自己的外层预算提前结束。关闭等待超时不取消正在执行的 finally，可再次等待；真正的关闭异常需诊断后重建宿主。
+
+客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；新增 error_location 仅包含安全字段位置。ready 表示启动准备完成，没有后台健康探测；失败不自动重连或重放请求。
+
+旧 connections/tools 布局及混合布局均拒绝加载。先生成独立候选及规范化差异，审阅后自行应用；命令不覆盖任何已有文件、不读取凭证、不连接服务：
+
+```powershell
+uv run --locked python -m aurora_adapters.mcp.migrate data/config/org.aurora.adapters/config.toml --output build/mcp-v2-candidate.toml
+```
+
+迁移保留服务名、固定新版策略、工具名称与公共 ID；没有旧工具选择的连接转为 `include = []`。同一远端工具对应多个旧别名时停止转换。保留 bot 的显式工具选择及实例身份、world 的 connection_id 和业务快照，不合并多个 bot/工具实例；需核对 bot 的 tool_timeout。候选新增 shutdown=10 秒，关闭超时后仍须继续等待清理。差异忽略注释和排版，不回显原文件注释。
 
 产品入口尚不自动装配 MCP；世界通知和工具分别通过下面的桥接组件显式装配，stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
 
@@ -312,16 +330,17 @@ token_env 只填写运行期环境变量名。地址不可包含凭证、查询�
 
 安装 `aurora-adapters[mcp-tools]`，显式启用 `aurora_config`、`aurora_adapters.mcp`、`aurora_agent.tools`、`aurora_adapters.mcp.tools`；使用默认 bot 时同时启用其原有插件。只使用工具桥不需要安装或启用 world、bot、CLI、API。
 
-在 `<data-dir>/config/org.aurora.adapters/config.toml` 保留所需连接，删除模板的 `tools = []` 后添加：
+在 `<data-dir>/config/org.aurora.adapters/config.toml` 的相应服务下添加：
 
 ```toml
-[[tools]]
-connection_id = "local"
-remote_name = "echo"
-name = "local_echo"
+[servers.local.tools]
+include = ["echo"]
+aliases = { echo = "local_echo" }
 ```
 
-`remote_name` 是服务端工具原名；`name` 是显式指定的本地模型名称，须为小写字母开头的小写字母、数字或单下划线分隔名称，最长 64 字符。例如 `local_echo` 对应公共 ID `org.aurora.adapters:tools/mcp/local_echo`。不同服务的同名工具可指定不同本地名称；名称重复、连接不存在、远程工具缺失或参数 schema 无效会使启动失败。只登记明确选择的工具；修改配置或服务端目录后须重建宿主，不在运行中热改集合。
+include/exclude 使用精确远端名称，exclude 优先；aliases 将已选远端名称映射到本地模型名称。名称须为小写字母开头的小写字母、数字或单下划线分隔名称，最长 64 字符。例如 `local_echo` 对应公共 ID `org.aurora.adapters:tools/mcp/local_echo`。不同服务的同名工具可指定不同本地名称；名称重复、远程工具缺失或参数 schema 无效会使启动失败。
+
+B5.1 工具桥要求显式 include 和全部所选工具的 aliases；默认 `include = ["*"]` 或缺少别名时报 unsupported_tool_selection，不静默跳过。`include = []`、空 exclude 表示不发现、不登记该服务的工具。自动名称随 B5.4 交付。修改配置或服务端目录后须重建宿主，不在运行中热改集合。
 
 宿主将工具发现列为消费者的前置依赖：
 
@@ -403,7 +422,7 @@ URI 精确匹配，不自动读取服务端报告的其他 URI 或子资源。mo
 
 桥接状态位于 `org.aurora.adapters:state/mcp/world`，location 为 `{"source_id":"external/resources"}`。identity_modes 明确是本地观察还是来源消息身份，accepted/duplicates 表示内存接纳结果。watch_tools 只设置 tools_dirty，不把目录变化写成世界输入，也不热更新工具。缺失能力、订阅未确认全部选择、身份错误、读取失败、连接丢失及队列溢出均有固定错误码，并封闭对应来源；不自动重订阅或重放。修正后需正常重启宿主。
 
-buffer_size 限制适配器等待处理的通知数，不包括当前一项读取；max_content_bytes 限制读取后可接纳的序列化内容大小，不是 HTTP 响应下载上限。SDK 另有 1024 项不同待消费事件的上限，其丢流报告为 subscription_lost。连接的 request_timeout 也约束 HTTP 空闲读取，长时间无消息的服务应发送流心跳或配置相应超时。停止来源会等待订阅与在途读取收束，释放借用而不关闭共享客户端；已收到但尚未接纳的观察会记入 discarded，并报告 stopped_with_pending 或对应故障及日志。桥接诊断不持久化，重启不会恢复这些待处理通知；已接纳的 world 记录由宿主最终落盘。
+buffer_size 限制适配器等待处理的通知数，不包括当前一项读取；max_content_bytes 限制读取后可接纳的序列化内容大小，不是 HTTP 响应下载上限。SDK 另有 1024 项不同待消费事件的上限，其丢流报告为 subscription_lost。HTTP 空闲读取上限取服务 startup/catalog/execution 超时的最大值，长时间无消息的服务应发送流心跳或配置相应超时。停止来源会等待订阅与在途读取收束，释放借用而不关闭共享客户端；已收到但尚未接纳的观察会记入 discarded，并报告 stopped_with_pending 或对应故障及日志。桥接诊断不持久化，重启不会恢复这些待处理通知；已接纳的 world 记录由宿主最终落盘。
 
 独立验收夹具在本机启动真实 MCP 服务，验证通知、资源读取、稳定事件去重、宿主恢复、来源失败隔离和断流：
 

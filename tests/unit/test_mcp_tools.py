@@ -40,7 +40,7 @@ PARAMETERS = {"type": "object", "properties": {"text": {"type": "string"}}, "req
 
 
 def declaration(**changes):
-    return {"connection_id": "local", "remote_name": "remote.echo", "name": "local_echo", **changes}
+    return {"include": ["remote.echo"], "aliases": {"remote.echo": "local_echo"}, **changes}
 
 
 class Session:
@@ -104,7 +104,17 @@ def environment(tmp_path, monkeypatch):
     )
     registry.register(RegistryEntry(STATE, "state_key", StateKey(), "test"))
     ctx, hooks, storage = Context(registry), HookConnections(registry), StorageService(tmp_path)
-    config = {"connections": [{"connection_id": "local", "url": "http://localhost/mcp"}], "tools": [declaration()]}
+    config = {
+        "schema_version": 2,
+        "servers": {
+            "local": {
+                "type": "remote",
+                "protocol": PROTOCOL_VERSION,
+                "url": "http://localhost/mcp",
+                "tools": declaration(),
+            }
+        },
+    }
     ctx.set(CONFIG_STATE, config)
     clients = MCPClients(ctx, hooks)
     bridge = MCPTools(registry, ctx, hooks, clients)
@@ -173,17 +183,22 @@ async def submit(env, executor, arguments=None):
 @pytest.mark.parametrize(
     "value",
     [
-        [declaration(name="bad-name")],
-        [declaration(name="a__b")],
-        [declaration(name="a" * 65)],
-        [declaration(connection_id="missing")],
-        [declaration(remote_name="")],
-        [declaration(), declaration()],
+        declaration(aliases={"remote.echo": "bad-name"}),
+        declaration(aliases={"remote.echo": "a__b"}),
+        declaration(aliases={"remote.echo": "a" * 65}),
+        declaration(aliases={"missing": "valid"}),
+        declaration(include=[""]),
+        declaration(include=["remote.echo", "remote.echo"]),
     ],
 )
 def test_invalid_selection_rejected_before_network(value):
     with pytest.raises(ValueError):
-        MCP_CONFIG.parse({"connections": [{"connection_id": "local", "url": "http://localhost/mcp"}], "tools": value})
+        MCP_CONFIG.parse(
+            {
+                "schema_version": 2,
+                "servers": {"local": {"type": "remote", "url": "http://localhost/mcp", "tools": value}},
+            }
+        )
 
 
 def test_discovery_is_explicit_paginated_and_names_stay_stable(environment):
@@ -210,10 +225,62 @@ def test_discovery_is_explicit_paginated_and_names_stay_stable(environment):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("mode", ["empty", "disabled", "automatic"])
+def test_v2_selection_does_not_expand_exposure(environment, mode):
+    env = environment
+    server = env.config["servers"]["local"]
+    if mode == "empty":
+        server["tools"] = {"include": []}
+    elif mode == "disabled":
+        server["enabled"] = False
+    else:
+        server["tools"] = {}
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        async with env.start(discover=False):
+            if mode == "automatic":
+                with pytest.raises(MCPClientError, match="unsupported_tool_selection"):
+                    await env.bridge.prepare()
+            else:
+                await env.bridge.prepare()
+                assert env.bridge.prepared
+            assert env.session.cursors == []
+            assert env.registry.view(register_to=TOOLS) == ()
+
+    asyncio.run(scenario())
+
+
+def test_catalog_has_its_own_total_budget(environment):
+    env = environment
+    finished = []
+
+    async def list_tools(*, params):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            finished.append(True)
+
+    env.session.list_tools = list_tools
+    env.config["servers"]["local"]["timeout"] = {"catalog": 0.02, "execution": 10}
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        async with env.start(discover=False):
+            with pytest.raises(TimeoutError):
+                await env.bridge.prepare()
+            assert finished == [True]
+            assert env.registry.view(register_to=TOOLS) == ()
+        assert env.closed == ["local"]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("problem", ["missing", "duplicate", "cursor", "schema", "conflict", "capability"])
 def test_discovery_failure_does_not_partially_register(environment, problem):
     env = environment
-    env.config["tools"].append(declaration(name="second", remote_name="second"))
+    env.config["servers"]["local"]["tools"]["include"].append("second")
+    env.config["servers"]["local"]["tools"]["aliases"]["second"] = "second"
     tools = [Tool(name="remote.echo", input_schema=PARAMETERS), Tool(name="second", input_schema=PARAMETERS)]
     if problem == "missing":
         tools.pop()
@@ -339,10 +406,13 @@ def test_rejected_calls_do_not_reach_server_and_after_hook_observes_failure(envi
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("mode", ["timeout", "cancel"])
+@pytest.mark.parametrize("mode", ["timeout", "cancel", "server_timeout"])
 def test_timeout_and_cancellation_finish_borrowed_call_without_replay(environment, mode):
     env = environment
     env.session.wait = True
+    if mode == "server_timeout":
+        env.config["servers"]["local"]["timeout"] = {"execution": 0.02}
+        env.ctx.set(CONFIG_STATE, env.config)
 
     async def scenario():
         async with env.start(timeout=0.02 if mode == "timeout" else 10) as (executor, _):
@@ -350,6 +420,8 @@ def test_timeout_and_cancellation_finish_borrowed_call_without_replay(environmen
             await env.session.entered.wait()
             if mode == "timeout":
                 assert (await task)["error"]["code"] == "timeout"
+            elif mode == "server_timeout":
+                assert (await task)["error"]["code"] == "mcp_timeout"
             else:
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):

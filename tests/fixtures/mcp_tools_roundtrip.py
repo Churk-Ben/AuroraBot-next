@@ -77,15 +77,17 @@ async def run(root: Path, *, with_bot: bool = False) -> dict:
         config_file(
             "org.aurora.adapters/config.toml",
             {
-                "connections": [
-                    {
-                        "connection_id": "local",
+                "schema_version": 2,
+                "servers": {
+                    "local": {
+                        "type": "remote",
+                        "protocol": "2026-07-28",
                         "url": f"http://127.0.0.1:{port}/mcp",
                         "required_capabilities": ["tools"],
-                        "request_timeout": 2,
+                        "timeout": {"catalog": 2, "execution": 2},
+                        "tools": {"include": ["echo"], "aliases": {"echo": "local_echo"}},
                     }
-                ],
-                "tools": [{"connection_id": "local", "remote_name": "echo", "name": "local_echo"}],
+                },
             },
         )
         clients = MCPClients(ctx, hooks)

@@ -97,7 +97,7 @@ def test_configured_host_preserves_files_and_finishes_resources_before_snapshot(
         register_plugins(registry, load_plugins(enabled=["aurora_config", "aurora_adapters.mcp"]))
         ctx, hooks, storage = Context(registry), HookConnections(registry), StorageService(tmp_path)
         path = storage.configuration_directory() / "org.aurora.adapters" / "config.toml"
-        text = '# 用户配置\n[[connections]]\nconnection_id = "test"\nurl = "http://127.0.0.1:8000/mcp"\n'
+        text = '# 用户配置\nschema_version = 2\n[servers.test]\ntype = "remote"\nprotocol = "2026-07-28"\nurl = "http://127.0.0.1:8000/mcp"\n'
         if selection != "empty":
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
@@ -133,7 +133,7 @@ def test_configured_host_preserves_files_and_finishes_resources_before_snapshot(
         if selection != "empty":
             assert original == text
         else:
-            assert "connections = []" in original
+            assert "schema_version = 2" in original and "[servers]" in original
         await host.stop()
         assert path.read_text(encoding="utf-8") == original
         assert store.load() == ()

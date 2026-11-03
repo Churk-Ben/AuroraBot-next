@@ -301,19 +301,19 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 
 ### 6.6 MCP 客户端、世界通知桥与工具桥（M4.B1/B2/B4 已实现）
 
-安装 `aurora-adapters[mcp]`，显式启用 `aurora_config` 与 `aurora_adapters.mcp`。入口属于 `aurora.plugins`，名称与 Plugin.name 一致；发现不创建网络资源。基础 adapters 包仅依赖 core，MCP extra 引入 config、SDK 2.3.0 和 httpx2，不依赖 world、agent 或 bot。
+安装 `aurora-adapters[mcp]`，显式启用 `aurora_config` 与 `aurora_adapters.mcp`。入口属于 `aurora.plugins`，名称与 Plugin.name 一致；发现不创建网络资源。基础 adapters 包仅依赖 core，MCP extra 引入 config、SDK 2.3.0、httpx2 和 tomli-w，不依赖 world、agent 或 bot。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.adapters:configs/mcp` | `config` | 连接及工具选择声明；模板来自 aurora_adapters.mcp/config.toml |
+| `org.aurora.adapters:configs/mcp` | `config` | v2 servers 连接及工具选择声明；模板来自 aurora_adapters.mcp/config.toml |
 | `org.aurora.adapters:state/mcp/config` | `state_key` | 全局非持久配置；文件位于 org.aurora.adapters/config.toml |
-| `org.aurora.adapters:state/mcp/clients` | `state_key` | 非持久观察；location 为 owner 与 connection_id |
+| `org.aurora.adapters:state/mcp/clients` | `state_key` | 非持久观察；location 为 owner 与 connection_id；error_location 仅含失败字段位置 |
 | `org.aurora.adapters:handlers/mcp/configure` | `hook_handler` | config 阶段复制并选择连接声明 |
 | `org.aurora.adapters:handlers/mcp/prepare` | `hook_handler` | 创建客户端并检查协议与所需能力 |
 | `org.aurora.adapters:handlers/mcp/stop` | `hook_handler` | 封闭借用，取消并等待剩余消费者 |
 | `org.aurora.adapters:handlers/mcp/clean` | `hook_handler` | 在依赖者清理后释放客户端及 HTTP 资源 |
 
-`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapters/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、accepting、protocol_version 和已知能力名称，不保留服务端描述或凭证。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
+`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapters/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、error_location、accepting、protocol_version 和已知能力名称，不保留服务端描述或凭证。凭证注入参数为 resolve_env，仅在创建资源时调用。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
 
 新增定义均非持久，无旧 ID/插件名替换，无快照迁移；不自动启用插件、改写用户文件或调整默认 bot 装配。工具桥定义随 B2 实现。
 
@@ -335,9 +335,9 @@ B4 通过 `aurora-adapters[mcp-world]` extra 增加 world/config 依赖。插件
 | `org.aurora.adapters:components/mcp/tool` | `component` | MCP 工具执行组件，所有实例使用注入的 input/output 状态绑定 |
 | `org.aurora.adapters:components/mcp/tool/execute` | `hook_handler` | 单次远程调用执行端口 |
 | `org.aurora.adapters:handlers/mcp/tools/prepare` | `hook_handler` | 在 PREPARE 分页发现并原子登记工具 |
-| `org.aurora.adapters:tools/mcp/<name>` | `tool` | 配置 tools[].name 派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
+| `org.aurora.adapters:tools/mcp/<name>` | `tool` | 配置 servers.<服务名>.tools.aliases 的本地名称派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
 
-工具选择复用 MCP 配置中的 tools 列表，字段为 connection_id、remote_name 和 name；未配置时为空，不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
+工具选择位于 v2 servers.<服务名>.tools，include/exclude 选择远端名称，aliases 指定本地名称。B5.1 要求显式选择和别名；空 include 不登记工具，默认通配或缺少别名明确报 unsupported_tool_selection。旧配置显式迁移保留原工具名称与公共 ID，没有旧工具的服务迁移为 include=[]，不扩大暴露范围、不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
 
 ## 7. aurora_api
 

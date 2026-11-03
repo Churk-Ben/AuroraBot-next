@@ -53,8 +53,8 @@ async def run(root: Path) -> dict:
         config = storage.configuration_directory() / "org.aurora.adapters" / "config.toml"
         config.parent.mkdir(parents=True, exist_ok=True)
         text = (
-            f'[[connections]]\nconnection_id = "local"\nurl = "http://127.0.0.1:{port}/mcp"\n'
-            'required_capabilities = ["tools", "resources"]\nrequest_timeout = 1.0\n'
+            f'schema_version = 2\n[servers.local]\ntype = "remote"\nprotocol = "2026-07-28"\nurl = "http://127.0.0.1:{port}/mcp"\n'
+            'required_capabilities = ["tools", "resources"]\ntimeout.execution = 1.0\n'
         )
         config.write_text(text, encoding="utf-8")
         owner = MCPClients(ctx, hooks)
@@ -81,7 +81,7 @@ async def run(root: Path) -> dict:
                 resource = await client.read_resource("test://value")
                 assert resource.contents[0].model_dump()["text"] == "本机资源"
             assert ctx.snapshot(persistent_only=True).records == ()
-            ctx.set(CONFIG_STATE, {"connections": []})
+            ctx.set(CONFIG_STATE, {"schema_version": 2, "servers": {}})
             assert config.read_text(encoding="utf-8") == text
             server.should_exit = True
             await serving

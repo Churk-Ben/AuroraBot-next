@@ -230,18 +230,21 @@ mcp = [
     { name = "aurora-config" },
     { name = "httpx2" },
     { name = "mcp" },
+    { name = "tomli-w" },
 ]
 mcp-tools = [
     { name = "aurora-agent" },
     { name = "aurora-config" },
     { name = "httpx2" },
     { name = "mcp" },
+    { name = "tomli-w" },
 ]
 mcp-world = [
     { name = "aurora-config" },
     { name = "aurora-world", extra = ["config"] },
     { name = "httpx2" },
     { name = "mcp" },
+    { name = "tomli-w" },
 ]
 
 [package.metadata]
@@ -254,6 +257,7 @@ requires-dist = [
     { name = "aurora-world", extras = ["config"], marker = "extra == 'mcp-world'", editable = "packages/aurora_world" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.16,<3" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
+    { name = "tomli-w", marker = "extra == 'mcp'", specifier = ">=1.2,<2" },
 ]
 provides-extras = ["mcp", "mcp-world", "mcp-tools"]
 

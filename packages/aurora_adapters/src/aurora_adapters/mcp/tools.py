@@ -19,7 +19,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, CallToolResult, PaginatedRequestParams, Tool
 
 from .clients import MCPClientError, MCPClients
-from .configuration import CONFIG_STATE, MCP_CONFIG
+from .configuration import CONFIG_STATE, MCP_CONFIG, configured_servers
 
 COMPONENT = Id("org.aurora.adapters:components/mcp/tool")
 
@@ -32,11 +32,13 @@ class _Tool:
         clients: MCPClients,
         connection_id: str,
         remote_name: str,
+        timeout: float,
         ctx: Context,
         input_state: StateBinding,
         output_state: StateBinding,
     ) -> None:
         self.clients, self.connection_id, self.remote_name = clients, connection_id, remote_name
+        self.timeout = timeout
         self.ctx, self.input_state, self.output_state = ctx, input_state, output_state
         self.closed = False
 
@@ -54,9 +56,10 @@ class _Tool:
             async with self.clients.connection(self.connection_id) as client:
                 try:
                     submitted = True
-                    result = await client.session.call_tool(
-                        self.remote_name, call["arguments"], allow_input_required=True
-                    )
+                    async with asyncio.timeout(self.timeout):
+                        result = await client.session.call_tool(
+                            self.remote_name, call["arguments"], allow_input_required=True
+                        )
                     if not isinstance(result, CallToolResult):
                         failure = ToolExecutionError(
                             "mcp_input_required", "MCP 工具需要额外交互，未续发请求，动作结果需核实"
@@ -90,8 +93,9 @@ class _Tool:
 
 
 class _Factory:
-    def __init__(self, bridge: "MCPTools", connection_id: str, remote_name: str) -> None:
+    def __init__(self, bridge: "MCPTools", connection_id: str, remote_name: str, timeout: float) -> None:
         self.bridge, self.connection_id, self.remote_name = bridge, connection_id, remote_name
+        self.timeout = timeout
 
     async def __call__(
         self,
@@ -107,7 +111,9 @@ class _Factory:
             raise ValueError("MCP 工具工厂只用于已完成发现的同一宿主")
         if config:
             raise ValueError("MCP 工具实例不接受额外配置；连接与远程名称由 MCP 声明选择")
-        tool = _Tool(self.bridge.clients, self.connection_id, self.remote_name, ctx, input_state, output_state)
+        tool = _Tool(
+            self.bridge.clients, self.connection_id, self.remote_name, self.timeout, ctx, input_state, output_state
+        )
         return ToolInstance(
             ExecutionPlug(
                 COMPONENT, tool.execute, {"input": input_state, "output": output_state}, instance_id=instance_id
@@ -177,18 +183,30 @@ class MCPTools:
     async def prepare(self) -> None:
         if self.prepared:
             raise RuntimeError("MCP 工具已登记；工具集合变化须重建宿主")
-        config = MCP_CONFIG.parse(self.ctx.get(CONFIG_STATE))
-        selections = cast(list[dict], config["tools"])
-        catalogs = {}
-        for connection_id in dict.fromkeys(item["connection_id"] for item in selections):
-            async with asyncio.timeout(
-                next(
-                    item["request_timeout"]
-                    for item in cast(list[dict], config["connections"])
-                    if item["connection_id"] == connection_id
-                )
+        servers = configured_servers(cast(dict, MCP_CONFIG.parse(self.ctx.get(CONFIG_STATE))))
+        selections = []
+        for connection_id, server in servers.items():
+            tools = server["tools"]
+            if tools["include"] == ["*"] or any(
+                name not in tools["aliases"] for name in tools["include"] if name not in tools["exclude"]
             ):
+                raise MCPClientError("unsupported_tool_selection", location=f"servers.{connection_id}.tools")
+            selections.extend(
+                {"connection_id": connection_id, "remote_name": name, "name": tools["aliases"][name]}
+                for name in tools["include"]
+                if name not in tools["exclude"]
+            )
+        catalogs = {}
+        for connection_id, server in servers.items():
+            if not server["tools"]["include"] and not server["tools"]["exclude"]:
+                continue
+            async with asyncio.timeout(server["timeout"]["catalog"]):
                 catalogs[connection_id] = await self._discover(connection_id)
+            if any(
+                name not in catalogs[connection_id]
+                for name in [*server["tools"]["include"], *server["tools"]["exclude"]]
+            ):
+                raise MCPClientError("selected_tool_missing")
         entries = []
         for selection in selections:
             remote = catalogs[selection["connection_id"]].get(selection["remote_name"])
@@ -197,7 +215,12 @@ class MCPTools:
             spec = ToolSpec(
                 COMPONENT,
                 {"name": selection["name"], "description": remote.description or "", "parameters": remote.input_schema},
-                factory=_Factory(self, selection["connection_id"], selection["remote_name"]),
+                factory=_Factory(
+                    self,
+                    selection["connection_id"],
+                    selection["remote_name"],
+                    servers[selection["connection_id"]]["timeout"]["execution"],
+                ),
             )
             entries.append(
                 RegistryEntry(

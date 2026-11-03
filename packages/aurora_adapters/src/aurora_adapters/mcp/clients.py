@@ -16,15 +16,24 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import DiscoverResult
 
-from .configuration import CAPABILITIES, CLIENT_STATUS, CONFIG_STATE, MCP_CONFIG, PROTOCOL_VERSION
+from .configuration import (
+    CAPABILITIES,
+    CLIENT_STATUS,
+    CONFIG_STATE,
+    MCP_CONFIG,
+    PROTOCOL_VERSION,
+    configured_servers,
+    resolve_values,
+)
 
 
 class MCPClientError(RuntimeError):
     """稳定错误码；不携带供应商异常文本、地址或凭证。"""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, location: str | None = None) -> None:
         self.code = code
-        super().__init__(f"MCP 客户端不可用：{code}")
+        self.location = location
+        super().__init__(f"MCP 客户端不可用：{code}" + (f"（{location}）" if location else ""))
 
 
 def _validate_discovery(result: DiscoverResult, required: list[str]) -> None:
@@ -46,26 +55,22 @@ def _error_code(error: BaseException, fallback: str) -> str:
 
 
 @asynccontextmanager
-async def _open_client(config: dict, resolve_token: Callable[[str], str | None]) -> AsyncIterator[Client]:
-    headers = {}
-    if name := config.get("token_env"):
-        token = resolve_token(name)
-        if (
-            not token
-            or not token.strip()
-            or not token.isascii()
-            or any(ord(char) < 32 or ord(char) == 127 for char in token)
-        ):
-            raise MCPClientError("credential_unavailable")
-        headers["Authorization"] = f"Bearer {token}"
+async def _open_client(config: dict, resolve_env: Callable[[str], str | None]) -> AsyncIterator[Client]:
+    try:
+        headers = resolve_values(config.get("headers", {}), resolve_env, headers=True)
+    except ValueError as error:
+        raise MCPClientError(
+            "credential_unavailable", location=f"servers.{config['connection_id']}.headers.{error}"
+        ) from None
+    request_timeout = max(config["timeout"][key] for key in ("startup", "catalog", "execution"))
     async with httpx2.AsyncClient(
-        headers=headers, timeout=httpx2.Timeout(config["request_timeout"]), follow_redirects=False, trust_env=False
+        headers=headers, timeout=httpx2.Timeout(request_timeout), follow_redirects=False, trust_env=False
     ) as http:
         transport = streamable_http_client(config["url"], http_client=http)
         async with Client(
             transport,
             mode=PROTOCOL_VERSION,
-            read_timeout_seconds=config["request_timeout"],
+            read_timeout_seconds=request_timeout,
             input_required_max_rounds=0,
             cache=None,
         ) as client:
@@ -88,6 +93,7 @@ class _Connection:
     cancel_requested: bool = False
     phase: str = "configured"
     error: str | None = None
+    error_location: str | None = None
     capabilities: list[str] = field(default_factory=list)
     protocol_version: str | None = None
 
@@ -107,12 +113,12 @@ class MCPClients:
         hooks: HookConnections,
         *,
         instance_id: str = "aurora_adapters/mcp",
-        resolve_token: Callable[[str], str | None] = os.environ.get,
+        resolve_env: Callable[[str], str | None] = os.environ.get,
     ) -> None:
         if not instance_id or not instance_id.strip():
             raise ValueError("MCP 所有者身份不能为空")
         self._ctx, self._hooks, self._instance_id = ctx, hooks, instance_id
-        self._resolve_token = resolve_token
+        self._resolve_env = resolve_env
         self._connections: dict[str, _Connection] = {}
         self._connected = False
         self._configured = False
@@ -135,6 +141,7 @@ class MCPClients:
             {
                 "phase": binding.phase,
                 "error": binding.error,
+                "error_location": binding.error_location,
                 "accepting": self._prepared and not self._closing and binding.phase == "ready",
                 "protocol_version": binding.protocol_version,
                 "capabilities": binding.capabilities.copy(),
@@ -180,7 +187,7 @@ class MCPClients:
         if self._configured or self._closing:
             raise RuntimeError("MCP 配置只允许装配一次")
         values = cast(dict, MCP_CONFIG.parse(self._ctx.get(CONFIG_STATE)))
-        self._connections = {item["connection_id"]: _Connection(item) for item in values["connections"]}
+        self._connections = {name: _Connection(item) for name, item in configured_servers(values).items()}
         self._configured = True
         for binding in self._connections.values():
             binding.idle.set()
@@ -189,8 +196,8 @@ class MCPClients:
     async def _serve(self, binding: _Connection) -> None:
         try:
             async with AsyncExitStack() as stack:
-                async with asyncio.timeout(binding.config["connect_timeout"]):
-                    client = await stack.enter_async_context(_open_client(binding.config, self._resolve_token))
+                async with asyncio.timeout(binding.config["timeout"]["startup"]):
+                    client = await stack.enter_async_context(_open_client(binding.config, self._resolve_env))
                 binding.client = client
                 binding.protocol_version = client.protocol_version
                 binding.capabilities = [
@@ -207,6 +214,8 @@ class MCPClients:
             code = "close_failed" if binding.phase == "closing" else "connect_cancelled"
             binding.phase, binding.error = "failed", code
         except Exception as error:  # noqa: BLE001 — SDK 后台异常统一转为固定诊断，不泄露远端原文。
+            if isinstance(error, MCPClientError):
+                binding.error_location = error.location
             code = _error_code(error, "close_failed" if binding.phase == "closing" else "connect_failed")
             if binding.phase == "closing" and not (code == "transport_failed" and binding.error == "request_failed"):
                 code = "close_failed"
@@ -222,12 +231,24 @@ class MCPClients:
             raise RuntimeError("MCP 客户端尚未配置或已开始准备")
         self._loop = asyncio.get_running_loop()
         for identity, binding in self._connections.items():
+            code = (
+                "unsupported_transport"
+                if binding.config["type"] != "remote"
+                else ("unsupported_protocol" if binding.config["protocol"] != PROTOCOL_VERSION else None)
+            )
+            if code:
+                binding.phase, binding.error = "failed", code
+                self._publish(binding)
+                raise MCPClientError(code, location=f"servers.{identity}")
+        for identity, binding in self._connections.items():
             binding.phase = "connecting"
             self._publish(binding)
             binding.task = asyncio.create_task(self._serve(binding), name=f"aurora-mcp:{identity}")
             await binding.ready.wait()
             if binding.phase != "ready":
-                raise MCPClientError(binding.error or "connect_failed")
+                raise MCPClientError(
+                    binding.error or "connect_failed", location=binding.error_location or f"servers.{identity}"
+                )
         self._prepared = True
         for binding in self._connections.values():
             self._publish(binding)
@@ -236,7 +257,9 @@ class MCPClients:
     async def connection(self, connection_id: str) -> AsyncIterator[Client]:
         """借用期间保持资源存活；调用方不得保存客户端供借用结束后使用。"""
         self._check_loop()
-        binding = self._connections[connection_id]
+        binding = self._connections.get(connection_id)
+        if binding is None:
+            raise MCPClientError("connection_unavailable")
         if not self._prepared or self._closing or binding.phase != "ready" or binding.client is None:
             raise MCPClientError("not_accepting")
         task = asyncio.current_task()
@@ -267,24 +290,30 @@ class MCPClients:
     async def stop(self) -> None:
         self.stop_accepting()
         for binding in self._connections.values():
-            for task in tuple(binding.users):
-                if task is asyncio.current_task():
-                    raise RuntimeError("不能在借用客户端的任务内等待所有者关闭")
-                if task not in binding.cancelled_users:
-                    task.cancel()
-                    binding.cancelled_users.add(task)
-            await binding.idle.wait()
-            if binding.task is not None and binding.phase == "connecting" and not binding.cancel_requested:
-                binding.cancel_requested = True
-                binding.task.cancel()
+            async with asyncio.timeout(binding.config["timeout"]["shutdown"]):
+                await self._drain(binding)
+
+    async def _drain(self, binding: _Connection) -> None:
+        for task in tuple(binding.users):
+            if task is asyncio.current_task():
+                raise RuntimeError("不能在借用客户端的任务内等待所有者关闭")
+            if task not in binding.cancelled_users:
+                task.cancel()
+                binding.cancelled_users.add(task)
+        await binding.idle.wait()
+        if binding.task is not None and binding.phase == "connecting" and not binding.cancel_requested:
+            binding.cancel_requested = True
+            binding.task.cancel()
 
     @hook_handler("org.aurora.adapters:handlers/mcp/clean", slot=CLEAN)
     async def clean(self) -> None:
-        await self.stop()
+        self.stop_accepting()
         for binding in reversed(tuple(self._connections.values())):
-            binding.close.set()
-            if binding.task is not None and not binding.task.cancelled():
-                await asyncio.shield(binding.task)
+            async with asyncio.timeout(binding.config["timeout"]["shutdown"]):
+                await self._drain(binding)
+                binding.close.set()
+                if binding.task is not None and not binding.task.cancelled():
+                    await asyncio.shield(binding.task)
             if binding.task is not None and binding.task.cancelled():
                 binding.phase, binding.error = "failed", "connect_cancelled"
                 self._publish(binding)

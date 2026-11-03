@@ -20,7 +20,11 @@ from mcp.types import DiscoverResult, ServerCapabilities, ToolsCapability
 
 
 def declaration(identity="local", **kwargs):
-    return {"connection_id": identity, "url": "http://127.0.0.1:8000/mcp", **kwargs}
+    return {identity: {"type": "remote", "protocol": PROTOCOL_VERSION, "url": "http://127.0.0.1:8000/mcp", **kwargs}}
+
+
+def configuration(values):
+    return {"schema_version": 2, "servers": {key: value for item in values for key, value in item.items()}}
 
 
 def environment(values=None):
@@ -29,7 +33,7 @@ def environment(values=None):
     register_plugins(registry, load_plugins(enabled=["aurora_config", "aurora_adapters.mcp"]))
     ctx, hooks = Context(registry), HookConnections(registry)
     owner = MCPClients(ctx, hooks)
-    ctx.set(CONFIG_STATE, {"connections": [declaration()] if values is None else values})
+    ctx.set(CONFIG_STATE, configuration([declaration()] if values is None else values))
     owner.configure()
     return owner, ctx
 
@@ -48,17 +52,17 @@ def fake_client():
     "value",
     [
         {"unknown": True},
-        {"connections": [declaration(), declaration()]},
-        {"connections": [declaration("")]},
-        {"connections": [declaration("a\nb")]},
-        {"connections": [declaration(required_capabilities=["imaginary"])]},
-        {"connections": [declaration(required_capabilities=["tools", "tools"])]},
-        {"connections": [declaration(connect_timeout=0)]},
-        {"connections": [declaration(request_timeout=True)]},
-        {"connections": [declaration(token="secret")]},
-        {"connections": [declaration(token_env="not valid")]},
+        {"connections": []},
+        configuration([declaration("")]),
+        configuration([declaration("a\nb")]),
+        configuration([declaration(required_capabilities=["imaginary"])]),
+        configuration([declaration(required_capabilities=["tools", "tools"])]),
+        configuration([declaration(timeout={"startup": 0})]),
+        configuration([declaration(timeout={"execution": True})]),
+        configuration([declaration(token="secret")]),
+        configuration([declaration(headers={"Authorization": "{env:not valid}"})]),
         *(
-            {"connections": [declaration(url=url)]}
+            configuration([declaration(url=url)])
             for url in [
                 "file:///tmp/server",
                 "http://a:secret@localhost/mcp",
@@ -77,11 +81,11 @@ def test_invalid_configuration_is_rejected_before_connecting(value):
 
 
 def test_defaults_and_discovery_are_inert(monkeypatch):
-    assert MCP_CONFIG.parse({}) == {"connections": [], "tools": []}
-    value = {"connections": [declaration()]}
+    assert MCP_CONFIG.parse({"schema_version": 2}) == {"schema_version": 2, "servers": {}, "timeout": {}}
+    value = configuration([declaration()])
     parsed = cast(dict, MCP_CONFIG.parse(value))
-    assert parsed["connections"][0]["connect_timeout"] == 10
-    assert "connect_timeout" not in value["connections"][0]
+    assert parsed["servers"]["local"]["enabled"] is True
+    assert "enabled" not in value["servers"]["local"]
     monkeypatch.setattr(module, "Client", lambda *a, **kw: pytest.fail("发现阶段不得创建客户端"))
     with pytest.raises(ValueError):
         load_plugins(enabled=["aurora_adapters.mcp"])
@@ -126,7 +130,7 @@ def test_partial_prepare_failure_closes_existing_clients(monkeypatch, failure):
                 events.append((identity, "exit"))
 
         monkeypatch.setattr(module, "_open_client", connect)
-        owner, ctx = environment([declaration("good"), declaration("bad", connect_timeout=0.02)])
+        owner, ctx = environment([declaration("good"), declaration("bad", timeout={"startup": 0.02})])
         prepare = asyncio.create_task(owner.prepare())
         await started.wait()
         if failure == "cancel":
@@ -257,13 +261,15 @@ def test_close_failure_is_explicit_and_never_reported_as_closed(monkeypatch, err
 
 
 @pytest.mark.parametrize("mode", ["ok", "missing", "unknown_advertised", "old_protocol", "rejected", "missing_token"])
-def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, caplog, mode):
+@pytest.mark.parametrize("execution_timeout", [0.001, 30])
+def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, caplog, mode, execution_timeout):
     async def scenario():
         secret = "test-only-runtime-token"
         requests, resolved, clients = [], [], []
         original = httpx2.AsyncClient
 
         async def respond(request):
+            await asyncio.sleep(0.01)
             data = json.loads(request.content)
             requests.append(data)
             assert request.headers["Authorization"] == f"Bearer {secret}"
@@ -291,8 +297,16 @@ def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, cap
             return None if mode == "missing_token" else secret
 
         monkeypatch.setattr(module.httpx2, "AsyncClient", http_client)
-        owner, ctx = environment([declaration(required_capabilities=["tools"], token_env="TEST_MCP_TOKEN")])
-        owner._resolve_token = resolver
+        owner, ctx = environment(
+            [
+                declaration(
+                    required_capabilities=["tools"],
+                    headers={"Authorization": "Bearer {env:TEST_MCP_TOKEN}"},
+                    timeout={"execution": execution_timeout},
+                )
+            ]
+        )
+        owner._resolve_env = resolver
         assert resolved == []
         try:
             if mode in ("ok", "unknown_advertised"):

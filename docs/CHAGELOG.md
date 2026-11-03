@@ -2,6 +2,17 @@
 
 ## 2026-11-03
 
+### M4.B5.1：声明 MCP v2 服务配置并提供显式迁移
+
+- MCP 配置改为 `schema_version = 2` 和按服务名组织的 `servers`；服务名保持 connection_id 身份。声明 local/remote、enabled、独立 protocol、headers/environment 引用、服务内工具选择及根级/服务级四类超时；配置校验不创建资源、不解析环境或检查本地目录。模板默认空 servers，只复制缺失文件。旧 connections/tools 及混合布局明确提示迁移，不提供运行期双解析或兼容别名。
+- 新增 `python -m aurora_adapters.mcp.migrate <旧文件> --output <新候选>`，只创建不存在的候选并打印忽略注释和排版的规范化差异。保留连接身份、固定新版策略、原工具别名/公共 ID、所需能力与请求超时；旧连接没有工具时迁移为 include=[]，不扩大暴露范围。同一远端工具的多别名无法无损表达时明确停止，不静默丢弃。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者或改写快照；提示核对 agent 外层 tool_timeout 和新增的 shutdown=10 秒预算。
+- 客户端与工具桥同步消费 v2。禁用服务不创建资源、解析凭证或登记工具；headers 在 prepare 创建连接时展开环境引用，拒绝缺失/空凭证、控制字符、重复及协议控制头，Authorization 等明确凭证字段拒绝纯字面量。解析失败只暴露固定错误码、服务名和字段位置；MCPClients 注入参数改为 resolve_env，非持久状态增加 error_location。local 环境声明支持引用与非敏感字面量，工作区路径解析及子进程创建随 B5.3 实现。
+- startup/catalog/execution 分别约束握手、完整分页发现与单次工具调用，服务字段覆盖根默认；SDK 请求与 HTTP 空闲读取上限取三者最大值，避免短执行超时截断握手或目录。shutdown 限制每服务每次 stop/clean 等待，超时后仍保留清理任务供再次等待，不重复取消 finally。工具沿用参数校验、执行钩子、失败观察和零自动重发；include/exclude 使用精确名称，aliases 保留稳定模型名称。
+- B5.1 的可运行路径仍为 remote + 显式 protocol=2026-07-28、显式工具 include 与 aliases。新声明默认 legacy，启用尚未实现的 legacy/auto/local 时在创建任何连接前报 unsupported_protocol/unsupported_transport；默认通配或缺少别名的自动工具选择报 unsupported_tool_selection。自动命名与产品装配不冒充已交付；后续顺序为 B5.2 HTTP 协商、B5.3 stdio、B5.4 产品接线、扩展后的 B3。
+- 新增 70 项验证，覆盖声明分支与控制字符、惰性凭证、未实现模式预检、禁用项、迁移保留/冲突/不覆盖、独立操作预算与关闭等待重试；原工具、假模型默认装配和世界通知恢复仍通过。完整检查最终通过 861 项 Python、97 项 TS、5 项原生终端测试，格式、lint、Python/TS 类型检查通过；普通回归仅使用假模型、模拟 HTTP 与本机测试进程，没有调用外部 MCP 服务或真实模型。
+- 12 个 wheel 构建完成，最终 adapters wheel 在 `build/b5-1-{base,client,world,tools,agent}` 的五个干净环境验证基础 adapters/control 无 agent/模型、客户端无 world/agent/bot、通知桥无 agent/bot、工具桥无 world/bot、agent 无 adapters/world/bot/CLI/API。安装后的迁移命令、包内模板、本机客户端/工具往返和 world 跨进程恢复均通过。MCP extra 新增 tomli-w 以发布迁移命令，基础包依赖不变。
+- 同步[设计与实现边界](mcp_unified_access_design.md)、架构、公共 ID、计划和[启动指南](../examples/START.md)；57 个现行文档本地链接/锚点、8 段 TOML 示例和差异检查通过。无旧公共 ID/插件替换，无业务快照迁移；用户配置与数据未修改，README.md、AGENTS.md 保持原状。
+
 ### 编写 MCP 通用接入需求与设计草案
 
 - 新增 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)，明确由 Aurora 自身支持 HTTP/stdio，复用一套连接所有权和工具执行契约，不要求第三方服务改传输。区分已交付 B1/B2/B4、样本观察和未实现设计。
