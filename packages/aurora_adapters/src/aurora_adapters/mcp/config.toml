@@ -3,7 +3,7 @@ schema_version = 2
 
 [servers]
 
-# 当前可运行路径为 remote + 2026-07-28；legacy/auto 和 local 待后续交付。
+# remote 支持 legacy（默认）、auto 和固定新版；local 待后续交付。
 # [servers.local]
 # type = "remote"
 # url = "http://127.0.0.1:8000/mcp"

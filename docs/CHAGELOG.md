@@ -2,6 +2,16 @@
 
 ## 2026-11-03
 
+### M4.B5.2：接入 HTTP 协议协商并拆分 MCP 内部职责
+
+- remote 连接支持 legacy、auto 和固定 2026-07-28。legacy/auto 复用 SDK 2.3.0 公共 Client 入口，固定新版继续显式 discover、确认能力和 adopt；只接纳已验收的 2025-11-25/2026-07-28。RPC 错误不作为版本证据，auto 的回退和版本纠正重探测共用一个 startup 预算，不额外调用私有探测函数或叠加重试循环。
+- HTTP 401/403、5xx、重定向、损坏 JSON 与非法握手响应明确失败，保留固定错误码，不把鉴权失败转换为成功回退。合法 RPC 错误和 HTTP 404 沿 SDK 策略尝试旧握手；工具调用仍只经过单次 session 请求，不因协议错误重协商或重发。HTTP 边界阻止 Last-Event-ID 恢复 GET 及第二次后台 GET，SDK 内部有限退避不会发出重连网络请求，关闭仍等待自有任务收束。
+- 内部分为 configuration（声明）、credentials（引用校验/展开）、transports（资源创建及 HTTP 边界）、negotiation（协商校验/安全摘要）、errors（固定错误码）、clients（连接所有权/生命周期），工具与世界来源继续复用同一个客户端所有者。迁移器复用 URL 和名称约束，移除重复校验；不引入通用传输注册中心、第二套调度器或兼容转发模块。
+- CLIENT_STATUS 新增 type、configured_protocol、negotiated_protocol、negotiation_attempts，保留 phase 作为阶段字段；negotiated_protocol 替代旧 protocol_version，无同义别名。摘要最多四项，只存方法、HTTP 状态和数值 RPC 错误码，不记录报文、凭证或异常原文。能力拒绝时仍可观察已确认版本，accepting 为 false。该状态非持久，无业务快照迁移。旧版资源能力不冒充新版订阅能力，world 来源在借用内明确报 unsupported_subscription_protocol，客户端仍可供工具使用。
+- 新增真实 SDK 协商矩阵，覆盖三种策略、-32601/-32603/-32022、版本纠正、畸形响应、鉴权及 HTTP 错误、短执行预算与握手隔离、同一总预算、外部取消、零工具重发和禁止网络重连。工具进程夹具扩展 --protocol，三种策略均通过无 bot 宿主及假模型 DefaultAssembly 的真实本机 HTTP 往返；既有来源恢复与独立安装边界继续验证。未调用真实模型或外部业务 MCP 服务。
+- 完整检查通过 899 项 Python、97 项 TS、5 项原生终端测试，格式、lint、Python/TS 类型检查通过。12 个 wheel 构建完成，最终 adapters wheel 在五个干净环境验证基础包、客户端、通知桥、工具桥和 agent 的依赖边界；安装后的三种协议工具往返、客户端往返、world 恢复、模板和迁移入口通过。57 个文档本地链接/锚点、8 段 TOML 示例及差异检查通过。
+- stdio、自动工具命名、可选产品装配及扩展共享关闭矩阵仍待 B5.3/B5.4/B3。同步架构、公共 ID、计划、模板和启动指南；下一步接入 stdio，并在后续产品装配中处理审查报告指出的定义/宿主资源绑定边界。用户的审查报告、配置与数据保持原状。
+
 ### M4.B5.1：声明 MCP v2 服务配置并提供显式迁移
 
 - MCP 配置改为 `schema_version = 2` 和按服务名组织的 `servers`；服务名保持 connection_id 身份。声明 local/remote、enabled、独立 protocol、headers/environment 引用、服务内工具选择及根级/服务级四类超时；配置校验不创建资源、不解析环境或检查本地目录。模板默认空 servers，只复制缺失文件。旧 connections/tools 及混合布局明确提示迁移，不提供运行期双解析或兼容别名。

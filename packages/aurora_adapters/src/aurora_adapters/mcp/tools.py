@@ -18,8 +18,9 @@ from aurora_model_adapter import JsonValue, ToolCall
 from mcp.shared.exceptions import MCPError
 from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, CallToolResult, PaginatedRequestParams, Tool
 
-from .clients import MCPClientError, MCPClients
+from .clients import MCPClients
 from .configuration import CONFIG_STATE, MCP_CONFIG, configured_servers
+from .errors import MCPClientError
 
 COMPONENT = Id("org.aurora.adapters:components/mcp/tool")
 

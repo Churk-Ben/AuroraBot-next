@@ -7,82 +7,28 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import cast
 
-import httpx2
 from aurora_core import entry_from, hook_handler
 from aurora_core.ctx import Context
 from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import CLEAN, CONFIG, PREPARE, STOP, LifecycleComponent
 from mcp import Client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.types import DiscoverResult
 
+from . import transports
 from .configuration import (
     CAPABILITIES,
     CLIENT_STATUS,
     CONFIG_STATE,
     MCP_CONFIG,
-    PROTOCOL_VERSION,
     configured_servers,
-    resolve_values,
 )
-
-
-class MCPClientError(RuntimeError):
-    """稳定错误码；不携带供应商异常文本、地址或凭证。"""
-
-    def __init__(self, code: str, *, location: str | None = None) -> None:
-        self.code = code
-        self.location = location
-        super().__init__(f"MCP 客户端不可用：{code}" + (f"（{location}）" if location else ""))
-
-
-def _validate_discovery(result: DiscoverResult, required: list[str]) -> None:
-    if PROTOCOL_VERSION not in result.supported_versions:
-        raise MCPClientError("unsupported_protocol")
-    if any(getattr(result.capabilities, name, None) is None for name in required):
-        raise MCPClientError("missing_capability")
-
-
-def _error_code(error: BaseException, fallback: str) -> str:
-    if isinstance(error, BaseExceptionGroup):
-        codes = {_error_code(item, fallback) for item in error.exceptions}
-        return codes.pop() if len(codes) == 1 else fallback
-    if isinstance(error, MCPClientError):
-        return error.code
-    if isinstance(error, httpx2.TransportError):
-        return "transport_failed"
-    return "connect_timeout" if isinstance(error, TimeoutError) else fallback
-
-
-@asynccontextmanager
-async def _open_client(config: dict, resolve_env: Callable[[str], str | None]) -> AsyncIterator[Client]:
-    try:
-        headers = resolve_values(config.get("headers", {}), resolve_env, headers=True)
-    except ValueError as error:
-        raise MCPClientError(
-            "credential_unavailable", location=f"servers.{config['connection_id']}.headers.{error}"
-        ) from None
-    request_timeout = max(config["timeout"][key] for key in ("startup", "catalog", "execution"))
-    async with httpx2.AsyncClient(
-        headers=headers, timeout=httpx2.Timeout(request_timeout), follow_redirects=False, trust_env=False
-    ) as http:
-        transport = streamable_http_client(config["url"], http_client=http)
-        async with Client(
-            transport,
-            mode=PROTOCOL_VERSION,
-            read_timeout_seconds=request_timeout,
-            input_required_max_rounds=0,
-            cache=None,
-        ) as client:
-            result = DiscoverResult.model_validate(await client.session.send_discover(PROTOCOL_VERSION))
-            _validate_discovery(result, config["required_capabilities"])
-            client.session.adopt(result)
-            yield client
+from .errors import MCPClientError, error_code
+from .negotiation import Negotiation
 
 
 @dataclass
 class _Connection:
     config: dict
+    negotiation: Negotiation
     ready: asyncio.Event = field(default_factory=asyncio.Event)
     close: asyncio.Event = field(default_factory=asyncio.Event)
     idle: asyncio.Event = field(default_factory=asyncio.Event)
@@ -95,7 +41,6 @@ class _Connection:
     error: str | None = None
     error_location: str | None = None
     capabilities: list[str] = field(default_factory=list)
-    protocol_version: str | None = None
 
 
 class MCPClients:
@@ -143,7 +88,10 @@ class MCPClients:
                 "error": binding.error,
                 "error_location": binding.error_location,
                 "accepting": self._prepared and not self._closing and binding.phase == "ready",
-                "protocol_version": binding.protocol_version,
+                "type": binding.config["type"],
+                "configured_protocol": binding.negotiation.configured_protocol,
+                "negotiated_protocol": binding.negotiation.negotiated_protocol,
+                "negotiation_attempts": binding.negotiation.attempts.copy(),
                 "capabilities": binding.capabilities.copy(),
             },
             location={"owner": self._instance_id, "connection_id": binding.config["connection_id"]},
@@ -187,7 +135,9 @@ class MCPClients:
         if self._configured or self._closing:
             raise RuntimeError("MCP 配置只允许装配一次")
         values = cast(dict, MCP_CONFIG.parse(self._ctx.get(CONFIG_STATE)))
-        self._connections = {name: _Connection(item) for name, item in configured_servers(values).items()}
+        self._connections = {
+            name: _Connection(item, Negotiation(item["protocol"])) for name, item in configured_servers(values).items()
+        }
         self._configured = True
         for binding in self._connections.values():
             binding.idle.set()
@@ -197,9 +147,11 @@ class MCPClients:
         try:
             async with AsyncExitStack() as stack:
                 async with asyncio.timeout(binding.config["timeout"]["startup"]):
-                    client = await stack.enter_async_context(_open_client(binding.config, self._resolve_env))
+                    client = await stack.enter_async_context(
+                        transports.open_client(binding.config, self._resolve_env, binding.negotiation)
+                    )
                 binding.client = client
-                binding.protocol_version = client.protocol_version
+                binding.negotiation.negotiated_protocol = client.protocol_version
                 binding.capabilities = [
                     name for name in CAPABILITIES if getattr(client.server_capabilities, name) is not None
                 ]
@@ -216,7 +168,7 @@ class MCPClients:
         except Exception as error:  # noqa: BLE001 — SDK 后台异常统一转为固定诊断，不泄露远端原文。
             if isinstance(error, MCPClientError):
                 binding.error_location = error.location
-            code = _error_code(error, "close_failed" if binding.phase == "closing" else "connect_failed")
+            code = error_code(error, "close_failed" if binding.phase == "closing" else "connect_failed")
             if binding.phase == "closing" and not (code == "transport_failed" and binding.error == "request_failed"):
                 code = "close_failed"
             binding.phase, binding.error = "failed", code
@@ -231,11 +183,7 @@ class MCPClients:
             raise RuntimeError("MCP 客户端尚未配置或已开始准备")
         self._loop = asyncio.get_running_loop()
         for identity, binding in self._connections.items():
-            code = (
-                "unsupported_transport"
-                if binding.config["type"] != "remote"
-                else ("unsupported_protocol" if binding.config["protocol"] != PROTOCOL_VERSION else None)
-            )
+            code = "unsupported_transport" if binding.config["type"] != "remote" else None
             if code:
                 binding.phase, binding.error = "failed", code
                 self._publish(binding)

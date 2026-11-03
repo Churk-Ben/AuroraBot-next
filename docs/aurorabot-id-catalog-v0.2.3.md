@@ -313,7 +313,7 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | `org.aurora.adapters:handlers/mcp/stop` | `hook_handler` | 封闭借用，取消并等待剩余消费者 |
 | `org.aurora.adapters:handlers/mcp/clean` | `hook_handler` | 在依赖者清理后释放客户端及 HTTP 资源 |
 
-`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapters/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、error_location、accepting、protocol_version 和已知能力名称，不保留服务端描述或凭证。凭证注入参数为 resolve_env，仅在创建资源时调用。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
+`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapters/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、error_location、accepting、type、configured_protocol、negotiated_protocol、negotiation_attempts 和已知能力名称，不保留服务端描述或凭证。凭证注入参数为 resolve_env，仅在创建资源时调用。negotiated_protocol 替代旧 protocol_version，无兼容别名及业务快照迁移；最多四条协商摘要只包含方法、HTTP 状态和数值 RPC 错误码。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
 
 新增定义均非持久，无旧 ID/插件名替换，无快照迁移；不自动启用插件、改写用户文件或调整默认 bot 装配。工具桥定义随 B2 实现。
 

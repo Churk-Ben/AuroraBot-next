@@ -1,15 +1,15 @@
 """本机 MCP 工具桥验收；支持无 world 宿主和使用假模型的默认 bot。"""
 
+import argparse
 import asyncio
 import json
 import socket
-import sys
 from pathlib import Path
 from typing import cast
 
 import tomli_w
 import uvicorn
-from aurora_adapters.mcp import MCPClients
+from aurora_adapters.mcp import CLIENT_STATUS, PROTOCOL_VERSION, MCPClients
 from aurora_adapters.mcp.tools import MCPTools
 from aurora_agent.tools import ToolExecutor, ToolSpec
 from aurora_config import configuration_component
@@ -29,7 +29,7 @@ TOOL = Id("org.aurora.adapters:tools/mcp/local_echo")
 STATE = Id("dev.mcp:state/work")
 
 
-async def run(root: Path, *, with_bot: bool = False) -> dict:
+async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VERSION) -> dict:
     """通过真实本机 HTTP 完成发现、工具执行及业务错误观察，不调用真实模型。"""
     service = MCPServer("aurora-tools-test")
     calls = []
@@ -81,7 +81,7 @@ async def run(root: Path, *, with_bot: bool = False) -> dict:
                 "servers": {
                     "local": {
                         "type": "remote",
-                        "protocol": "2026-07-28",
+                        "protocol": protocol,
                         "url": f"http://127.0.0.1:{port}/mcp",
                         "required_capabilities": ["tools"],
                         "timeout": {"catalog": 2, "execution": 2},
@@ -131,6 +131,11 @@ async def run(root: Path, *, with_bot: bool = False) -> dict:
             ctx, hooks, components, persistence=ContextPersistence(ctx, storage.snapshot_store()), storage=storage
         )
         await host.start()
+        client_status = cast(
+            dict, ctx.get(CLIENT_STATUS, location={"owner": clients.instance_id, "connection_id": "local"})
+        )
+        assert client_status["configured_protocol"] == protocol
+        assert client_status["negotiated_protocol"] == ("2025-11-25" if protocol == "legacy" else PROTOCOL_VERSION)
         try:
             if assembly is not None:
                 assert assembly.agent is not None and assembly.defaults is not None
@@ -201,4 +206,9 @@ async def run(root: Path, *, with_bot: bool = False) -> dict:
 
 
 if __name__ == "__main__":
-    print(json.dumps(asyncio.run(run(Path(sys.argv[1]), with_bot="--bot" in sys.argv)), ensure_ascii=False))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", type=Path)
+    parser.add_argument("--bot", action="store_true")
+    parser.add_argument("--protocol", choices=["legacy", "auto", PROTOCOL_VERSION], default=PROTOCOL_VERSION)
+    args = parser.parse_args()
+    print(json.dumps(asyncio.run(run(args.root, with_bot=args.bot, protocol=args.protocol)), ensure_ascii=False))

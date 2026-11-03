@@ -1,12 +1,12 @@
 """MCP v2 声明；配置校验不访问环境变量、文件系统或网络。"""
 
-import re
-from collections.abc import Callable
 from typing import cast
 from urllib.parse import urlsplit
 
 from aurora_config import ConfigSchema
 from aurora_core import Id
+
+from .credentials import check_environment, check_headers
 
 CONFIGURATION = Id("org.aurora.adapters:configs/mcp")
 CONFIG_STATE = Id("org.aurora.adapters:state/mcp/config")
@@ -17,11 +17,6 @@ SERVER_NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}(?![\s\S])"
 TOOL_NAME = r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*(?![\s\S])"
 ENV_NAME = r"^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])"
 TIMEOUTS = {"startup": 10, "catalog": 30, "execution": 30, "shutdown": 10}
-_REFERENCE = re.compile(r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}")
-_HEADER_NAME = re.compile(r"^[!#$%&'*+.^_|~0-9A-Za-z-]+$")
-_CONTROL_HEADERS = {"accept", "content-type", "host", "content-length", "transfer-encoding", "connection", "upgrade"}
-_CREDENTIAL_HEADERS = {"authorization", "proxy-authorization", "cookie", "x-api-key", "api-key"}
-_CREDENTIAL_ENV = re.compile(r"(?:^|_)(?:TOKEN|SECRET|PASSWORD|API_KEY|APIKEY|ACCESS_KEY)$", re.IGNORECASE)
 
 
 def validate_url(value: str) -> None:
@@ -43,55 +38,12 @@ def validate_url(value: str) -> None:
         raise ValueError("MCP 地址须为无凭证、查询串、片段及环境占位符的 HTTP(S) URL")
 
 
-def _check_reference(value: str, *, credential: bool = False) -> None:
-    if "{env" in _REFERENCE.sub("", value):
-        raise ValueError("MCP 环境引用须为 {env:NAME}")
-    if credential and not _REFERENCE.search(value):
-        raise ValueError("MCP 凭证字段必须使用环境引用")
-
-
-def resolve_values(values: dict[str, str], resolver: Callable[[str], str | None], *, headers: bool) -> dict[str, str]:
-    """仅在创建资源时展开引用；失败只返回字段名，不携带声明或解析值。"""
-    result = {}
-    for key, value in values.items():
-
-        def replace(match: re.Match) -> str:
-            resolved = resolver(match[1])
-            if not resolved or not resolved.strip():
-                raise ValueError("环境引用不可用")
-            return resolved
-
-        try:
-            resolved = _REFERENCE.sub(replace, value)
-            if "\0" in resolved or (
-                headers and (not resolved.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in resolved))
-            ):
-                raise ValueError(key)
-        except Exception:  # noqa: BLE001 — 自定义解析器也不得通过异常泄露凭证。
-            raise ValueError(key) from None
-        result[key] = resolved
-    return result
-
-
 def _check_servers(value: object) -> None:
     aliases = set()
     for name, server in cast(dict, value)["servers"].items():
         if server["type"] == "remote":
             validate_url(server["url"])
-            seen = set()
-            for key, content in server.get("headers", {}).items():
-                lower = key.lower()
-                if (
-                    not _HEADER_NAME.fullmatch(key)
-                    or lower in seen
-                    or lower in _CONTROL_HEADERS
-                    or lower.startswith("mcp-")
-                ):
-                    raise ValueError(f"MCP 服务 {name} 的 headers 名称冲突、非法或由协议管理")
-                seen.add(lower)
-                _check_reference(content, credential=lower in _CREDENTIAL_HEADERS)
-                if not content.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in content):
-                    raise ValueError(f"MCP 服务 {name} 的 headers 值含非法字符")
+            check_headers(server.get("headers", {}))
             if server.get("oauth", False) is not False:
                 raise ValueError(f"MCP 服务 {name}: unsupported_auth")
         else:
@@ -100,10 +52,7 @@ def _check_servers(value: object) -> None:
                     raise ValueError(f"MCP 服务 {name} 的 command/cwd 不接受 NUL 或环境引用")
             if not server["command"][0].strip() or not server.get("cwd", ".").strip():
                 raise ValueError(f"MCP 服务 {name} 的 command/cwd 不能为空")
-            for key, content in server.get("environment", {}).items():
-                _check_reference(content, credential=bool(_CREDENTIAL_ENV.search(key)))
-                if "\0" in content:
-                    raise ValueError(f"MCP 服务 {name} 的 environment 含 NUL")
+            check_environment(server.get("environment", {}))
         tools = server["tools"]
         if "*" in tools["include"] and tools["include"] != ["*"]:
             raise ValueError("MCP 工具通配项须独占 include")

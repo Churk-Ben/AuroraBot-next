@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from aurora_adapters.mcp import PROTOCOL_VERSION, MCPClients
-from aurora_adapters.mcp import clients as module
+from aurora_adapters.mcp import transports as module
 from aurora_config import configuration_component
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
@@ -79,7 +79,7 @@ def test_configured_host_preserves_files_and_finishes_resources_before_snapshot(
         entered = asyncio.Event()
 
         @asynccontextmanager
-        async def connect(config, resolver):
+        async def connect(config, resolver, negotiation):
             events.append("created")
             try:
                 entered.set()
@@ -91,7 +91,7 @@ def test_configured_host_preserves_files_and_finishes_resources_before_snapshot(
             finally:
                 events.append("closed")
 
-        monkeypatch.setattr(module, "_open_client", connect)
+        monkeypatch.setattr(module, "open_client", connect)
         registry = bootstrap()
         install_lifecycle_slots(registry)
         register_plugins(registry, load_plugins(enabled=["aurora_config", "aurora_adapters.mcp"]))

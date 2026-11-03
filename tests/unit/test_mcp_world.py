@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from aurora_adapters.mcp.configuration import PROTOCOL_VERSION
 from aurora_adapters.mcp.world import WORLD_STATUS, MCPWorldError, _ResourceSource, plugin
 from aurora_adapters.mcp.world_config import WORLD_CONFIG
 from aurora_core.bootstrap import bootstrap
@@ -26,6 +27,7 @@ def values(**kwargs):
 
 class FakeClient:
     def __init__(self):
+        self.protocol_version = PROTOCOL_VERSION
         self.events = asyncio.Queue()
         self.entered = asyncio.Event()
         self.closed = asyncio.Event()
@@ -101,6 +103,24 @@ def environment(client, config=None):
 
     source = _ResourceSource(ctx, client, "test", emit, cast(dict, WORLD_CONFIG.parse(config or values())))
     return source, ctx, records
+
+
+def test_legacy_resources_do_not_imply_modern_subscription_support():
+    async def scenario():
+        client = FakeClient()
+        client.protocol_version = "2025-11-25"
+        source, ctx, records = environment(client)
+        try:
+            with pytest.raises(MCPWorldError, match="unsupported_subscription_protocol"):
+                await source.start()
+            await source.stop()
+            assert not client.entered.is_set() and client.leases == 0
+            assert records.read() == ()
+            assert not source.close_failed
+        finally:
+            ctx.close()
+
+    asyncio.run(scenario())
 
 
 async def until(predicate):

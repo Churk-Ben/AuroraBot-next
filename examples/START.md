@@ -310,11 +310,11 @@ timeout = { startup = 10, catalog = 30, execution = 30, shutdown = 10 }
 
 headers 支持 `{env:NAME}` 引用和固定前缀；Authorization 等凭证字段不能填写纯字面量。引用只在 prepare 创建连接时解析，不进入 ctx、快照或日志；缺失或非法值报告服务名与字段位置。`enabled = false` 不创建连接、解析凭证或登记工具。地址不可包含凭证、查询串、片段或环境引用；修改配置后重启生效。
 
-B5.1 只运行 HTTP(S) Streamable HTTP + 显式 `protocol = "2026-07-28"`。声明支持 local/remote 和 legacy/auto/固定新版，默认协议为 legacy；未实现的 local 和 legacy/auto 在创建任何连接前明确拒绝，分别报 unsupported_transport/unsupported_protocol。local 的工作区路径解析与子进程启动随 B5.3 交付。SDK 固定 2.3.0，不自动处理多轮输入。
+B5.2 支持 HTTP(S) Streamable HTTP 的 legacy、auto 和固定 2026-07-28 三种策略，默认 legacy。允许的实际版本为 2025-11-25 与 2026-07-28；legacy 直接旧握手，auto 由 SDK 探测并按策略回退，固定新版显式 discover 后检查能力。HTTP 401/403、5xx、重定向和损坏 JSON 明确失败，不掩盖为成功回退；RPC 错误本身不作为版本证据。local 的工作区路径解析与子进程启动随 B5.3 交付，当前启用时报 unsupported_transport。SDK 固定 2.3.0，不自动处理多轮输入或重放工具动作。
 
 根级 `[timeout]` 提供公共超时，各服务逐字段覆盖；startup/catalog/execution/shutdown 默认分别为 10/30/30/10 秒，限制握手、完整目录发现、单次工具调用和每服务每次 stop/clean 等待。工具执行同时受 agent 外层超时约束。SDK 请求与 HTTP 空闲读取上限取前三者的最大值，各操作通过自己的外层预算提前结束。关闭等待超时不取消正在执行的 finally，可再次等待；真正的关闭异常需诊断后重建宿主。
 
-客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；新增 error_location 仅包含安全字段位置。ready 表示启动准备完成，没有后台健康探测；失败不自动重连或重放请求。
+客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；error_location 仅包含安全字段位置；configured_protocol 表示配置策略，negotiated_protocol 替代旧 protocol_version，negotiation_attempts 最多记录四次协商的方法、HTTP 状态和数值 RPC 错误码。状态非持久，无快照迁移；ready 表示启动准备完成，没有后台健康探测；失败不自动重连或重放请求。
 
 旧 connections/tools 布局及混合布局均拒绝加载。先生成独立候选及规范化差异，审阅后自行应用；命令不覆盖任何已有文件、不读取凭证、不连接服务：
 
@@ -375,11 +375,15 @@ instance_id = "echo"
 ```powershell
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-tools-acceptance
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-bot-acceptance --bot
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-legacy-acceptance --protocol legacy
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-acceptance --protocol auto
 ```
 
 两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；工具桥与世界通知桥共同使用时的完整关闭验收属于 B3。
 
 ### MCP 世界通知桥
+
+世界来源目前使用 2026-07-28 的订阅契约；即使旧版连接声明 resources，来源也会明确报 unsupported_subscription_protocol，不尝试未实现的旧订阅。该连接仍可供工具使用。
 
 安装 `aurora-adapters[mcp-world]`，宿主显式启用 `aurora_config`、`aurora_adapters.mcp`、`aurora_world`、`aurora_world.configuration` 和 `aurora_adapters.mcp.world`。保留上述 MCP 连接配置，使用共享 MCPClients，并用 `mcp_world_component` 替代通用 configured_sources_component；不要在同一 ctx 重复装配两个 world 来源所有者：
 

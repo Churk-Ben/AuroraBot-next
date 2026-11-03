@@ -8,7 +8,7 @@ from typing import cast
 import httpx2
 import pytest
 from aurora_adapters.mcp import CONFIG_STATE, PROTOCOL_VERSION, MCPClientError, MCPClients
-from aurora_adapters.mcp import clients as client_module
+from aurora_adapters.mcp import transports as client_module
 from aurora_adapters.mcp.configuration import MCP_CONFIG
 from aurora_adapters.mcp.tools import MCPTools
 from aurora_agent.tools import TOOLS, ToolExecutor, ToolRejected, ToolSpec
@@ -82,13 +82,13 @@ def environment(tmp_path, monkeypatch):
     )
 
     @asynccontextmanager
-    async def open_client(config, resolver):
+    async def open_client(config, resolver, negotiation):
         try:
             yield client
         finally:
             closed.append(config["connection_id"])
 
-    monkeypatch.setattr(client_module, "_open_client", open_client)
+    monkeypatch.setattr(client_module, "open_client", open_client)
     registry = bootstrap()
     install_lifecycle_slots(registry)
     register_plugins(

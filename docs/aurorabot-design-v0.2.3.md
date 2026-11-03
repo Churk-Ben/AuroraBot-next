@@ -412,8 +412,8 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - 默认 bot 增加 world/config 的包依赖，但仍须显式启用 world 插件。登记 world 配置定义时，DefaultAssembly 连接一个来源所有者，其生命周期依赖 bot 组件；配置选择先于所有 prepare，bot 就绪后开放环境输入，关闭时先收束来源再关闭 bot/模型。没有 world 配置定义时保持原装配行为；来源不自动调用模型，cadence 尚未接入。正式启动脚本用 `--world` 显式开放世界记录和来源状态，复用 TUI 状态页观察。
 - 可运行的程序及 TOML 装配恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，后者使用 `--configured`；[environment_roundtrip.py](../tests/fixtures/environment_roundtrip.py) 验证环境来源独立安装与恢复，默认使用模拟天气传输，`--live-weather` 显式访问真实服务。模拟来源、自研环境周期和 MCP 来源共用已有入口，不增加另一套来源事件总线。
 - M4.B1 已提供可选 `aurora-adapters[mcp]` 与 `aurora_adapters.mcp` 插件。`MCPClients` 在 config 阶段选择声明，prepare 阶段创建连接；每个 SDK 上下文由同一后台任务进入与退出，消费者通过异步借用上下文使用。stop 封闭入口、取消并等待剩余借用，clean 在依赖者清理后关闭客户端，最后由宿主落盘。关闭等待超时或取消可再次等待，不重复取消正在收尾的任务；真正的关闭失败阻止宿主假报关闭成功。基础 adapters 仅依赖 core，MCP extra 引入 config/SDK/httpx2/tomli-w，无 world/agent/bot 依赖。
-- MCP B5.1 使用 schema_version=2、默认空 servers 映射，服务名直接作为 connection_id；模板只补缺失文件。声明支持 local/remote、协议策略、所需能力、四类超时和 headers/environment 环境引用；当前仅 remote + 显式固定新版可运行，未实现模式在创建资源前拒绝。旧 connections/tools 布局须通过 python -m aurora_adapters.mcp.migrate 生成候选并显式应用，保留旧身份、工具别名与暴露范围，不覆盖用户文件。凭证在连接创建时单独解析，不进入 TOML、ctx 或快照。URL 不接受 userinfo、查询串或片段；服务端任意元数据不写入观察状态。配置与状态均非持久，固定错误码区分启动超时、协议/能力拒绝、传输和关闭失败。ready 不是持续健康探测，断线在请求时诊断，不自动重放请求或重连。
-- SDK 锁定 2.3.0，以 `2026-07-28` 版本显式请求 server/discover，不执行旧握手回退；未知必需能力在配置阶段拒绝，服务端额外能力不冒充已支持能力。未提供采样、roots 或 elicitation 回调，多轮输入结果不自动续发。客户端不自动读取工具/资源、监听通知或激活模型；产品入口尚不自动装配 MCP。独立本机验收与宿主用法见[启动指南](../examples/START.md#mcp-独立客户端验收)。
+- MCP B5.1 使用 schema_version=2、默认空 servers 映射，服务名直接作为 connection_id；模板只补缺失文件。声明支持 local/remote、协议策略、所需能力、四类超时和 headers/environment 环境引用；B5.2 已支持 remote 的 legacy/auto/固定新版协商；local 未实现，在创建资源前拒绝。旧 connections/tools 布局须通过 python -m aurora_adapters.mcp.migrate 生成候选并显式应用，保留旧身份、工具别名与暴露范围，不覆盖用户文件。凭证在连接创建时单独解析，不进入 TOML、ctx 或快照。URL 不接受 userinfo、查询串或片段；服务端任意元数据不写入观察状态。配置与状态均非持久，固定错误码区分启动超时、协议/能力拒绝、传输和关闭失败。ready 不是持续健康探测，断线在请求时诊断，不自动重放请求或重连。
+- SDK 锁定 2.3.0，legacy/auto 复用公共 Client 协商入口，固定新版仍显式请求 server/discover 后 adopt；只接纳 2025-11-25 与 2026-07-28。HTTP 鉴权失败、5xx、重定向和损坏 JSON 明确拒绝，协商共用 startup 总预算；未知必需能力在配置阶段拒绝，服务端额外能力不冒充已支持能力。未提供采样、roots 或 elicitation 回调，多轮输入结果不自动续发。客户端不自动读取工具/资源、监听通知或激活模型；产品入口尚不自动装配 MCP。独立本机验收与宿主用法见[启动指南](../examples/START.md#mcp-独立客户端验收)。
 - M4.B4 已通过 `aurora_adapters.mcp.world` 插件与 `aurora-adapters[mcp-world]` extra 提供资源通知来源。mcp_world_component 复用 world 的声明配置与唯一来源所有者，并依赖注入的 MCPClients；来源 start 等待 subscriptions/listen 确认全部选择，后台任务同时接收通知与处理有界队列，停止只释放自身订阅和借用。世界消息通过固定 source_id 的 emit 接纳，world 不反向导入 SDK 或 agent，产品入口尚不自动装配 MCP。
 - 每个资源按精确 URI 配置 notification/resource/event 模式。前两种分别只存变化提示或读取内容，都使用本地观察身份；event 读取单个文本资源中的严格 JSON `{message_id, payload}`，连接、URI 与稳定 message_id 共同限定去重身份，不将采样时间混入事件载荷。身份缺失、同身份异文、未选 URI、读取失败、超限内容或缓冲溢出均使对应来源失败，其他来源和客户端仍可用。工具目录通知只设置 tools_dirty，不进入 world、不热改工具集合；协议控制通知不作为业务输入。
 - SDK 2.3.0 的通知流会合并尚未消费的同 URI 提示，且有自身的 1024 项不同事件积压上限；SDK 流丢失统一报 subscription_lost。适配器另有默认 64 项的有界队列，溢出明确报 buffer_overflow。两者均不承诺完整事件日志或历史补发；资源读取反映读取时当前值，不保证保留通知时的版本。正常停止也会报告已收到但尚未接纳的观察数量，状态非持久，固定诊断同步进入宿主日志；它们不会被伪报为已落盘或在重启后重放。[SDK 订阅说明](https://py.sdk.modelcontextprotocol.io/client/subscriptions/)。
@@ -421,9 +421,9 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - M4.B2 已通过 `aurora-adapters[mcp-tools]` 和 `aurora_adapters.mcp.tools` 插件接入 agent。v2 服务内 tools.include/exclude 选择远端名称，aliases 映射本地名称；当前须显式 include 和别名，自动选择尚未交付。MCPTools 在 prepare 分页发现并原子登记 ToolSpec，名称/schema 冲突或选项缺失阻止启动。DefaultAssembly.components(depends_on=...) 保证发现先于模型与工具检查；实例 ExecutionPlug 接入 ToolExecutor，保留 before_call/after_call、参数校验、超时与取消。结果保留 MCP 内容块和 structuredContent；ToolExecutionError 使业务失败仍保留 JSON 内容，协议错误、超时、无效结果和结果未知使用不同错误码。调用使用 SDK session 的单次请求，不因 HEADER_MISMATCH、断线或额外交互重发。工具目录变化须重建宿主，不热改集合；外部真实服务兼容性验证尚未进行。
 - MCP 客户端由独立生命周期组件持有，世界与工具桥只持有使用引用。配置完成后创建资源，消费者就绪后开放输入；停止接纳后结束来源与运行任务，待依赖者清理完再关闭客户端，最后由宿主落盘。单个来源停止不能关闭在途工具仍使用的客户端。
 
-通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1 的 v2 配置、运行期引用和显式迁移已交付；协议协商、stdio、自动名称与产品装配仍待后续切片，业务事件扩展与可靠投递单独设计。
+通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1–B5.2 的 v2 配置、运行期引用、显式迁移与 HTTP 协商已交付；内部按声明、凭证、传输、协商、错误与所有权分工，stdio、自动名称与产品装配仍待后续切片，业务事件扩展与可靠投递单独设计。
 
-后续推进顺序为 MCP HTTP 协商 B5.2 → stdio B5.3 → 工具产品接线 B5.4 → 扩展共享资源验收 B3 → cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
+后续推进顺序为 MCP stdio B5.3 → 工具产品接线 B5.4 → 扩展共享资源验收 B3 → cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
 
 ## 8. 模型适配与绑定
 

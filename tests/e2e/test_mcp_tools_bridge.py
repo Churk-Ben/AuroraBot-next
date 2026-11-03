@@ -10,7 +10,8 @@ import pytest
 
 
 @pytest.mark.parametrize("with_bot", [False, True])
-def test_local_mcp_tools_roundtrip(tmp_path, with_bot):
+@pytest.mark.parametrize("protocol", ["legacy", "auto", "2026-07-28"])
+def test_local_mcp_tools_roundtrip(tmp_path, with_bot, protocol):
     launcher = """
 import importlib.abc
 import runpy
@@ -29,7 +30,16 @@ assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 """
     fixture = Path(__file__).resolve().parents[1] / "fixtures" / "mcp_tools_roundtrip.py"
     result = subprocess.run(
-        [sys.executable, "-c", launcher, str(fixture), str(tmp_path), *(["--bot"] if with_bot else [])],
+        [
+            sys.executable,
+            "-c",
+            launcher,
+            str(fixture),
+            str(tmp_path),
+            "--protocol",
+            protocol,
+            *(["--bot"] if with_bot else []),
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",

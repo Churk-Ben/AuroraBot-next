@@ -9,8 +9,9 @@ from typing import cast
 import httpx2
 import pytest
 from aurora_adapters.mcp import CLIENT_STATUS, CONFIG_STATE, PROTOCOL_VERSION, MCPClientError, MCPClients
-from aurora_adapters.mcp import clients as module
+from aurora_adapters.mcp import transports as module
 from aurora_adapters.mcp.configuration import MCP_CONFIG
+from aurora_adapters.mcp.negotiation import validate_discovery
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
 from aurora_core.discovery import load_plugins, register_plugins
@@ -99,12 +100,12 @@ def test_capabilities_and_protocol_are_checked_without_assuming_unknown_features
     result = DiscoverResult(
         supported_versions=[PROTOCOL_VERSION], capabilities=ServerCapabilities(tools=ToolsCapability())
     )
-    module._validate_discovery(result, ["tools"])
+    validate_discovery(result, ["tools"])
     with pytest.raises(MCPClientError, match="missing_capability"):
-        module._validate_discovery(result, ["resources"])
+        validate_discovery(result, ["resources"])
     result.supported_versions = ["2025-11-25"]
     with pytest.raises(MCPClientError, match="unsupported_protocol"):
-        module._validate_discovery(result, [])
+        validate_discovery(result, [])
 
 
 @pytest.mark.parametrize("failure", ["failure", "timeout", "cancel"])
@@ -114,7 +115,7 @@ def test_partial_prepare_failure_closes_existing_clients(monkeypatch, failure):
         started = asyncio.Event()
 
         @asynccontextmanager
-        async def connect(config, resolver):
+        async def connect(config, resolver, negotiation):
             identity = config["connection_id"]
             task = asyncio.current_task()
             events.append((identity, "enter"))
@@ -129,7 +130,7 @@ def test_partial_prepare_failure_closes_existing_clients(monkeypatch, failure):
                 assert task is asyncio.current_task()
                 events.append((identity, "exit"))
 
-        monkeypatch.setattr(module, "_open_client", connect)
+        monkeypatch.setattr(module, "open_client", connect)
         owner, ctx = environment([declaration("good"), declaration("bad", timeout={"startup": 0.02})])
         prepare = asyncio.create_task(owner.prepare())
         await started.wait()
@@ -158,7 +159,7 @@ def test_close_wait_can_resume_without_recancelling_cleanup(monkeypatch, wait_ca
         exits = []
 
         @asynccontextmanager
-        async def connect(config, resolver):
+        async def connect(config, resolver, negotiation):
             task = asyncio.current_task()
             try:
                 yield fake_client()
@@ -168,7 +169,7 @@ def test_close_wait_can_resume_without_recancelling_cleanup(monkeypatch, wait_ca
                 assert task is asyncio.current_task()
                 exits.append("closed")
 
-        monkeypatch.setattr(module, "_open_client", connect)
+        monkeypatch.setattr(module, "open_client", connect)
         owner, ctx = environment()
         await owner.prepare()
         close = asyncio.create_task(owner.clean())
@@ -200,13 +201,13 @@ def test_shutdown_drains_borrowers_before_closing_client(monkeypatch):
         events = []
 
         @asynccontextmanager
-        async def connect(config, resolver):
+        async def connect(config, resolver, negotiation):
             try:
                 yield fake_client()
             finally:
                 events.append("client.closed")
 
-        monkeypatch.setattr(module, "_open_client", connect)
+        monkeypatch.setattr(module, "open_client", connect)
         owner, ctx = environment()
         await owner.prepare()
 
@@ -243,11 +244,11 @@ def test_shutdown_drains_borrowers_before_closing_client(monkeypatch):
 def test_close_failure_is_explicit_and_never_reported_as_closed(monkeypatch, error_type):
     async def scenario():
         @asynccontextmanager
-        async def connect(config, resolver):
+        async def connect(config, resolver, negotiation):
             yield fake_client()
             raise error_type("secret-close-error")
 
-        monkeypatch.setattr(module, "_open_client", connect)
+        monkeypatch.setattr(module, "open_client", connect)
         owner, ctx = environment()
         await owner.prepare()
         for _ in range(2):
@@ -316,7 +317,7 @@ def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, cap
                 expected = {
                     "missing": "missing_capability",
                     "old_protocol": "unsupported_protocol",
-                    "rejected": "connect_failed",
+                    "rejected": "protocol_error",
                     "missing_token": "credential_unavailable",
                 }[mode]
                 with pytest.raises(MCPClientError, match=expected) as error:

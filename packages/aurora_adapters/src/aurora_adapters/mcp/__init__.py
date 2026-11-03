@@ -7,8 +7,9 @@ from aurora_core.discovery import Plugin
 from aurora_core.json_data import encode_json
 from aurora_core.registry import RegistryEntry
 
-from .clients import MCPClientError, MCPClients
+from .clients import MCPClients
 from .configuration import CLIENT_STATUS, CONFIG_STATE, CONFIGURATION, MCP_CONFIG, PROTOCOL_VERSION
+from .errors import MCPClientError
 
 __all__ = [
     "CLIENT_STATUS",

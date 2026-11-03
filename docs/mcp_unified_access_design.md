@@ -1,8 +1,8 @@
 # MCP 通用接入需求与设计草案
 
-状态：B5.1 配置与迁移已实现，B5.2–B5.4 仍为设计。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
+状态：B5.1 配置与迁移、B5.2 HTTP 协商已实现，B5.3–B5.4 仍为设计。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
 
-本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置与迁移入口已实现；协议协商、stdio、自动工具命名及产品装配仍为拟议设计。当前只运行 remote + 显式 2026-07-28，工具桥须显式 include 和 aliases；下文 legacy/local 示例目前仅可通过声明校验，启用时明确拒绝。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
+本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口和 HTTP 协商已实现；stdio、自动工具命名及产品装配仍为拟议设计。remote 支持 legacy/auto/固定新版，工具桥须显式 include 和 aliases；下文 local 示例目前仅可通过声明校验，启用时明确拒绝。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
 
 ## 1. 目标与范围
 
@@ -26,7 +26,7 @@
 | 维度 | 当前实现 | 本设计目标 |
 | --- | --- | --- |
 | 传输 | MCPClients 仅打开 Streamable HTTP | remote/local 共用客户端所有者；local 使用 stdio |
-| 协议 | 固定 2026-07-28，send_discover 后 adopt | legacy、auto、固定新版三种策略，记录实际协商版本 |
+| 协议 | B5.2 已支持 HTTP legacy/auto/固定新版；实际版本与有界尝试摘要可观察 | legacy、auto、固定新版三种策略，记录实际协商版本 |
 | 配置 | B5.1 已提供 v2 servers、headers/environment 引用、显式迁移及服务内工具过滤 | servers 映射、headers/environment 引用、服务内工具过滤 |
 | 工具 | 已有稳定别名、分页发现、原子登记、单次调用 | 复用 B2，增加自动名称和默认产品接线 |
 | 产品入口 | 用户须手工组合 MCPClients、MCPTools、DefaultAssembly | 选定可选装配入口后只维护服务配置 |
@@ -65,7 +65,7 @@ R1–R8 是通用接入的验收条件；不以“两个 SDK 示例能连通”�
 
 继续使用 `<data-dir>/config/org.aurora.adapters/config.toml`，由 aurora_config 声明和校验。文件已经代表 MCP 配置，因此不额外嵌套 `[mcp]`。采用 `schema_version = 2` 区分现有 connections/tools 布局，默认模板只提供空 servers 表。
 
-以下 v2 格式已经支持声明校验；示例的 legacy 和 local 运行路径分别待 B5.2/B5.3。两个服务均显式选择协议；环境引用只在创建运行资源时展开：
+以下 v2 格式已经支持声明校验；示例的 HTTP legacy 已支持，local 运行路径待 B5.3。两个服务均显式选择协议；环境引用只在创建运行资源时展开：
 
 ```toml
 schema_version = 2
@@ -143,7 +143,7 @@ flowchart TD
 
 保留 MCPClients 的单事件循环、借用计数和后台所有者任务。每个服务只有一个所有者任务，由它进入并退出 SDK 上下文；借用方不得自行关闭共享客户端。两种传输只在创建资源、注入运行期参数和回收时分支，业务调用不按 transport 分叉。
 
-建议在现有模块内按实际职责整理：configuration.py 负责声明；clients.py 负责所有权和诊断；transports.py 负责两种 SDK 传输构造；negotiation.py 负责策略选择与协商后校验；tools.py/world.py 继续作为消费者。私有配置对象可以使用带 type 的联合类型，不引入传输插件注册中心、第二套 JSON-RPC 编解码或泛化 harness。
+B5.2 已按实际职责拆分：configuration.py 负责声明；credentials.py 负责引用校验与运行期展开；clients.py 只负责连接所有权与生命周期；transports.py 创建 HTTP 传输并约束 HTTP 错误/重定向，stdio 待接入；negotiation.py 负责协商后校验和有界尝试摘要；errors.py 统一安全错误码；tools.py/world.py 继续作为消费者。迁移器复用 URL 与名称约束，不复制运行期配置解析。私有配置对象可以使用带 type 的联合类型，不引入传输插件注册中心、第二套 JSON-RPC 编解码或泛化 harness。
 
 stdio 优先复用官方 SDK 的 StdioServerParameters/stdio_client。SDK 已提供管道收发、基础环境和进程回收，但是否满足 Aurora 的取消与 Windows 退出约束必须通过实际进程验证；发现缺陷时优先采用已验证的 SDK 修复，不复制整套传输。[SDK stdio 接口](https://py.sdk.modelcontextprotocol.io/api/mcp/client/stdio/)
 
@@ -163,7 +163,9 @@ OpenCode 2.2.5 的 protocol 默认 legacy，并将传输和协商分开声明；
 
 auto 的错误边界必须按实际 SDK 行为记录。当前 Python SDK 2.3.0 的 auto 会在多种 RPC 错误（包括 -32603）后尝试 initialize，不能把它描述为仅在 method-not-found 时回退。回退是一种连接探测，只有最后握手成功才构成版本证据；失败保留固定诊断，不宣称服务不支持某版本。传输失败、取消、鉴权失败不得被隐藏为连接成功；对 SDK 的具体回退序列、次数和预算建立回归测试，不调用其私有协商函数或额外叠加重试循环。
 
-仅在连接建立阶段允许协议探测。任何 tools/call 发出后，都不能通过换版本、换传输、重启子进程、重连或 SDK 多轮便捷接口自动重发。B2 的单次 session 调用、结果未知和取消语义保持不变。
+B5.2 通过 SDK 公共 `Client(mode=...)` 入口协商，不调用私有探测函数。HTTP 401/403、5xx、重定向及损坏 JSON 在 HTTP 边界明确失败，不让 SDK 转为成功回退；404 及合法 RPC 错误仍沿 SDK 策略尝试旧握手。SDK 的一次版本纠正重探测也在同一个 startup 预算内，测试覆盖实际请求序列。网络故障和取消不续发。固定新版保持显式 discover、确认能力、adopt；不将 SDK 的无探测版本 pin 当作已确认能力。[SDK 协议策略说明](https://py.sdk.modelcontextprotocol.io/protocol-versions/)。
+
+仅在连接建立阶段允许协议探测。任何 tools/call 发出后，都不能通过换版本、换传输、重启子进程、重连或 SDK 多轮便捷接口自动重发。B2 的单次 session 调用、结果未知和取消语义保持不变。HTTP 边界也拒绝携带 Last-Event-ID 的恢复 GET 及第二次后台 GET，阻止 SDK 默认的 SSE 恢复/自动重连发出网络请求；SDK 自身的有限退避等待仍由宿主关闭收束。
 
 能力分三层检查：协议声明是否存在、当前适配器是否实现、消费者是否显式启用。resources 存在不等于资源订阅可用；服务声明 extensions 也不表示客户端已经协商并消费它。首轮保留 B4 对新版订阅的要求，旧版资源订阅不支持时在来源准备阶段明确失败，不能影响同一客户端已支持的工具能力。
 
@@ -235,7 +237,7 @@ include = ["qq_get_status"]
 - 本地进程崩溃不自动重启；远程断线不自动重放。未来重连必须重新发现、检查目录变化并处理待定调用，不以恢复状态推断动作已完成。
 - stdio 实例默认属于单一宿主；第二个宿主会启动第二个进程。共享服务、多消费者广播和唯一回复所有权须单独设计，不能由传输类型推导。
 
-继续使用非持久 CLIENT_STATUS 及 `{owner, connection_id}` 定位，v2 的 servers 键直接作为 connection_id。建议新增 type、configured_protocol、negotiated_protocol、stage、固定错误码与有界协商尝试摘要；PID 仅用于运行观察，不作为恢复后的进程所有权证据。不要同时维护同义 protocol_version 与 negotiated_protocol 字段，落地时明确字段迁移。
+继续使用非持久 CLIENT_STATUS 及 `{owner, connection_id}` 定位，v2 的 servers 键直接作为 connection_id。B5.2 已新增 type、configured_protocol、negotiated_protocol、negotiation_attempts，阶段复用 phase，不增加同义 stage。旧 protocol_version 字段被 negotiated_protocol 替代，无兼容别名；状态不持久，无业务快照迁移。尝试摘要最多四条，只存方法、HTTP 状态和数值 RPC 错误码；能力拒绝时仍可观察已经确认的版本，accepting 为 false。PID 随 stdio 实现后只用于运行观察，不作为恢复后的进程所有权证据。
 
 诊断至少区分 configuration_invalid、credential_unavailable、process_start_failed、process_exited、startup_timeout、unsupported_protocol、missing_capability、catalog_failed、request_timeout、result_unknown 和 close_failed；名称在实现时与既有代码表统一，不另建平行错误体系。状态不包含 headers/env 实值、原始 stderr、URL 查询参数或 SDK 对象。
 
@@ -283,7 +285,7 @@ MCP 配置、客户端/工具组件和资源来源的现有公共定义原则上
 | 切片 | 交付 | 验收重点 |
 | --- | --- | --- |
 | B5.1 配置与迁移（已交付） | v2 schema、模板、运行期引用、显式迁移候选输出 | 不启动资源、无凭证落盘、暴露范围与旧 ID 保持 |
-| B5.2 HTTP 协议协商 | legacy/auto/固定新版、版本和能力诊断 | 旧/新测试服务、RPC/HTTP 错误分类、协商预算、单次工具调用 |
+| B5.2 HTTP 协议协商（已交付） | legacy/auto/固定新版、版本和能力诊断 | 旧/新测试服务、RPC/HTTP 错误分类、协商预算、单次工具调用 |
 | B5.3 stdio | SDK 传输接入同一所有者、环境和工作区路径 | Windows/Linux 真子进程、EOF/取消、后代与管道回收 |
 | B5.4 工具与产品接线 | 自动名称/过滤、可选组合装配及初始化预设 | CLI/API 无自编 Python 接线、无重复登记、不自动启用依赖 |
 | B3 扩展验收 | 世界来源和工具共用客户端、跨传输关闭矩阵 | 资源独立、停止接纳、收尾、最后落盘、独立安装 |

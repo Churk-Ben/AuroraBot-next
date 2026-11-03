@@ -14,8 +14,9 @@ from typing import cast
 import pytest
 import tomli_w
 from aurora_adapters.mcp import CLIENT_STATUS, CONFIG_STATE, MCPClientError, MCPClients
-from aurora_adapters.mcp import clients as module
-from aurora_adapters.mcp.configuration import MCP_CONFIG, PROTOCOL_VERSION, configured_servers, resolve_values
+from aurora_adapters.mcp import transports as module
+from aurora_adapters.mcp.configuration import MCP_CONFIG, PROTOCOL_VERSION, configured_servers
+from aurora_adapters.mcp.credentials import resolve_values
 from aurora_adapters.mcp.migrate import migrate
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
@@ -140,8 +141,6 @@ def test_defaults_override_and_local_declaration_are_inert(tmp_path):
 @pytest.mark.parametrize(
     "server,code",
     [
-        (remote(protocol="legacy"), "unsupported_protocol"),
-        (remote(protocol="auto"), "unsupported_protocol"),
         (
             {"type": "local", "command": ["unavailable"], "environment": {"APP_TOKEN": "{env:MISSING}"}},
             "unsupported_transport",
@@ -149,7 +148,7 @@ def test_defaults_override_and_local_declaration_are_inert(tmp_path):
     ],
 )
 def test_unimplemented_modes_fail_before_any_connection(monkeypatch, server, code):
-    monkeypatch.setattr(module, "_open_client", lambda *a: pytest.fail("预检前不得创建传输"))
+    monkeypatch.setattr(module, "open_client", lambda *a: pytest.fail("预检前不得创建传输"))
 
     async def scenario():
         value = config()
@@ -167,7 +166,7 @@ def test_unimplemented_modes_fail_before_any_connection(monkeypatch, server, cod
 
 
 def test_disabled_servers_do_not_resolve_connect_or_publish(monkeypatch):
-    monkeypatch.setattr(module, "_open_client", lambda *a: pytest.fail("禁用项不得创建资源"))
+    monkeypatch.setattr(module, "open_client", lambda *a: pytest.fail("禁用项不得创建资源"))
 
     async def scenario():
         owner, ctx = owner_for(config(remote(enabled=False, headers={"Authorization": "{env:MISSING}"})))
@@ -226,7 +225,7 @@ def test_shutdown_budget_preserves_cleanup_for_later_wait(monkeypatch):
                 await release.wait()
                 finished.append(True)
 
-        monkeypatch.setattr(module, "_open_client", connect)
+        monkeypatch.setattr(module, "open_client", connect)
         owner, ctx = owner_for(config(remote(timeout={"shutdown": 0.02})))
         await owner.prepare()
         with pytest.raises(TimeoutError):

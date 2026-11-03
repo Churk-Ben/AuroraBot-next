@@ -6,12 +6,11 @@ import sys
 import tomllib
 from pathlib import Path
 from typing import cast
-from urllib.parse import urlsplit
 
 import tomli_w
 from aurora_config import ConfigSchema
 
-from .configuration import CAPABILITIES, MCP_CONFIG, PROTOCOL_VERSION
+from .configuration import CAPABILITIES, ENV_NAME, MCP_CONFIG, PROTOCOL_VERSION, SERVER_NAME, TOOL_NAME, validate_url
 
 
 def _check_legacy(value: object) -> None:
@@ -21,20 +20,7 @@ def _check_legacy(value: object) -> None:
         if identity in identities:
             raise ValueError("MCP 连接身份重复")
         identities.add(identity)
-        try:
-            url = urlsplit(connection["url"])
-            valid = (
-                url.scheme in ("http", "https")
-                and url.hostname
-                and url.port != 0
-                and not (url.username or url.password or url.query or url.fragment)
-                and "@" not in url.netloc
-                and not any(character.isspace() or ord(character) < 32 for character in connection["url"])
-            )
-        except ValueError:
-            valid = False
-        if not valid:
-            raise ValueError("MCP 地址须为无凭证、查询串及片段的 HTTP(S) URL")
+        validate_url(connection["url"])
     names = set()
     for tool in cast(dict, value)["tools"]:
         if tool["connection_id"] not in identities:
@@ -59,7 +45,7 @@ _LEGACY_CONFIG = ConfigSchema(
                     "properties": {
                         "connection_id": {"type": "string", "minLength": 1},
                         "remote_name": {"type": "string", "minLength": 1},
-                        "name": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$", "maxLength": 64},
+                        "name": {"type": "string", "pattern": TOOL_NAME, "maxLength": 64},
                     },
                 },
             },
@@ -71,7 +57,7 @@ _LEGACY_CONFIG = ConfigSchema(
                     "additionalProperties": False,
                     "required": ["connection_id", "url"],
                     "properties": {
-                        "connection_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"},
+                        "connection_id": {"type": "string", "pattern": SERVER_NAME},
                         "url": {"type": "string", "minLength": 1},
                         "required_capabilities": {
                             "type": "array",
@@ -81,7 +67,7 @@ _LEGACY_CONFIG = ConfigSchema(
                         },
                         "connect_timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 300, "default": 10},
                         "request_timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600, "default": 30},
-                        "token_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                        "token_env": {"type": "string", "pattern": ENV_NAME},
                     },
                 },
             },

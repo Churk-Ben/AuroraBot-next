@@ -20,6 +20,7 @@ from mcp.client.subscriptions import ResourceUpdated, Subscription, Subscription
 from mcp.types import TextResourceContents
 
 from .clients import MCPClients
+from .configuration import PROTOCOL_VERSION
 from .world_config import WORLD_CONFIG
 
 WORLD_SOURCE = Id("org.aurora.adapters:sources/mcp/resources")
@@ -167,6 +168,8 @@ class _ResourceSource:
         try:
             async with self.clients.connection(self.config["connection_id"]) as client:
                 try:
+                    if client.protocol_version != PROTOCOL_VERSION:
+                        raise MCPWorldError("unsupported_subscription_protocol")
                     if (
                         any(mode != "notification" for mode in self.resources.values())
                         and client.server_capabilities.resources is None
