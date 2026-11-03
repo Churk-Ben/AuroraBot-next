@@ -102,8 +102,8 @@ class DefaultAssembly:
             raise RuntimeError("默认 bot 尚未完成装配")
         return self.agent
 
-    def components(self) -> tuple[LifecycleComponent, ...]:
-        """返回宿主生命周期组件，连接不创建模型、工具或任务。"""
+    def components(self, *, depends_on: tuple[str, ...] = ()) -> tuple[LifecycleComponent, ...]:
+        """返回宿主组件；外部工具发现须列入依赖，先于模型和工具检查完成。"""
         if self._connected:
             raise RuntimeError("装配生命周期已经连接")
         model_owner, bot_owner = f"{self.instance_id}/model", f"{self.instance_id}/bot"
@@ -134,7 +134,7 @@ class DefaultAssembly:
             raise
         self._connected = True
         return (
-            LifecycleComponent(model_owner),
+            LifecycleComponent(model_owner, depends_on=depends_on),
             LifecycleComponent(bot_owner, depends_on=(model_owner,), stop_accepting=self.stop_accepting),
             *world,
         )

@@ -77,7 +77,7 @@ def test_invalid_configuration_is_rejected_before_connecting(value):
 
 
 def test_defaults_and_discovery_are_inert(monkeypatch):
-    assert MCP_CONFIG.parse({}) == {"connections": []}
+    assert MCP_CONFIG.parse({}) == {"connections": [], "tools": []}
     value = {"connections": [declaration()]}
     parsed = cast(dict, MCP_CONFIG.parse(value))
     assert parsed["connections"][0]["connect_timeout"] == 10

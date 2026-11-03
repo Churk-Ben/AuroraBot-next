@@ -1,5 +1,6 @@
 # 显式选择 Streamable HTTP 服务；修改后重启生效。
 connections = []
+tools = []
 
 # [[connections]]
 # connection_id = "local"
@@ -8,3 +9,9 @@ connections = []
 # connect_timeout = 10.0
 # request_timeout = 30.0
 # token_env = "AURORA_MCP_TOKEN" # 仅填写环境变量名，不填写凭证。
+
+# 使用 [[tools]] 时删除上方 tools = []，并显式启用 aurora_adapters.mcp.tools。
+# [[tools]]
+# connection_id = "local"
+# remote_name = "echo"
+# name = "local_echo" # 模型名称与 tools/mcp/local_echo 公共 ID；重启后重新发现。

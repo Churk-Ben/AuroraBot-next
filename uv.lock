@@ -231,6 +231,12 @@ mcp = [
     { name = "httpx2" },
     { name = "mcp" },
 ]
+mcp-tools = [
+    { name = "aurora-agent" },
+    { name = "aurora-config" },
+    { name = "httpx2" },
+    { name = "mcp" },
+]
 mcp-world = [
     { name = "aurora-config" },
     { name = "aurora-world", extra = ["config"] },
@@ -240,14 +246,16 @@ mcp-world = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapters" },
     { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapters" },
+    { name = "aurora-agent", marker = "extra == 'mcp-tools'", editable = "packages/aurora_agent" },
     { name = "aurora-config", marker = "extra == 'mcp'", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-world", extras = ["config"], marker = "extra == 'mcp-world'", editable = "packages/aurora_world" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.16,<3" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
 ]
-provides-extras = ["mcp", "mcp-world"]
+provides-extras = ["mcp", "mcp-world", "mcp-tools"]
 
 [[package]]
 name = "aurora-agent"
@@ -431,7 +439,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aurora-adapters", extra = ["mcp-world"] },
+    { name = "aurora-adapters", extra = ["mcp-tools", "mcp-world"] },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -448,7 +456,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aurora-adapters", extras = ["mcp-world"], editable = "packages/aurora_adapters" },
+    { name = "aurora-adapters", extras = ["mcp-world", "mcp-tools"], editable = "packages/aurora_adapters" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.9" },

@@ -293,19 +293,19 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | --- | --- | --- |
 | 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 已实现上述状态与 Python 接口；不承载全部直接对话，不要求记录绑定某个 run |
 | 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | W2.1–W2.3 已交付登记、绑定接纳、声明配置、后台托管与时间/天气来源，并接入默认装配 |
-| MCP 客户端、世界来源桥与工具桥 | `org.aurora.adapters`；B1/B4 定义见第 6.6 节 | 独立客户端与世界通知桥已交付；工具桥待实现，不改变 world/agent 的定义归属 |
+| MCP 客户端、世界来源桥与工具桥 | `org.aurora.adapters`；B1/B2/B4 定义见第 6.6 节 | 独立客户端、世界通知桥和工具桥已交付，不改变 world/agent 的定义归属 |
 | cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 在 bot 包内提供可选插件；插件名与完整 ID 随实现登记，不建立独立 cadence 包 |
 | 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
 
 来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，避免同一输入经两条路径重复提交。M4.W4 将 live_workshop 改为正式 world/cadence 的消费者，替换其示例自有调度。
 
-### 6.6 MCP 客户端与世界通知桥（M4.B1/B4 已实现）
+### 6.6 MCP 客户端、世界通知桥与工具桥（M4.B1/B2/B4 已实现）
 
 安装 `aurora-adapters[mcp]`，显式启用 `aurora_config` 与 `aurora_adapters.mcp`。入口属于 `aurora.plugins`，名称与 Plugin.name 一致；发现不创建网络资源。基础 adapters 包仅依赖 core，MCP extra 引入 config、SDK 2.3.0 和 httpx2，不依赖 world、agent 或 bot。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.adapters:configs/mcp` | `config` | 连接列表声明；模板来自 aurora_adapters.mcp/config.toml |
+| `org.aurora.adapters:configs/mcp` | `config` | 连接及工具选择声明；模板来自 aurora_adapters.mcp/config.toml |
 | `org.aurora.adapters:state/mcp/config` | `state_key` | 全局非持久配置；文件位于 org.aurora.adapters/config.toml |
 | `org.aurora.adapters:state/mcp/clients` | `state_key` | 非持久观察；location 为 owner 与 connection_id |
 | `org.aurora.adapters:handlers/mcp/configure` | `hook_handler` | config 阶段复制并选择连接声明 |
@@ -327,6 +327,17 @@ B4 通过 `aurora-adapters[mcp-world]` extra 增加 world/config 依赖。插件
 来源配置使用既有 world 的 sources.config，不增加配置文件或第二个来源所有者。`mcp_world_component(ctx, hooks, clients)` 替代通用 configured_sources_component，注入共享客户端并依赖其 instance_id；来源工厂只接收固定身份的 emit，客户端借用与协议类型留在适配层。诊断包括 phase/error、close_error、tools_dirty、accepted/duplicates/discarded 和 identity_modes；world 的 sources 状态仍表示托管主循环的状态。
 
 资源 URI 精确匹配；notification/resource 模式用独立本地观察身份，event 模式读取严格 `{message_id, payload}` 单文本资源，以连接、URI、message_id 组合成世界消息身份。消息身份不是公共 ID；相同身份异文拒绝，去重仍只覆盖 world 的保留窗口。只有成功 emit 后才表示 world 内存接纳，不承诺即时落盘。正常停止期间尚未接纳的缓冲或在途观察通过 discarded、固定错误码和日志明确报告，不伪装为已保存或自动重放。
+
+工具插件 `aurora_adapters.mcp.tools` 要求显式启用 `aurora_adapters.mcp` 和 `aurora_agent.tools` 及其依赖；`aurora-adapters[mcp-tools]` 安装工具桥依赖，不引入 world/bot/CLI/API。
+
+| ID | kind | 用途 |
+| --- | --- | --- |
+| `org.aurora.adapters:components/mcp/tool` | `component` | MCP 工具执行组件，所有实例使用注入的 input/output 状态绑定 |
+| `org.aurora.adapters:components/mcp/tool/execute` | `hook_handler` | 单次远程调用执行端口 |
+| `org.aurora.adapters:handlers/mcp/tools/prepare` | `hook_handler` | 在 PREPARE 分页发现并原子登记工具 |
+| `org.aurora.adapters:tools/mcp/<name>` | `tool` | 配置 tools[].name 派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
+
+工具选择复用 MCP 配置中的 tools 列表，字段为 connection_id、remote_name 和 name；未配置时为空，不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
 
 ## 7. aurora_api
 

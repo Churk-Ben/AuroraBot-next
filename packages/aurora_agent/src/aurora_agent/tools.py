@@ -60,6 +60,20 @@ class ToolBatchState(TypedDict):
     results: list[ToolResult]
 
 
+class ToolExecutionError(Exception):
+    """工具主动提供的安全失败观察；value 可保留业务错误的 JSON 内容。
+
+    code、message 和 value 会进入模型观察及业务状态，不应包含凭证或原始传输异常。
+    """
+
+    def __init__(self, code: str, message: str, *, value: JsonValue = None) -> None:
+        if not code or not message:
+            raise ValueError("工具失败须提供错误码和消息")
+        encode_json(value)
+        super().__init__(message)
+        self.code, self.message, self.value = code, message, deepcopy(value)
+
+
 def failure(call: ToolCall, code: str, message: str, *, cancelled: bool = False) -> ToolResult:
     """将可观察失败关联到原始工具调用。"""
     return {
@@ -262,6 +276,11 @@ class ToolExecutor:
                 link.plug.states["input"].set(self.ctx, request, call)
                 try:
                     await self.slot.invoke(link, request.child())
+                except ToolExecutionError as error:
+                    result = failure(call, error.code, error.message)
+                    if error.value is not None:
+                        result["value"] = error.value
+                    return result
                 except TimeoutError:
                     raise
                 except Exception as error:

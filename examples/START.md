@@ -292,7 +292,7 @@ async with clients.connection("local") as client:
 
 SDK 对象仅在适配层使用，不存入 ctx 或传给 world/agent。借用期间不要跨任务退出或自行关闭客户端，退出后不要保留引用继续使用；长期消费者在自己的 stop 阶段收束。停止整个宿主会封闭借用入口并取消剩余借用，等待它们的 finally 完成后才释放连接。
 
-缺失配置文件会在 `<data-dir>/config/org.aurora.adapters/config.toml` 生成空列表模板。启用连接时替换 `connections = []`：
+缺失配置文件会在 `<data-dir>/config/org.aurora.adapters/config.toml` 生成空列表模板。启用连接时删除 `connections = []`，将下面的表追加到文件末尾；根级 `tools = []` 须位于所有 `[[...]]` 表之前：
 
 ```toml
 [[connections]]
@@ -306,7 +306,59 @@ request_timeout = 30.0
 
 token_env 只填写运行期环境变量名。地址不可包含凭证、查询串或片段；修改配置后重启生效。支持 HTTP(S) Streamable HTTP，已验收本机 HTTP；SDK 固定 2.3.0，协议固定 2026-07-28，拒绝旧协议，不自动处理多轮输入。客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；ready 表示启动准备完成，没有后台健康探测。失败不自动重连或重放请求。关闭等待超时可再次等待，真正的关闭异常需诊断后重建宿主。
 
-当前默认 bot 尚不装配 MCP；世界通知通过下面的 B4 独立来源装配使用，工具转 ToolSpec 和 stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
+产品入口尚不自动装配 MCP；世界通知和工具分别通过下面的桥接组件显式装配，stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
+
+### MCP 工具桥
+
+安装 `aurora-adapters[mcp-tools]`，显式启用 `aurora_config`、`aurora_adapters.mcp`、`aurora_agent.tools`、`aurora_adapters.mcp.tools`；使用默认 bot 时同时启用其原有插件。只使用工具桥不需要安装或启用 world、bot、CLI、API。
+
+在 `<data-dir>/config/org.aurora.adapters/config.toml` 保留所需连接，删除模板的 `tools = []` 后添加：
+
+```toml
+[[tools]]
+connection_id = "local"
+remote_name = "echo"
+name = "local_echo"
+```
+
+`remote_name` 是服务端工具原名；`name` 是显式指定的本地模型名称，须为小写字母开头的小写字母、数字或单下划线分隔名称，最长 64 字符。例如 `local_echo` 对应公共 ID `org.aurora.adapters:tools/mcp/local_echo`。不同服务的同名工具可指定不同本地名称；名称重复、连接不存在、远程工具缺失或参数 schema 无效会使启动失败。只登记明确选择的工具；修改配置或服务端目录后须重建宿主，不在运行中热改集合。
+
+宿主将工具发现列为消费者的前置依赖：
+
+```python
+from aurora_adapters.mcp import MCPClients
+from aurora_adapters.mcp.tools import MCPTools
+
+clients = MCPClients(ctx, hooks)
+tools = MCPTools(registry, ctx, hooks, clients)
+components = [
+    configuration_component(registry, ctx, hooks, storage),
+    clients.component(),
+    tools.component(),
+    *assembly.components(depends_on=(tools.instance_id,)),
+]
+```
+
+这里 `assembly` 是既有 `DefaultAssembly` 实例。它在发现完成后才检查工具并创建模型；bot 的配置选择相应工具（没有其他工具时删除模板中的 `tools = []`）：
+
+```toml
+[[tools]]
+tool = "org.aurora.adapters:tools/mcp/local_echo"
+instance_id = "echo"
+```
+
+无 bot 的宿主可从登记的 ToolSpec.factory 创建 ToolInstance，再将 plug 接入 ToolExecutor；完整代码见 [mcp_tools_roundtrip.py](../tests/fixtures/mcp_tools_roundtrip.py)。工厂不接受额外实例配置，连接和远程名称由 MCP 配置确定。实例关闭仅封闭自身入口，在途调用由消费者收束；共享连接由 MCPClients 最后释放。
+
+结果保留 MCP JSON 字段（如 `content`、`structuredContent`、`isError`），包括图像、资源链接等内容块；桥不会自动下载附件。业务错误为 `mcp_tool_error`，其内容仍进入失败观察；协议错误为 `mcp_protocol_error`，只保留数值错误码。请求超时为 `mcp_timeout`，传输中断后的结果未知为 `mcp_result_unknown`，无有效结果为 `mcp_invalid_result`，尚未提交为 `mcp_unavailable`；额外交互为 `mcp_input_required`，不自动续发。外层执行器超时/取消沿用 `timeout`/`cancelled`。超时、取消及结果未知均不表示远端动作没有执行，不自动重试；调用始终通过 agent 的参数校验与 before_call/after_call。
+
+本机验收命令（夹具创建测试配置，目录勿指向已有用户数据）：
+
+```powershell
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-tools-acceptance
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-bot-acceptance --bot
+```
+
+两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；工具桥与世界通知桥共同使用时的完整关闭验收属于 B3。
 
 ### MCP 世界通知桥
 

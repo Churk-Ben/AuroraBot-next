@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-03
+
+### M4.B2：将 MCP 工具接入 agent 执行契约
+
+- 新增 `aurora_adapters.mcp.tools` 插件与 `aurora-adapters[mcp-tools]` extra，显式依赖 MCP 客户端和 agent 工具插件；仅工具桥引入 agent，不引入 world/bot/CLI/API，既有客户端与通知路径保持可独立安装。工作区开发依赖同时安装工具与通知 extra，产品入口仍不自动启用 MCP。
+- MCP 配置增加默认空 tools 列表，显式映射 connection_id、remote_name 和本地 name。稳定模型名称直接对应 `org.aurora.adapters:tools/mcp/<name>`；连接不存在、重复本地名称、缺失远程工具、重复远端目录、无效参数 schema 或公共 ID 冲突均阻止启动。prepare 完整分页发现后原子登记，游标循环、分页上限和整体发现超时有界；配置或目录变化须重建宿主。
+- 登记 `org.aurora.adapters:components/mcp/tool`、其 execute 端口和 `handlers/mcp/tools/prepare`。MCPTools 显式依赖 MCPClients；DefaultAssembly.components 增加 depends_on，使发现早于模型及工具检查。ToolSpec 工厂创建使用注入状态绑定的 ExecutionPlug；实例关闭封闭自身入口，共享客户端仍由独立所有者释放。
+- agent 新增协议无关 ToolExecutionError，将安全错误码、消息和可选 JSON 内容转为失败观察。MCP 业务错误保留完整内容块和 structuredContent，协议错误仅保留数值码；请求超时、结果未知、无效结果、未提交和额外交互分别反馈。执行沿用参数校验与 before_call/after_call；外层超时/取消沿用 agent 契约。SDK session 单次调用绕过便捷接口的 HEADER_MISMATCH 重发与多轮输入续发，不自动重试工具动作，不在异常日志或诊断中写出原始远端错误文本。
+- 新增假传输单元验证和本机真实 Streamable HTTP 进程夹具，覆盖分页/原子登记、内容块/结构化结果、业务与协议错误、参数/钩子拒绝、超时/取消及单次调用。无 world 的工具宿主和假模型 DefaultAssembly 路径均通过；针对 MCP、agent 工具、默认装配和包边界的 184 项回归通过。外部真实 MCP 服务兼容性按用户要求留待后续，未调用真实模型。
+- 完整检查中 791 项 Python、97 项 TS、5 项原生终端测试通过；文档代码块的换行格式修正后复核格式、lint 和类型检查。12 个 wheel 构建完成，干净环境确认工具桥无 world/bot/CLI/API、通知桥无 agent/bot、客户端无 world/agent、基础 adapters/control 无 agent/模型、agent 无 bot/CLI/API/world/adapters。安装后的工具桥、通知桥与客户端均完成本机 HTTP 验收，包内模板可读取；文档 67 个本地链接与差异检查通过。
+- 同步架构、公共 ID、推进计划和启动指南；无旧 ID/插件替换，无快照迁移，不改写已有配置文件。B2 已交付，下一步为 B3 工具与世界通知共同使用的关闭、取消和故障验收，再推进 cadence 与 live_workshop 集成。保留原五条产品示例路径，新验收入口为 tests/fixtures/mcp_tools_roundtrip.py。
+
 ## 2026-11-02
 
 ### M4.B4：将 MCP 资源通知接入独立世界来源

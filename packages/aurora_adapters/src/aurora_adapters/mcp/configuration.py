@@ -34,6 +34,13 @@ def _check_connections(value: object) -> None:
             valid = False
         if not valid:
             raise ValueError("MCP 地址须为无凭证、查询串及片段的 HTTP(S) URL")
+    names = set()
+    for tool in cast(dict, value)["tools"]:
+        if tool["connection_id"] not in identities:
+            raise ValueError("MCP 工具引用了未配置的连接")
+        if tool["name"] in names:
+            raise ValueError("MCP 工具本地名称重复")
+        names.add(tool["name"])
 
 
 MCP_CONFIG = ConfigSchema(
@@ -41,6 +48,20 @@ MCP_CONFIG = ConfigSchema(
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            "tools": {
+                "type": "array",
+                "default": [],
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["connection_id", "remote_name", "name"],
+                    "properties": {
+                        "connection_id": {"type": "string", "minLength": 1},
+                        "remote_name": {"type": "string", "minLength": 1},
+                        "name": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$", "maxLength": 64},
+                    },
+                },
+            },
             "connections": {
                 "type": "array",
                 "default": [],
@@ -62,7 +83,7 @@ MCP_CONFIG = ConfigSchema(
                         "token_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
                     },
                 },
-            }
+            },
         },
     },
     check=_check_connections,

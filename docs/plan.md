@@ -10,7 +10,7 @@
 
 M0、M1、M2 已完成。core 的登记、ctx、订阅、持久化、连接调用与五阶段生命周期，`aurora_config` 的配置声明与加载，`aurora_control` 的执行契约与控制组合，`aurora_agent` 的 ReAct、模型调用、工具执行与运行调度，以及 `aurora_bot` 的默认装配与 CLI 运行入口均可使用；M2.8 于 2026-10-31 通过整体验收。五个示例的启动方式见 [示例指南](../examples/START.md)。
 
-M3 进行中：已有本机 HTTP/WS ctx 传输及 Python 客户端，M3.4 提供当前协议的按需契约生成，M3.5 提供共享 TS client 的访问、订阅、主动关闭与重连刷新。M3.6 已交付目标 bot 的直接交流、接纳回执、重复请求处理、查询和指定运行取消，首版 OpenTUI 已提供交流/状态页、工具活动与取消，并支持本地偏好、ctx 精确地址编辑与声明 TOML 编辑（保存后重启生效）。M3.9 已完成本机多工作台、单端断线与后端重启的联调验收，浏览器/远程访问边界仍待交付。M4.W1 已交付不依赖 bot/agent 的世界记录、来源去重、位置读取和 ctx 订阅接入；W2.1–W2.3 已交付来源登记、声明配置、后台托管和时间/天气环境周期，并接入默认装配，M4.B1/B4 MCP 客户端与世界通知桥已交付，下一步推进 B2 工具桥。执行包已按 control、agent、bot 分层，独立 harness 的边界与剩余工作见[拆包评估](aurora_agent_extraction_assessment.md)。下文任务表保留各阶段的交付范围，不表示所有条目均未开始。
+M3 进行中：已有本机 HTTP/WS ctx 传输及 Python 客户端，M3.4 提供当前协议的按需契约生成，M3.5 提供共享 TS client 的访问、订阅、主动关闭与重连刷新。M3.6 已交付目标 bot 的直接交流、接纳回执、重复请求处理、查询和指定运行取消，首版 OpenTUI 已提供交流/状态页、工具活动与取消，并支持本地偏好、ctx 精确地址编辑与声明 TOML 编辑（保存后重启生效）。M3.9 已完成本机多工作台、单端断线与后端重启的联调验收，浏览器/远程访问边界仍待交付。M4.W1 已交付不依赖 bot/agent 的世界记录、来源去重、位置读取和 ctx 订阅接入；W2.1–W2.3 已交付来源登记、声明配置、后台托管和时间/天气环境周期，并接入默认装配，M4.B1/B2/B4 MCP 客户端、工具桥与世界通知桥已交付，下一步推进 B3 共享关闭验收。执行包已按 control、agent、bot 分层，独立 harness 的边界与剩余工作见[拆包评估](aurora_agent_extraction_assessment.md)。下文任务表保留各阶段的交付范围，不表示所有条目均未开始。
 
 两条输入路径按交流性质划分：面对面交流通过产品入口向目标 bot 提交引导；外部消息与环境变化经 `world → cadence` 形成引导。首版默认 Panel/TUI/CLI 使用直接交流，外部来源进入 world；平台本身不决定永久路由。两条路径复用同一 AgentRuntime，直接交流不要求安装或启用 world/cadence。
 
@@ -37,7 +37,7 @@ M3 进行中：已有本机 HTTP/WS ctx 传输及 Python 客户端，M3.4 提供
 | M3 API、client 与 TUI | TUI 连接后端，操作 ctx 并完成对话交互 | M1 支撑传输；M2 支撑对话 | 共享访问语义、访问边界、断线恢复及 OpenTUI 交互可验收 |
 | M4 能力扩展与产品入口 | 世界输入与 cadence、多模型、agent、最小 MCP、Vue Panel、静态站点 | 按扩展分支依赖进入 | 各分支独立验收，默认装配与多客户端场景回归通过 |
 
-关键路径：`M0 → M1 → M2 → M3 直接交流与工作台 → M4 集成验收`。当前已完成 M2 和 M3 的共享 client、直接交流、工作台基本操作及本机联调，M4.B1/B4 MCP 客户端与世界通知桥已交付，接续 B2/B3 工具桥与共享关闭验收。M4-W 的实现与 M3 分开验收，不成为直接交流的前置依赖。
+关键路径：`M0 → M1 → M2 → M3 直接交流与工作台 → M4 集成验收`。当前已完成 M2 和 M3 的共享 client、直接交流、工作台基本操作及本机联调，M4.B1/B2/B4 MCP 客户端、工具桥与世界通知桥已交付，接续 B3 共享关闭验收。M4-W 的实现与 M3 分开验收，不成为直接交流的前置依赖。
 
 允许独立推进的工作：
 
@@ -175,7 +175,7 @@ M4 各分支独立实现与验收。world/cadence、多模型或 MCP 未配置�
 
 ### 8.2 M4-B：最小 MCP 扩展
 
-M4.B1 已在可选包 `aurora_adapters` 的 `aurora_adapters.mcp` 模块交付声明配置、独立客户端所有者和本机 Streamable HTTP 验收；默认 bot 尚不装配 MCP。B4 世界来源桥已通过独立插件显式启用；agent 工具桥留至 B2。协议类型留在适配层：world 接收普通 JSON 世界消息，agent 接收既有 ToolSpec/ExecutionPlug。不要求 world 安装 MCP 或 agent，也不因只使用 MCP 工具而强制启用 world。
+M4.B1 已在可选包 `aurora_adapters` 的 `aurora_adapters.mcp` 模块交付声明配置、独立客户端所有者和本机 Streamable HTTP 验收；产品入口尚不自动装配 MCP。B4 世界来源桥与 B2 agent 工具桥均通过独立插件显式启用。协议类型留在适配层：world 接收普通 JSON 世界消息，agent 接收既有 ToolSpec/ExecutionPlug。不要求 world 安装 MCP 或 agent，也不因只使用 MCP 工具而强制启用 world。
 
 首版锁定官方 Python SDK `2.3.0`，协议限定为 MCP `2026-07-28`。B1 已验收本机 Streamable HTTP 能力发现、工具/资源往返及断线诊断；B4 已验收通知流、资源读取与跨进程去重，stdio 子进程传输作为后续独立切片。使用显式版本的 `server/discover`，不回退旧握手；多轮输入请求不自动续发。SDK 与协议版本分别记录，依据见[官方 SDK 说明](https://py.sdk.modelcontextprotocol.io/whats-new/)及[协议版本说明](https://modelcontextprotocol.io/docs/2026-07-28/learn/versioning)。
 
@@ -183,12 +183,14 @@ M4.B1 已在可选包 `aurora_adapters` 的 `aurora_adapters.mcp` 模块交付�
 | --- | --- | --- | --- |
 | M4.B1 配置与客户端所有权（已交付） | `aurora_adapters.mcp` 的声明配置、客户端创建、能力检查及生命周期；使用 aurora_config 和独立客户端所有者 | M1 生命周期与配置服务 | 无 bot/agent/world 的本机 HTTP 往返；配置/协议拒绝、取消与关闭等待重试通过；发现不联网，凭证及客户端对象不落盘 |
 | M4.B4 世界通知桥（已交付） | 将选定资源变化及已约定业务事件转换为 world 来源输入，复用 M4.W2；订阅和工具桥共享客户端所有者 | M4.B1、M4.W2 | MCP 通知写入 world；选定资源可读取内容；稳定来源消息重复不重复记录；断线、身份缺失及有界缓冲溢出明确反馈，不静默丢弃或承诺历史补发 |
-| M4.B2 工具适配 | 工具发现后登记 agent ToolSpec，创建 ExecutionPlug；处理稳定名称、schema、内容块、结构化结果及错误 | M4.B1、M2.6 | 在 bot prepare 检查前完成发现和登记；经 before_call/after_call 调用 MCP 工具；业务错误、协议错误、超时及结果未知可区分；无 world 的工具宿主可运行 |
+| M4.B2 工具适配（已交付） | 工具发现后登记 agent ToolSpec，创建 ExecutionPlug；处理稳定名称、schema、内容块、结构化结果及错误 | M4.B1、M2.6 | 在 bot prepare 检查前完成发现和登记；经 before_call/after_call 调用 MCP 工具；业务错误、协议错误、超时及结果未知可区分；无 world 的工具宿主可运行 |
 | M4.B3 共享资源生命周期验收 | 通知桥与工具桥共用客户端时的退出、取消、超时及断线；验证分发依赖 | M4.B4、M4.B2 | 停止一个来源不关闭在途工具所需连接；宿主停止接纳、收束消费者后再关闭客户端，最后落盘；连接/任务不泄漏，通知侧独立安装不引入 agent/bot |
 
 保留 B1/B2/B3 的原任务编号，新增 B4 表示世界通知桥；实际推进顺序是 B1 → B4 → B2 → B3。首版客户端所有权不依赖 bot；仅通知桥导入 world，仅工具桥导入 agent，安装依赖与模块导入都需验证这两条路径可独立使用。
 
 B4 已实现 `aurora_adapters.mcp.world` 插件及 `aurora-adapters[mcp-world]` extra，复用 world 的来源配置和生命周期。资源按精确 URI 选择：notification 只记录变化提示，resource 读取当前内容，两者使用本地观察身份；event 读取单个文本资源中的严格 JSON `{message_id, payload}`，以连接、URI 和上游消息身份组合去重。原通知不含稳定事件身份，SDK 还会合并尚未消费的同 URI 提示，因此该约定不代表完整业务事件日志；读取最新资源不能还原中间事件。适配器缓冲溢出、订阅结束、断线或载荷身份错误均封闭该来源并明确诊断，无自动重订阅或历史补发。示例和限制见[启动指南](../examples/START.md#mcp-世界通知桥)。
+
+B2 已实现 `aurora_adapters.mcp.tools` 插件与 `aurora-adapters[mcp-tools]` extra。显式选择连接、远端名称和稳定本地名称；prepare 分页发现并原子登记 ToolSpec，DefaultAssembly.components 的 depends_on 将发现放在模型与工具检查之前。调用通过 ExecutionPlug 及 agent 参数校验、before_call/after_call，保留内容块和结构化结果。业务错误、协议错误、超时、无效结果及提交后的结果未知分别反馈；使用 SDK session 单次调用，不执行 HEADER_MISMATCH 重发或多轮输入续发。无 world 的工具宿主和假模型默认 bot 的本机 HTTP 往返已验收。配置和命令见[启动指南](../examples/START.md#mcp-工具桥)；外部真实 MCP 服务兼容性验证后续单独进行。
 
 通知按语义分流：`notifications/resources/updated` 提示资源变化，可按配置进一步读取；工具目录变化只标记适配器目录待更新，首版重新装配生效，不在运行中热改工具集合；调用进度、取消和订阅控制信息由对应运行资源处理。业务事件须有明确载荷约定，不把任意协议通知直接当作用户输入。来源无稳定事件 ID/修订时，以本地观察记录接纳并说明去重边界；URI 或载荷哈希不能充当通用事件身份。读取资源最新内容也不保证还原全部中间变化。
 
@@ -251,7 +253,7 @@ cadence 只负责把世界输入形成并投递为引导，不自行启动第二
 | `packages/aurora_agent/src/aurora_agent/` | react、react_defaults、model、tools、runtime | 不依赖 bot、CLI 或 API；资源、状态地址与恢复策略由宿主提供 |
 | `packages/aurora_model_adapter/src/aurora_model_adapter/` | protocols、models、factories、adapters | 依赖 core；上层仅消费统一协议 |
 | `packages/aurora_bot/src/aurora_bot/` | assembly、assembly_config、operations、cli、cadence、multi_model、agents | 产品入口与装配；cadence 为可选插件，向既有 AgentRuntime 提交引导；不复制世界记录或调度循环 |
-| `packages/aurora_adapters/src/aurora_adapters/` | mcp 配置、客户端所有者与世界来源桥已交付；agent 工具桥待实现 | MCP 类型留在适配层；世界与工具桥分别按实际消费者启用，不使 world 反向依赖 MCP/agent |
+| `packages/aurora_adapters/src/aurora_adapters/` | mcp 配置、客户端所有者、世界来源桥与 agent 工具桥已交付 | MCP 类型留在适配层；世界与工具桥分别按实际消费者启用，不使 world 反向依赖 MCP/agent |
 | `packages/aurora_cli/src/aurora_cli/` | main、commander、commands、configuration、parsing | 接收命令，不复制 ctx 或 bot 逻辑 |
 | `packages/aurora_api/src/aurora_api/` | app、config、endpoints、contracts | 只提供明确的传输绑定，不导入 bot 实现 |
 | `packages/aurora_logging/src/aurora_logging/` | 日志配置与输出 | 不依赖业务包，不登记公共定义 |
@@ -301,11 +303,11 @@ uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_id
 
 TUI 的全面体验、布局、性能与兼容性优化单列为 [优化待办](tui_optimization_todo.md)，不阻塞下列主线。联调发现的正确性与资源释放问题随主线修复。
 
-M0–M2 及执行包拆分已交付，M3 已有本机 ctx 传输、按需契约生成、共享 TS client 和直接交流。D10 的传输关联已通过 M3.6 验收，OpenTUI 交流/状态页、本地偏好、ctx 写操作及声明 TOML 编辑已交付，M3.9 本机多客户端与断线联调通过。M4.W1 世界记录已通过独立安装、去重、读取与恢复验收，W2.1–W2.3 来源登记、声明配置、托管服务与时间/天气来源已交付，默认装配和正式 API 路径已验证，B1/B4 MCP 客户端与世界通知桥已交付，下一步 B2 工具桥；浏览器与远程访问按实际接入需求补齐 D08。harness 的最小宿主验证不阻塞 M3。
+M0–M2 及执行包拆分已交付，M3 已有本机 ctx 传输、按需契约生成、共享 TS client 和直接交流。D10 的传输关联已通过 M3.6 验收，OpenTUI 交流/状态页、本地偏好、ctx 写操作及声明 TOML 编辑已交付，M3.9 本机多客户端与断线联调通过。M4.W1 世界记录已通过独立安装、去重、读取与恢复验收，W2.1–W2.3 来源登记、声明配置、托管服务与时间/天气来源已交付，默认装配和正式 API 路径已验证，B1/B2/B4 MCP 客户端、工具桥与世界通知桥已交付，下一步 B3 共享关闭验收；浏览器与远程访问按实际接入需求补齐 D08。harness 的最小宿主验证不阻塞 M3。
 
 | 顺序 | 任务范围 | 交付证据 |
 | --- | --- | --- |
-| 1 | M4.B2、M4.B3 MCP 工具桥与共享关闭 | 工具接入 agent 插槽；与通知桥共享资源而不互相误关；取消、超时及故障验收 |
+| 1 | M4.B3 MCP 共享关闭 | 工具桥与通知桥共享资源而不互相误关；取消、超时及故障验收；外部真实 MCP 兼容性单独安排 |
 | 2 | M4.W3、M4.W4 cadence 与双路径集成 | 世界记录原样形成引导；直接交流共用 AgentRuntime；替换 live_workshop 示例调度并验证安装 |
 | 3 | M3.1–M3.3 浏览器与远程访问边界 | 本机路径已验证；浏览器接入前确定来源与认证规则，保持对外数据范围受限 |
 | 4 | harness 最小宿主 | 无 bot 环境完成装配、提交、取消、恢复与关闭；默认路径不依赖 bot 配置或 CLI |
