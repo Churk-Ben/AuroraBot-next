@@ -12,7 +12,8 @@ import pytest
 @pytest.mark.parametrize("with_bot", [False, True])
 @pytest.mark.parametrize("protocol", ["legacy", "auto", "2026-07-28"])
 @pytest.mark.parametrize("transport", ["remote", "local"])
-def test_local_mcp_tools_roundtrip(tmp_path, with_bot, protocol, transport):
+@pytest.mark.parametrize("automatic", [False, True])
+def test_local_mcp_tools_roundtrip(tmp_path, with_bot, protocol, transport, automatic):
     launcher = """
 import importlib.abc
 import runpy
@@ -42,6 +43,7 @@ assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
             "--transport",
             transport,
             *(["--bot"] if with_bot else []),
+            *(["--automatic"] if automatic else []),
         ],
         capture_output=True,
         text=True,

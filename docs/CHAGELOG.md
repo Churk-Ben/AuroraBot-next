@@ -2,6 +2,14 @@
 
 ## 2026-11-03
 
+### M4.B5.4：完成工具自动选择与内部目录整合
+
+- MCPTools 默认发现 tools 能力服务的完整目录，支持精确 include/exclude、显式别名及 v2 稳定自动名称；原始服务名和远端工具名参与 SHA-256 摘要，ASCII slug 仅用于阅读。Unicode、截断和同名服务工具不依赖返回顺序；自动名称、显式别名、本地工具模型名称和公共 ID 统一检查冲突，不添加临时编号或登记部分目录。
+- 无 tools 能力的服务在默认通配下保留供其他消费者使用，显式选择要求能力；缺失的 include/exclude/alias 目标明确失败。显式 include=[] 仍不发现、不暴露工具，迁移后的旧别名和公共 ID 保持。工具目录使用连接所有者在 config 阶段保存的声明副本，不重复读取运行期 ctx；新增 MCPTools.tool_ids 供后续产品装配获取已登记身份。
+- 按职责拆分 catalog.py（分页、选择、名称）、tool_execution.py（单次执行和结果）、tools.py（工厂与原子登记），移除重复实现；执行仍使用同一个 SDK session、agent 插槽和结果契约。新增名称向量、多服务/目录顺序、显式过滤、冲突与配置快照测试，HTTP/stdio 夹具增加 --automatic，验证自动名称与旧别名两条路径。
+- 完整检查通过 955 项 Python、97 项 TS、5 项原生终端测试，格式、lint 与 Python/TS 类型检查通过；24 条真实本机工具/假模型 bot 路径通过。adapters wheel 构建后在无 world/bot/CLI/API 的工具 extra 环境完成自动命名 HTTP 与 stdio 往返；57 个本地链接/锚点、9 段 TOML 示例和差异检查通过。没有调用外部 MCP 或真实模型。
+- 此批完成 B5.4 的工具目录部分；CLI/API 可选组合装配、初始化预设及扩展 B3 共享关闭仍待完成。同步模板、设计、公共 ID、计划和启动指南；未修改 README.md、AGENTS.md、用户配置或业务快照。
+
 ### M4.B5.3：接入有界 stdio 传输与自有进程回收
 
 - local 与 remote 通过 transports 共用同一个 SDK Client、协议协商、连接所有者、工具桥和执行契约；支持 legacy、auto、固定新版及旧服务回退。MCPClients 新增显式 workspace_root，prepare 才解析 cwd 和 environment；相对目录基于工作区根，缺失目录或凭证在启动前拒绝。命令按参数数组执行，不拼接 shell；仅继承 SDK 基础环境，原始 stderr 丢弃，不修改宿主环境。

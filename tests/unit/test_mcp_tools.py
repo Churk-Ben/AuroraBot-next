@@ -1,6 +1,8 @@
 """验证 MCP 工具发现、agent 执行契约和单次请求边界；不连接外部服务。"""
 
 import asyncio
+import copy
+import re
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import cast
@@ -9,6 +11,7 @@ import httpx2
 import pytest
 from aurora_adapters.mcp import CONFIG_STATE, PROTOCOL_VERSION, MCPClientError, MCPClients
 from aurora_adapters.mcp import transports as client_module
+from aurora_adapters.mcp.catalog import automatic_name
 from aurora_adapters.mcp.configuration import MCP_CONFIG
 from aurora_adapters.mcp.tools import MCPTools
 from aurora_agent.tools import TOOLS, ToolExecutor, ToolRejected, ToolSpec
@@ -225,7 +228,7 @@ def test_discovery_is_explicit_paginated_and_names_stay_stable(environment):
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("mode", ["empty", "disabled", "automatic"])
+@pytest.mark.parametrize("mode", ["empty", "disabled"])
 def test_v2_selection_does_not_expand_exposure(environment, mode):
     env = environment
     server = env.config["servers"]["local"]
@@ -233,18 +236,12 @@ def test_v2_selection_does_not_expand_exposure(environment, mode):
         server["tools"] = {"include": []}
     elif mode == "disabled":
         server["enabled"] = False
-    else:
-        server["tools"] = {}
     env.ctx.set(CONFIG_STATE, env.config)
 
     async def scenario():
         async with env.start(discover=False):
-            if mode == "automatic":
-                with pytest.raises(MCPClientError, match="unsupported_tool_selection"):
-                    await env.bridge.prepare()
-            else:
-                await env.bridge.prepare()
-                assert env.bridge.prepared
+            await env.bridge.prepare()
+            assert env.bridge.prepared
             assert env.session.cursors == []
             assert env.registry.view(register_to=TOOLS) == ()
 
@@ -272,6 +269,157 @@ def test_catalog_has_its_own_total_budget(environment):
             assert finished == [True]
             assert env.registry.view(register_to=TOOLS) == ()
         assert env.closed == ["local"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "server,remote,expected",
+    [
+        ("Test.Name", "remote.echo", "mcp_test_name_remote_echo_102dcb67e2fd"),
+        ("srv", "读取文件", "mcp_srv_x_f0679455c80a"),
+        ("a", "Kİ", "mcp_a_x_e50fdc6d3c76"),
+    ],
+)
+def test_automatic_name_preserves_v2_identity(server, remote, expected):
+    assert automatic_name(server, remote) == expected
+
+
+def test_automatic_names_disambiguate_slugs_and_truncation():
+    pairs = [("A.B", "echo"), ("a-b", "echo"), ("A" * 80, "B" * 100), ("A" * 80, "B" * 101)]
+    names = [automatic_name(*pair) for pair in pairs]
+    assert len(set(names)) == len(pairs)
+    assert all(len(name) <= 58 and re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", name) for name in names)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_automatic_selection_is_stable_across_servers_and_directory_order(environment, reverse):
+    env = environment
+    env.config["servers"]["local"]["tools"] = {}
+    env.config["servers"]["second"] = copy.deepcopy(env.config["servers"]["local"])
+    tools = [Tool(name=name, input_schema=PARAMETERS) for name in ("remote.echo", "读取", "remote-echo")]
+    env.session.pages[None] = ListToolsResult(tools=tools[::-1] if reverse else tools)
+    if reverse:
+        env.config["servers"] = dict(reversed(list(env.config["servers"].items())))
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="尚未完成"):
+            _ = env.bridge.tool_ids
+        async with env.start(discover=False):
+            await env.bridge.prepare()
+            assert env.bridge.tool_ids == tuple(
+                Id(f"org.aurora.adapters:tools/mcp/{automatic_name(server, remote)}")
+                for server in ("local", "second")
+                for remote in sorted(tool.name for tool in tools)
+            )
+            assert len(set(env.bridge.tool_ids)) == 6
+            assert env.session.cursors == [None, None]
+
+    asyncio.run(scenario())
+
+
+def test_wildcard_filters_and_alias_preserve_selected_identity(environment):
+    env = environment
+    env.config["servers"]["local"]["tools"] = {"exclude": ["hidden"], "aliases": {"remote.echo": "local_echo"}}
+    env.session.pages[None] = ListToolsResult(
+        tools=[
+            Tool(name="hidden", input_schema={"type": "string"}),
+            Tool(name="remote.echo", input_schema=PARAMETERS),
+            Tool(name="extra", input_schema=PARAMETERS),
+        ]
+    )
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        async with env.start() as (executor, _):
+            assert len(env.bridge.tool_ids) == 2 and TOOL in env.bridge.tool_ids
+            assert (await submit(env, executor))["status"] == "completed"
+            assert env.session.calls == [("remote.echo", {"text": "输入"})]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "selection", [{"include": ["missing"]}, {"exclude": ["missing"]}, {"aliases": {"missing": "missing_alias"}}]
+)
+def test_unknown_explicit_catalog_names_fail_atomically(environment, selection):
+    env = environment
+    env.config["servers"]["local"]["tools"] = selection
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        async with env.start(discover=False):
+            before = env.registry.entries()
+            with pytest.raises(MCPClientError, match="selected_tool_missing"):
+                await env.bridge.prepare()
+            assert env.registry.entries() == before and not env.bridge.prepared
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("conflict", ["local", "alias", "digest"])
+def test_automatic_and_explicit_names_share_one_conflict_check(environment, monkeypatch, conflict):
+    env = environment
+    env.config["servers"]["local"]["tools"] = {}
+    name = automatic_name("local", "remote.echo")
+    if conflict == "local":
+        env.registry.register(
+            RegistryEntry(
+                Id("dev.mcp:tools/existing"),
+                "tool",
+                ToolSpec(
+                    Id("dev.mcp:components/tool"), {"name": name, "description": "本地工具", "parameters": PARAMETERS}
+                ),
+                "test",
+                register_to=TOOLS,
+            )
+        )
+    else:
+        env.session.pages[None].tools.append(Tool(name="extra", input_schema=PARAMETERS))
+        if conflict == "alias":
+            env.config["servers"]["local"]["tools"] = {"aliases": {"extra": name}}
+        else:
+            monkeypatch.setattr("aurora_adapters.mcp.catalog.automatic_name", lambda *args: name)
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        async with env.start(discover=False):
+            before = env.registry.entries()
+            with pytest.raises(MCPClientError, match="tool_name_conflict"):
+                await env.bridge.prepare()
+            assert env.registry.entries() == before and not env.bridge.prepared
+
+    asyncio.run(scenario())
+
+
+def test_default_wildcard_leaves_resource_only_service_available(environment):
+    env = environment
+    env.client.server_capabilities = ServerCapabilities()
+    env.config["servers"]["local"]["tools"] = {}
+    env.ctx.set(CONFIG_STATE, env.config)
+
+    async def scenario():
+        async with env.start(discover=False):
+            await env.bridge.prepare()
+            assert env.bridge.tool_ids == () and env.session.cursors == []
+            async with env.clients.connection("local") as client:
+                assert client is env.client
+
+    asyncio.run(scenario())
+
+
+def test_discovery_uses_the_same_snapshot_as_client_creation(environment):
+    env = environment
+
+    async def scenario():
+        async with env.start(discover=False):
+            env.config["servers"]["local"]["tools"] = {"include": ["missing"]}
+            env.ctx.set(CONFIG_STATE, env.config)
+            exposed = env.clients.server_configurations()
+            exposed["local"]["tools"]["include"].clear()
+            await env.bridge.prepare()
+            assert env.bridge.tool_ids == (TOOL,)
 
     asyncio.run(scenario())
 

@@ -418,10 +418,10 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - 每个资源按精确 URI 配置 notification/resource/event 模式。前两种分别只存变化提示或读取内容，都使用本地观察身份；event 读取单个文本资源中的严格 JSON `{message_id, payload}`，连接、URI 与稳定 message_id 共同限定去重身份，不将采样时间混入事件载荷。身份缺失、同身份异文、未选 URI、读取失败、超限内容或缓冲溢出均使对应来源失败，其他来源和客户端仍可用。工具目录通知只设置 tools_dirty，不进入 world、不热改工具集合；协议控制通知不作为业务输入。
 - SDK 2.3.0 的通知流会合并尚未消费的同 URI 提示，且有自身的 1024 项不同事件积压上限；SDK 流丢失统一报 subscription_lost。适配器另有默认 64 项的有界队列，溢出明确报 buffer_overflow。两者均不承诺完整事件日志或历史补发；资源读取反映读取时当前值，不保证保留通知时的版本。正常停止也会报告已收到但尚未接纳的观察数量，状态非持久，固定诊断同步进入宿主日志；它们不会被伪报为已落盘或在重启后重放。[SDK 订阅说明](https://py.sdk.modelcontextprotocol.io/client/subscriptions/)。
 - 来源有稳定事件 ID 或修订号时用于构造 message_id；只有资源 URI、最新内容或通知到达时间时不承诺跨重连去重与完整历史。缓冲须有界，溢出或来源失败必须有明确状态；断线后不静默补发未知业务，不自动重试结果不明的工具动作。
-- M4.B2 已通过 `aurora-adapters[mcp-tools]` 和 `aurora_adapters.mcp.tools` 插件接入 agent。v2 服务内 tools.include/exclude 选择远端名称，aliases 映射本地名称；当前须显式 include 和别名，自动选择尚未交付。MCPTools 在 prepare 分页发现并原子登记 ToolSpec，名称/schema 冲突或选项缺失阻止启动。DefaultAssembly.components(depends_on=...) 保证发现先于模型与工具检查；实例 ExecutionPlug 接入 ToolExecutor，保留 before_call/after_call、参数校验、超时与取消。结果保留 MCP 内容块和 structuredContent；ToolExecutionError 使业务失败仍保留 JSON 内容，协议错误、超时、无效结果和结果未知使用不同错误码。调用使用 SDK session 的单次请求，不因 HEADER_MISMATCH、断线或额外交互重发。工具目录变化须重建宿主，不热改集合；外部真实服务兼容性验证尚未进行。
+- M4.B2 已通过 `aurora-adapters[mcp-tools]` 和 `aurora_adapters.mcp.tools` 插件接入 agent。v2 服务内 tools.include/exclude 选择远端名称，aliases 映射本地名称；默认通配自动发现并生成 v2 稳定名称，可用显式别名保留身份；无 tools 能力且没有显式选择要求的服务不登记工具。MCPTools 在 prepare 分页发现并原子登记 ToolSpec，名称/schema 冲突或选项缺失阻止启动。DefaultAssembly.components(depends_on=...) 保证发现先于模型与工具检查；实例 ExecutionPlug 接入 ToolExecutor，保留 before_call/after_call、参数校验、超时与取消。结果保留 MCP 内容块和 structuredContent；ToolExecutionError 使业务失败仍保留 JSON 内容，协议错误、超时、无效结果和结果未知使用不同错误码。调用使用 SDK session 的单次请求，不因 HEADER_MISMATCH、断线或额外交互重发。工具目录变化须重建宿主，不热改集合；外部真实服务兼容性验证尚未进行。
 - MCP 客户端由独立生命周期组件持有，世界与工具桥只持有使用引用。配置完成后创建资源，消费者就绪后开放输入；停止接纳后结束来源与运行任务，待依赖者清理完再关闭客户端，最后由宿主落盘。单个来源停止不能关闭在途工具仍使用的客户端。
 
-通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1–B5.3 的 v2 配置、运行期引用、显式迁移与 HTTP/stdio 传输已交付；内部按声明、凭证、传输、协商、错误与所有权分工，stdio 管道与进程管理单独成模块，自动名称与产品装配仍待后续切片，业务事件扩展与可靠投递单独设计。
+通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1–B5.3 的 v2 配置、运行期引用、显式迁移与 HTTP/stdio 传输已交付；内部按声明、凭证、传输、协商、错误与所有权分工，stdio 管道与进程管理单独成模块，工具目录与执行已分模块并支持自动名称，产品装配仍待完成，业务事件扩展与可靠投递单独设计。
 
 后续推进顺序为 MCP 工具产品接线 B5.4 → 扩展共享资源验收 B3 → cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
 

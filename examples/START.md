@@ -361,7 +361,7 @@ aliases = { echo = "local_echo" }
 
 include/exclude 使用精确远端名称，exclude 优先；aliases 将已选远端名称映射到本地模型名称。名称须为小写字母开头的小写字母、数字或单下划线分隔名称，最长 64 字符。例如 `local_echo` 对应公共 ID `org.aurora.adapters:tools/mcp/local_echo`。不同服务的同名工具可指定不同本地名称；名称重复、远程工具缺失或参数 schema 无效会使启动失败。
 
-B5.1 工具桥要求显式 include 和全部所选工具的 aliases；默认 `include = ["*"]` 或缺少别名时报 unsupported_tool_selection，不静默跳过。`include = []`、空 exclude 表示不发现、不登记该服务的工具。自动名称随 B5.4 交付。修改配置或服务端目录后须重建宿主，不在运行中热改集合。
+工具桥默认 `include = ["*"]`，对声明 tools 能力的服务发现全部工具；无工具能力且没有显式选择要求的服务保留供其他消费者使用。未指定 aliases 的工具使用 `mcp_<server_slug>_<tool_slug>_<digest>`，digest 为原始服务名和远端工具名紧凑 UTF-8 JSON 的 SHA-256 前 12 位；slug 分别截取到 16/24 字符，名称最长 58 字符，算法以 v2 固定。自动名称、显式别名、既有本地工具名称与公共 ID 统一检查冲突，失败时不登记部分目录。`include = []`、空 exclude 表示不发现、不登记该服务的工具。修改配置或服务端目录后须重建宿主，不在运行中热改集合。
 
 宿主将工具发现列为消费者的前置依赖：
 
@@ -400,6 +400,7 @@ uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-legacy-ac
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-acceptance --protocol auto
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-stdio-acceptance --transport local --protocol legacy
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-stdio-bot-acceptance --transport local --protocol auto --bot
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-tools-acceptance --transport local --automatic --bot
 ```
 
 两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；工具桥与世界通知桥共同使用时的完整关闭验收属于 B3。

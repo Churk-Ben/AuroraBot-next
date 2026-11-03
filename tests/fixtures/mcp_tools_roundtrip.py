@@ -11,6 +11,7 @@ from typing import cast
 import tomli_w
 import uvicorn
 from aurora_adapters.mcp import CLIENT_STATUS, PROTOCOL_VERSION, MCPClients
+from aurora_adapters.mcp.catalog import automatic_name
 from aurora_adapters.mcp.tools import MCPTools
 from aurora_agent.tools import ToolExecutor, ToolSpec
 from aurora_config import configuration_component
@@ -26,7 +27,6 @@ from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
 from mcp.server import MCPServer
 
-TOOL = Id("org.aurora.adapters:tools/mcp/local_echo")
 STATE = Id("dev.mcp:state/work")
 
 
@@ -46,9 +46,16 @@ def echo_service(record) -> MCPServer:
 
 
 async def run(
-    root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VERSION, transport: str = "remote"
+    root: Path,
+    *,
+    with_bot: bool = False,
+    protocol: str = PROTOCOL_VERSION,
+    transport: str = "remote",
+    automatic: bool = False,
 ) -> dict:
     """通过真实本机 HTTP 或 stdio 完成工具及假模型默认装配验收。"""
+    tool_name = automatic_name("local", "echo") if automatic else "local_echo"
+    tool_id = Id(f"org.aurora.adapters:tools/mcp/{tool_name}")
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     calls = []
@@ -115,7 +122,7 @@ async def run(
                         "protocol": protocol,
                         "required_capabilities": ["tools"],
                         "timeout": {"catalog": 2, "execution": 2},
-                        "tools": {"include": ["echo"], "aliases": {"echo": "local_echo"}},
+                        "tools": {} if automatic else {"include": ["echo"], "aliases": {"echo": "local_echo"}},
                     }
                 },
             },
@@ -130,14 +137,14 @@ async def run(
             from aurora_model_adapter.fake import FakeModel, FakeReply
 
             async def model_factory(config, *, api_key=None):
-                assert bridge.prepared and registry.get(TOOL)
+                assert bridge.prepared and registry.get(tool_id)
 
                 def reply(request):
                     if any(message["role"] == "tool" for message in request["messages"]):
                         return FakeReply(("完成",))
-                    assert request["tools"][0]["name"] == "local_echo"
+                    assert request["tools"][0]["name"] == tool_name
                     return FakeReply(
-                        tool_calls=({"id": "remote-call", "name": "local_echo", "arguments": {"text": "你好"}},)
+                        tool_calls=({"id": "remote-call", "name": tool_name, "arguments": {"text": "你好"}},)
                     )
 
                 return FakeModel(reply)
@@ -152,7 +159,7 @@ async def run(
                     "instance_id": "main",
                     "model_role": "reasoning",
                     "streaming": False,
-                    "tools": [{"tool": str(TOOL), "instance_id": "echo"}],
+                    "tools": [{"tool": str(tool_id), "instance_id": "echo"}],
                 },
             )
             assembly = DefaultAssembly(registry=registry, ctx=ctx, hooks=hooks, storage=storage)
@@ -191,7 +198,7 @@ async def run(
                     current_state=state("current"),
                     timeout=3,
                 )
-                spec = cast(ToolSpec, registry.get(TOOL).target)
+                spec = cast(ToolSpec, registry.get(tool_id).target)
                 assert spec.factory is not None
                 tool = await spec.factory(
                     ctx=ctx,
@@ -201,7 +208,7 @@ async def run(
                     output_state=state("output"),
                     config={},
                 )
-                executor.connect(TOOL, tool.plug)
+                executor.connect(tool_id, tool.plug)
                 try:
                     request = ExecutionRequest("roundtrip")
                     executor.request_state.set(
@@ -210,8 +217,8 @@ async def run(
                         {
                             "turn_id": "turn",
                             "calls": [
-                                {"id": "ok", "name": "local_echo", "arguments": {"text": "你好"}},
-                                {"id": "bad", "name": "local_echo", "arguments": {"text": "fail"}},
+                                {"id": "ok", "name": tool_name, "arguments": {"text": "你好"}},
+                                {"id": "bad", "name": tool_name, "arguments": {"text": "fail"}},
                             ],
                         },
                     )
@@ -243,6 +250,7 @@ if __name__ == "__main__":
     parser.add_argument("--protocol", choices=["legacy", "auto", PROTOCOL_VERSION], default=PROTOCOL_VERSION)
     parser.add_argument("--transport", choices=["remote", "local"], default="remote")
     parser.add_argument("--stdio-server", action="store_true")
+    parser.add_argument("--automatic", action="store_true")
     args = parser.parse_args()
     if args.stdio_server:
 
@@ -254,7 +262,15 @@ if __name__ == "__main__":
     else:
         print(
             json.dumps(
-                asyncio.run(run(args.root, with_bot=args.bot, protocol=args.protocol, transport=args.transport)),
+                asyncio.run(
+                    run(
+                        args.root,
+                        with_bot=args.bot,
+                        protocol=args.protocol,
+                        transport=args.transport,
+                        automatic=args.automatic,
+                    )
+                ),
                 ensure_ascii=False,
             )
         )

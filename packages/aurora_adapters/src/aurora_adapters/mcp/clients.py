@@ -4,6 +4,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -78,6 +79,12 @@ class MCPClients:
     def instance_id(self) -> str:
         """供实际消费者声明生命周期依赖。"""
         return self._instance_id
+
+    def server_configurations(self) -> dict[str, dict]:
+        """返回 config 阶段选定声明的副本；消费者与连接使用同一配置快照。"""
+        if not self._configured:
+            raise RuntimeError("MCP 客户端尚未配置")
+        return deepcopy({name: binding.config for name, binding in self._connections.items()})
 
     def _check_loop(self) -> None:
         if self._loop is not asyncio.get_running_loop():

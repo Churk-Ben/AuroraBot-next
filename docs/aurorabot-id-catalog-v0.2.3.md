@@ -335,9 +335,9 @@ B4 通过 `aurora-adapters[mcp-world]` extra 增加 world/config 依赖。插件
 | `org.aurora.adapters:components/mcp/tool` | `component` | MCP 工具执行组件，所有实例使用注入的 input/output 状态绑定 |
 | `org.aurora.adapters:components/mcp/tool/execute` | `hook_handler` | 单次远程调用执行端口 |
 | `org.aurora.adapters:handlers/mcp/tools/prepare` | `hook_handler` | 在 PREPARE 分页发现并原子登记工具 |
-| `org.aurora.adapters:tools/mcp/<name>` | `tool` | 配置 servers.<服务名>.tools.aliases 的本地名称派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
+| `org.aurora.adapters:tools/mcp/<name>` | `tool` | 服务别名或 v2 自动名称派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
 
-工具选择位于 v2 servers.<服务名>.tools，include/exclude 选择远端名称，aliases 指定本地名称。B5.1 要求显式选择和别名；空 include 不登记工具，默认通配或缺少别名明确报 unsupported_tool_selection。旧配置显式迁移保留原工具名称与公共 ID，没有旧工具的服务迁移为 include=[]，不扩大暴露范围、不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
+工具选择位于 v2 servers.<服务名>.tools，include/exclude 选择远端名称，aliases 指定本地名称。默认通配发现全部工具，缺少别名时使用 v2 稳定自动名称；空 include 不登记工具。MCPTools.tool_ids 在准备完成后提供本宿主已登记身份，名称冲突在整批登记前拒绝。旧配置显式迁移保留原工具名称与公共 ID，没有旧工具的服务迁移为 include=[]，不扩大暴露范围、不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
 
 ## 7. aurora_api
 

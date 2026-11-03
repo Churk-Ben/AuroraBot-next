@@ -14,7 +14,7 @@ schema_version = 2
 # [servers.local.headers]
 # Authorization = "Bearer {env:AURORA_MCP_TOKEN}"
 #
-# 当前工具桥须显式选择名称和别名；include=[] 不发现、不登记工具。
+# 工具桥默认发现全部工具并自动命名；可显式选择或覆盖别名，include=[] 不暴露工具。
 # [servers.local.tools]
 # include = ["echo"]
 # aliases = { echo = "local_echo" }
