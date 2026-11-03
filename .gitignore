@@ -21,6 +21,7 @@ coverage/
 .env
 .env.*
 !.env.example
+opencode.json
 
 # OS files
 .DS_Store
