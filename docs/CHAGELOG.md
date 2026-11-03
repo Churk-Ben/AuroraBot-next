@@ -2,6 +2,16 @@
 
 ## 2026-11-03
 
+### 完善本地 data 的 MCP 工具配置
+
+- 保留已有插件、模型绑定、运行期凭证、时间与南京天气配置，新增 MCP 客户端、工具桥和产品装配插件，将 host 切换为 `org.aurora.adapters:assemblies/mcp/default_bot`。MCP 目录在准备阶段自动接入 `main` 的工具插槽；bot 的 `tools = []` 仅表示没有额外显式工具，不关闭自动接入。
+- 新增本地 `org.aurora.adapters/config.toml`，通过 stdio 挂接 `../Aurora-QQ`；相对 cwd 基于 AuroraBot-next 工作区，执行 `uv run --frozen --no-sync aurora-qq-mcp --config config.toml`，复用 QQ 已安装的独立环境。使用 auto 协商与 tools 能力检查，startup/catalog/execution/shutdown 分别为 30/30/45/10 秒；bot 外层工具预算为 60 秒，最多 16 轮，保留流式输出。
+- 按现有 QQ 配置开放 27 个工具，排除不兼容的 `qq_start_events`、`qq_stop_events` 和服务端已禁用的 `qq_call_action`；其他工具沿用 v2 自动名称和服务端确认参数。补充中文系统提示，要求按实际工具回执报告结果，超时或结果未知时不自动重试有副作用的动作。
+- QQ 使用 `org.aurorabot/world-events` 自定义通知，当前 world 桥使用 MCP 资源订阅，两者不能仅靠配置接通。因此未配置虚假的 QQ 世界来源或启用 cadence 自动唤醒；现有时间、天气观察继续保留。接入消息监听和自动回复需要后续协议适配。
+- 用户确认 NapCat 已启用 Token，并将在启动环境提供 `AURORA_QQ_TOKEN`；MCP environment 仅保存 `{env:AURORA_QQ_TOKEN}` 引用。宿主启动前须提供该变量，缺失时明确拒绝准备连接。保留 `.env` 原内容，从项目根目录运行 `uv run --locked --env-file .env python scripts/serve_bot.py --world --edit-config`，正常重启后配置生效。
+- 验收通过：6 份已声明配置的结构和关联校验、现有 8 条快照状态的内存恢复；正式 CLI 在隔离目录中使用假模型和真实 QQ stdio 服务，发现并向模型提供 27 个工具，通过 agent 插槽执行 `qq_get_status(probe=false)`，确认本地状态返回、模型与 MCP 任务收尾。92 项相关 MCP 配置、预设、装配及 CLI/API 回归通过。Token 引用以仅存在于验收进程的占位值验证，未验证真实 NapCat 鉴权，未调用真实模型、天气、QQ 发送或管理动作。
+- 原 host 和 bot 配置分别备份为同目录的 `.before-mcp-tools` 文件；原模型、world 配置和业务快照保持原样。实际 data 配置与备份仍由 git 忽略，不进入提交；README.md、AGENTS.md 和 Aurora-QQ 项目未修改。
+
 ### 归档 build 历史产物
 
 - 将 build 下的 166 项旧产物及清点文件移动到仓库外 `E:/Aurora/AuroraBot-next-archives/build-20261103-225238`，保留原目录名，附带 `archive-inventory.json` 与 `move-manifest.csv` 便于查找和后续删除。内容包括历史 wheel、隔离安装环境、验收数据、临时脚本和日志；没有删除文件。
