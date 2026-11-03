@@ -2,6 +2,12 @@
 
 ## 2026-11-03
 
+### 核对本地工具可见性并清空试用对话
+
+- 针对模型回复“没有工具”，使用实际 data 配置和运行期环境连接 QQ MCP；确认 27 个工具完成发现、接入 main 工具插槽，并进入模型请求及 LiteLLM 的供应商请求结构。当前模型适配器声明支持工具；未发现本地工具装配缺失，尚未确定此前模型回复的具体原因，未调用真实模型或 QQ 业务工具。
+- 按用户要求，在确认本机 API 未监听后备份原快照为 `data/framework/ctx.before-context-reset-20261103-230829.json`，清除 main 的 30 条历史消息及 inbox/progress、run、react_work，共移除 5 个状态项。保留 3 个 world 状态项，配置文件和 world 数据库哈希保持一致。
+- 使用清空后的实际快照完成内存恢复和请求构造验收：仅有系统提示，无历史对话，27 个工具仍完整传入请求；假模型可接收请求，诊断不写回快照，模型与 MCP 资源正常关闭。配置与备份由 git 忽略，不进入提交；从仓库根目录重启 `uv run --locked --env-file .env python scripts/serve_bot.py --world --edit-config` 后可继续试用。
+
 ### 完善本地 data 的 MCP 工具配置
 
 - 保留已有插件、模型绑定、运行期凭证、时间与南京天气配置，新增 MCP 客户端、工具桥和产品装配插件，将 host 切换为 `org.aurora.adapters:assemblies/mcp/default_bot`。MCP 目录在准备阶段自动接入 `main` 的工具插槽；bot 的 `tools = []` 仅表示没有额外显式工具，不关闭自动接入。
