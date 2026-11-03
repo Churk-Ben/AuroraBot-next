@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from aurora_bot.assembly_config import AGENTS, MESSAGES, RUN, WORK
+from aurora_bot.cadence.state import CHECKPOINT
 from aurora_bot.conversation import CONVERSATION
 from aurora_cli.main import main as cli_main
 from aurora_config import CONFIGURATION
@@ -18,6 +19,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=10270, help="本机端口，默认 10270")
     parser.add_argument("--edit-config", action="store_true", help="开放已登记 TOML 配置编辑，保存后重启生效")
     parser.add_argument("--world", action="store_true", help="开放世界记录和来源状态；须先在宿主启用 world 插件")
+    parser.add_argument("--cadence", action="store_true", help="开放消费位置和转交诊断；须先启用 aurora_bot.cadence")
     args = parser.parse_args()
     sys.argv = [
         "aurora",
@@ -28,7 +30,17 @@ def main() -> int:
         str(args.port),
         "--keys",
         json.dumps(
-            [str(key) for key in (AGENTS, MESSAGES, RUN, WORK, *((RECORDS, SOURCE_STATUS) if args.world else ()))]
+            [
+                str(key)
+                for key in (
+                    AGENTS,
+                    MESSAGES,
+                    RUN,
+                    WORK,
+                    *((RECORDS, SOURCE_STATUS) if args.world else ()),
+                    *((CHECKPOINT,) if args.cadence else ()),
+                )
+            ]
         ),
         "--endpoints",
         json.dumps([str(CONVERSATION), *([str(CONFIGURATION)] if args.edit_config else [])]),

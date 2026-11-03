@@ -13,6 +13,7 @@ dependencies = [
 
 [project.entry-points."aurora.plugins"]
 "aurora_bot.assembly" = "aurora_bot.assembly:plugin"
+"aurora_bot.cadence" = "aurora_bot.cadence:plugin"
 
 [build-system]
 requires = ["hatchling"]

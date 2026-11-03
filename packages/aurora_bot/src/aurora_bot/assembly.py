@@ -39,6 +39,8 @@ from .assembly_config import (
     parse_config,
     validate_json,
 )
+from .cadence import Cadence
+from .cadence.state import CONFIGURATION as CADENCE_CONFIGURATION
 from .cli import command_entries
 from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
 from .operations import RUN_CONTROL, RunOperations
@@ -63,7 +65,7 @@ class DefaultAssembly:
 
     runtime 提供进程内引导提交、激活及取消，自有任务在工具和模型关闭前收束。
     显式调度也可使用 Lifecycle.run(assembly.activate, request)，以 agent.inbox 写入引导；
-    两种调度所有者不能并行使用。本组件不订阅世界，不在启动时自动执行恢复的输入。
+    两种调度所有者不能并行使用。显式启用 cadence 时由独立转发组件订阅世界并提交新输入。
     模型配置和绑定变更在下次宿主启动生效。默认状态地址按配置的 bot instance_id 隔离。
     """
 
@@ -115,6 +117,7 @@ class DefaultAssembly:
             raise RuntimeError("装配生命周期已经连接")
         model_owner, bot_owner = f"{self.instance_id}/model", f"{self.instance_id}/bot"
         links = []
+        cadence = ()
         try:
             for owner, phase, method in (
                 (model_owner, PREPARE, self.prepare_model),
@@ -129,13 +132,24 @@ class DefaultAssembly:
                     self.hooks.connect(phase, definition.id, slot_instance=owner, handler_instance=owner, target=method)
                 )
             world = ()
+            if any(entry.id == CADENCE_CONFIGURATION for entry in self.registry.entries()):
+                cadence = (
+                    Cadence(self.ctx, self.hooks, self.runtime, instance_id=f"{self.instance_id}/cadence").component(
+                        depends_on=(bot_owner,)
+                    ),
+                )
             if any(entry.id == WORLD_CONFIGURATION for entry in self.registry.entries()):
                 world = (
                     self._world_component_factory(
-                        self.ctx, self.hooks, instance_id=f"{self.instance_id}/world", depends_on=(bot_owner,)
+                        self.ctx,
+                        self.hooks,
+                        instance_id=f"{self.instance_id}/world",
+                        depends_on=(cadence[0].instance_id if cadence else bot_owner,),
                     ),
                 )
         except Exception:
+            for component in cadence:
+                self.hooks.disconnect_instance(component.instance_id)
             for link in links:
                 self.hooks.disconnect(link)
             raise
@@ -143,6 +157,7 @@ class DefaultAssembly:
         return (
             LifecycleComponent(model_owner, depends_on=depends_on),
             LifecycleComponent(bot_owner, depends_on=(model_owner,), stop_accepting=self.stop_accepting),
+            *cadence,
             *world,
         )
 
