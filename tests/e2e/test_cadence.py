@@ -18,11 +18,9 @@ from aurora_core.snapshots import JsonSnapshotStore
 from aurora_world import (
     RECORDS,
     SOURCES,
-    RecordRetention,
     SourceInstance,
     SourceSpec,
     SourceUnavailableError,
-    WorldRecords,
 )
 from aurora_world.configuration import plugin as world_configuration_plugin
 from aurora_world.plugin import plugin as world_plugin
@@ -49,8 +47,10 @@ async def until(predicate):
             await asyncio.sleep(0)
 
 
-def append(ctx, identity="one", *, source="selected", payload=None):
-    return WorldRecords(ctx).append(
+def append(assembly, identity="one", *, source="selected", payload=None):
+    assert assembly.world_records is not None
+    assembly.world_records.open()
+    return assembly.world_records.append(
         source_id=source, message_id=identity, payload=identity if payload is None else payload
     )
 
@@ -69,14 +69,14 @@ def test_forwarding_preserves_payload_and_accepts_during_same_run(tmp_path):
 
         assembly.runtime._activate = hold
         try:
-            ignored = append(ctx, "ignored", source="other")
+            ignored = append(assembly, "ignored", source="other")
             payload = {"text": "保留原始内容", "items": [1, False, None, {"nested": "值"}]}
-            first = append(ctx, payload=payload)
+            first = append(assembly, payload=payload)
             await entered.wait()
             handle = assembly.runtime.current
             assert handle is not None
-            second = append(ctx, "two", payload=["独立消息"])
-            assert append(ctx, payload=payload).duplicate
+            second = append(assembly, "two", payload=["独立消息"])
+            assert append(assembly, payload=payload).duplicate
             await until(lambda: len(state(ctx)["receipts"]) == 2)
             receipts = state(ctx)["receipts"]
             assert [item["message"]["position"] for item in receipts] == [
@@ -105,10 +105,10 @@ def test_start_reads_backlog_and_restart_does_not_replay_receipts(tmp_path):
         for restart in (False, True):
             host, assembly, ctx, _, clients, _, _, _ = configured(tmp_path)
 
-            def configure(ctx=ctx, restart=restart):
+            def configure(ctx=ctx, restart=restart, assembly=assembly):
                 seed(ctx, tools=False)
                 if not restart:
-                    append(ctx)
+                    append(assembly)
 
             await host.start(configure=configure)
             try:
@@ -121,8 +121,8 @@ def test_start_reads_backlog_and_restart_does_not_replay_receipts(tmp_path):
                     for _ in range(4):
                         await asyncio.sleep(0)
                     assert clients[0].requests == [] and state(ctx) == saved
-                    assert append(ctx).duplicate
-                    append(ctx, "two")
+                    assert append(assembly).duplicate
+                    append(assembly, "two")
                     await until(lambda ctx=ctx: len(state(ctx)["receipts"]) == 2)
                     assert state(ctx)["receipts"][0] == saved["receipts"][0]
                     await until(lambda assembly=assembly: assembly.runtime.current is None)
@@ -158,10 +158,10 @@ def test_uncertain_transfer_pauses_without_replay_even_after_restart(tmp_path, m
         else:
             monkeypatch.setattr(assembly.runtime, "submit", faulty_submit)
         try:
-            append(ctx)
+            append(assembly)
             await until(lambda: state(ctx)["error"] == "TransferUncertain")
             assert state(ctx)["position"] is None and state(ctx)["pending"]["message_id"] == "one"
-            append(ctx, "two")
+            append(assembly, "two")
             await asyncio.sleep(0)
             assert state(ctx)["receipts"] == []
             assert len(submissions) == (1 if fault == "after_submit" else 0)
@@ -171,7 +171,7 @@ def test_uncertain_transfer_pauses_without_replay_even_after_restart(tmp_path, m
         restored, other, other_ctx, _, clients, _, _, _ = configured(tmp_path)
         await restored.start()
         try:
-            append(other_ctx, "three")
+            append(other, "three")
             await asyncio.sleep(0)
             assert clients[0].requests == [] and other.runtime.current is None
             assert state(other_ctx)["error"] == "TransferUncertain"
@@ -182,12 +182,12 @@ def test_uncertain_transfer_pauses_without_replay_even_after_restart(tmp_path, m
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("fault", ["pruned", "journal", "selection", "pending"])
+@pytest.mark.parametrize("fault", ["anchor", "journal", "selection", "pending"])
 def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
     async def scenario():
         host, assembly, ctx, _, _, _, _, _ = configured(tmp_path)
         await host.start(configure=lambda: seed(ctx, tools=False))
-        append(ctx)
+        append(assembly)
         await until(lambda: len(state(ctx)["receipts"]) == 1)
         await until(lambda: assembly.runtime.current is None)
         await host.stop()
@@ -196,15 +196,21 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
         restored, other, other_ctx, _, clients, _, _, _ = configured(tmp_path)
 
         def configure():
-            if fault == "pruned":
-                append(other_ctx, "two")
-                append(other_ctx, "three")
-                WorldRecords(other_ctx).prune({"selected": RecordRetention(1)})
+            if fault == "anchor":
+                append(other, "two")
+                append(other, "three")
+                assert other.world_records is not None
+                db = other.world_records._connection()
+                with db:
+                    db.execute("UPDATE events SET record_id='different-anchor' WHERE sequence=1")
             elif fault == "journal":
-                other_ctx.delete(RECORDS)
-                append(other_ctx)
+                checkpoint = state(other_ctx)
+                checkpoint["position"]["journal_id"] = "different-journal"
+                for receipt in checkpoint["receipts"]:
+                    receipt["message"]["position"]["journal_id"] = "different-journal"
+                other_ctx.set(CHECKPOINT, checkpoint, location=LOCATION)
             elif fault == "pending":
-                record = append(other_ctx, "two").record
+                record = append(other, "two").record
                 other_ctx.set(
                     CHECKPOINT,
                     {
@@ -222,7 +228,7 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
         await restored.start(configure=configure)
         try:
             expected = {
-                "pruned": "CursorInvalid",
+                "anchor": "CursorInvalid",
                 "journal": "CursorInvalid",
                 "selection": "SelectionChanged",
                 "pending": "TransferUncertain",
@@ -239,9 +245,9 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
 
 def test_empty_selection_and_immediate_shutdown_do_not_leave_tasks(tmp_path):
     async def scenario():
-        host, _, ctx, _, clients, _, _, _ = configured(tmp_path, sources=())
+        host, assembly, ctx, _, clients, _, _, _ = configured(tmp_path, sources=())
         await host.start(configure=lambda: seed(ctx, tools=False))
-        append(ctx)
+        append(assembly)
         await asyncio.sleep(0)
         assert clients[0].requests == [] and ctx.list(key=CHECKPOINT) == ()
         await host.stop()
@@ -276,13 +282,13 @@ def test_cancel_waits_for_cleanup_then_accepts_next_world_message(tmp_path):
 
         assembly.runtime._activate = hold
         try:
-            append(ctx)
+            append(assembly)
             await entered.wait()
             handle = assembly.runtime.current
             assert handle is not None
             cancel = asyncio.create_task(assembly.runtime.cancel(handle.run_id))
             await cleaning.wait()
-            append(ctx, "two")
+            append(assembly, "two")
             for _ in range(4):
                 await asyncio.sleep(0)
             assert len(state(ctx)["receipts"]) == 1 and state(ctx)["error"] is None
@@ -377,10 +383,75 @@ def test_component_connection_failure_releases_cadence_links(tmp_path):
     try:
         with pytest.raises(RuntimeError, match="世界组件连接失败"):
             other.components()
-        for owner in ("failed/model", "failed/bot", "failed/cadence"):
+        for owner in ("failed/model", "failed/bot", "failed/cadence", "failed/records"):
             for phase in (PREPARE, START, STOP, CLEAN):
                 assert assembly.hooks.for_slot(phase, owner) == ()
     finally:
         assembly.hooks.close()
         assembly.storage.close()
         ctx.close()
+
+
+def test_forwarding_reads_durable_backlog_outside_recent_view(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, _, _, _, _ = configured(tmp_path)
+        assert assembly.world_records is not None
+        records = assembly.world_records
+        clock = [10000.0]
+        records.now = lambda: clock[0]
+
+        def configure():
+            seed(ctx, tools=False)
+            for index in range(5):
+                append(assembly, str(index))
+            clock[0] += 3600
+            records.refresh()
+            assert cast(dict, ctx.get(RECORDS))["records"] == []
+
+        await host.start(configure=configure)
+        try:
+            await until(lambda: len(state(ctx)["receipts"]) == 5)
+            assert state(ctx)["error"] is None
+            assert [item["message"]["message_id"] for item in state(ctx)["receipts"]] == [str(i) for i in range(5)]
+            assert append(assembly, "0").duplicate
+            await asyncio.sleep(0)
+            assert len(state(ctx)["receipts"]) == 5
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("archive", [False, True])
+def test_environment_forwarding_requires_explicit_event_presentation(tmp_path, archive):
+    from aurora_world.environment import TIME
+    from aurora_world.environment import plugin as environment_plugin
+
+    async def scenario():
+        path = tmp_path / "config/org.aurora.world/config.toml"
+        path.parent.mkdir(parents=True)
+        source = {"source": str(TIME), "source_id": "selected"}
+        if archive:
+            source["presentation"] = "events"
+        path.write_text(tomli_w.dumps({"sources": [source]}), encoding="utf-8")
+        (tmp_path / "config/org.aurora.bot").mkdir(parents=True)
+        (tmp_path / "config/org.aurora.bot/cadence.toml").write_text('source_ids = ["selected"]', encoding="utf-8")
+        host, assembly, ctx, _, clients, _, _, _ = setup(
+            tmp_path,
+            extra_plugins=(world_plugin(), world_configuration_plugin(), environment_plugin(), cadence_plugin()),
+        )
+        if archive:
+            await host.start(configure=lambda: seed(ctx, tools=False))
+            try:
+                await until(lambda: len(state(ctx)["receipts"]) == 1)
+                assert assembly.world_records is not None
+                assert assembly.world_records.read()[0].source_id == "selected"
+            finally:
+                await host.stop()
+        else:
+            with pytest.raises(ValueError, match="presentation=events"):
+                await host.start(configure=lambda: seed(ctx, tools=False))
+            await host.stop()
+            assert clients[0].closed
+
+    asyncio.run(scenario())

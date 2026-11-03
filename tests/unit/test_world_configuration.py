@@ -1,5 +1,7 @@
 """验证来源声明的结构、身份约束与显式插件依赖。"""
 
+from typing import cast
+
 import pytest
 from aurora_core.discovery import load_plugins
 from aurora_world.configuration import SOURCE_CONFIG
@@ -22,9 +24,9 @@ def test_invalid_declarations_are_rejected(value):
 
 
 def test_defaults_are_copied_without_changing_input():
-    assert SOURCE_CONFIG.parse({}) == {"sources": []}
+    assert cast(dict, SOURCE_CONFIG.parse({}))["sources"] == []
     value = {"sources": [{"source": "dev.test:sources/a", "source_id": "a"}]}
-    assert SOURCE_CONFIG.parse(value) == {"sources": [{**value["sources"][0], "config": {}}]}
+    assert cast(dict, SOURCE_CONFIG.parse(value))["sources"] == [{**value["sources"][0], "config": {}}]
     assert "config" not in value["sources"][0]
 
 

@@ -17,7 +17,10 @@ def world():
     registry = bootstrap()
     register_plugins(registry, [plugin()])
     ctx = Context(registry)
-    yield ctx, WorldRecords(ctx)
+    records = WorldRecords(ctx)
+    records.open()
+    yield ctx, records
+    records.close()
     ctx.close()
 
 
@@ -29,7 +32,7 @@ def test_discovery_and_construction_do_not_initialize_state_or_require_consumers
     with pytest.raises(KeyError):
         records.get(source_id="room-a", message_id="1")
     with pytest.raises(KeyError):
-        WorldRecords(Context(bootstrap())).read()
+        WorldRecords(Context(bootstrap())).open()
 
 
 def test_duplicate_identity_is_scoped_to_source_and_does_not_publish(world):
@@ -69,7 +72,7 @@ def test_payloads_and_notifications_are_independent_copies(world):
     receipt = records.append(source_id="source", message_id="1", payload=payload)
     payload["nested"].clear()
     receipt.record.payload["nested"].append("篡改回执")
-    observed[0].value["records"][0]["payload"]["nested"].clear()
+    observed[0].value["records"][0]["text"] = "篡改呈现"
     item = records.read()[0]
     assert item.payload == {"nested": ["原文"]}
     item.payload["nested"].clear()
@@ -81,7 +84,7 @@ def test_pagination_source_filter_and_positions_survive_new_facades(world):
     for index, source in enumerate(("a", "b", "a", "b")):
         records.append(source_id=source, message_id=str(index), payload=index)
     first = records.read(limit=1)[0]
-    assert [item.payload for item in WorldRecords(ctx).read(after=first.position, limit=2)] == [1, 2]
+    assert [item.payload for item in records.read(after=first.position, limit=2)] == [1, 2]
     assert [item.position.sequence for item in records.read(after=first.position, source_id="b")] == [2, 4]
     last = records.read()[-1]
     assert records.read(after=last.position) == ()
@@ -91,30 +94,10 @@ def test_pagination_source_filter_and_positions_survive_new_facades(world):
         with pytest.raises(CursorError):
             records.read(after=position)
     ctx.delete(RECORDS)
-    with pytest.raises(CursorError):
-        records.read(after=first.position)
+    assert records.read(after=first.position) == (records.read()[1:])
     replacement = records.append(source_id="a", message_id="0", payload=0)
-    assert replacement.record.position.journal_id != first.position.journal_id
-    with pytest.raises(CursorError):
-        records.read(after=first.position)
-
-
-def test_cursor_rejects_reused_sequence_after_restoring_an_older_snapshot(world):
-    ctx, records = world
-    records.append(source_id="source", message_id="1", payload="已落盘")
-    saved = ctx.snapshot()
-    unsaved = records.append(source_id="source", message_id="2", payload="未落盘但已被观察")
-    restored = Context(ctx.registry)
-    try:
-        restored.restore(saved.records)
-        other = WorldRecords(restored)
-        replacement = other.append(source_id="source", message_id="3", payload="恢复后收到的新输入")
-        assert replacement.record.position.sequence == unsaved.record.position.sequence
-        assert replacement.record.position.journal_id == unsaved.record.position.journal_id
-        with pytest.raises(CursorError):
-            other.read(after=unsaved.record.position)
-    finally:
-        restored.close()
+    assert replacement.duplicate and replacement.record == first
+    assert ctx.get(RECORDS)["records"]
 
 
 def test_reentrant_subscribers_read_committed_records_and_keep_sequence_order(world, caplog):
@@ -135,7 +118,7 @@ def test_reentrant_subscribers_read_committed_records_and_keep_sequence_order(wo
     assert len(records.read()) == 2 and "消费者失败" in caplog.text
 
 
-def test_failed_commit_does_not_consume_identity_or_sequence(world, monkeypatch):
+def test_failed_presentation_keeps_durable_event_and_retry_repairs_view(world, monkeypatch):
     ctx, records = world
     records.append(source_id="source", message_id="1", payload="第一条")
     before = ctx.snapshot()
@@ -150,7 +133,8 @@ def test_failed_commit_does_not_consume_identity_or_sequence(world, monkeypatch)
     assert ctx.snapshot() == before
     monkeypatch.setattr(ctx, "set", original)
     second = records.append(source_id="source", message_id="2", payload="第二条")
-    assert second.record.position.sequence == 2 and not second.duplicate
+    assert second.record.position.sequence == 2 and second.duplicate
+    assert records.read()[-1] == second.record
 
 
 @pytest.mark.parametrize("payload", [float("nan"), float("inf"), {1: "键"}, (1, 2), object(), "\ud800"])
@@ -201,7 +185,7 @@ def test_invalid_positions_limits_and_cross_thread_access_are_rejected(world):
         lambda data: data["records"][0].update(sequence=True),
         lambda data: data["records"][0].update(sequence=2),
         lambda data: data["records"][0].update(source_id=""),
-        lambda data: data["records"][0].pop("payload"),
+        lambda data: data["records"][0].pop("text"),
         lambda data: data["records"].append({**data["records"][0], "sequence": 2, "record_id": "other"}),
         lambda data: data["records"].append({**data["records"][0], "sequence": 2, "message_id": "other"}),
     ],

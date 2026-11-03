@@ -6,7 +6,7 @@ from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.registry import RegistryEntry
 
-from .records import RECORDS, validate_records
+from .records import ENVIRONMENT, RECORDS, WorldRecords, validate_environment, validate_records
 from .sources import SOURCE_STATUS, SOURCES, SourceReceiver, WorldSources, validate_source_status
 
 
@@ -15,6 +15,7 @@ def plugin() -> Plugin:
     return Plugin(
         "aurora_world",
         (
+            RegistryEntry(ENVIRONMENT, "state_key", StateKey(validate_environment), "aurora_world"),
             RegistryEntry(RECORDS, "state_key", StateKey(validate_records), "aurora_world"),
             RegistryEntry(
                 SOURCE_STATUS, "state_key", StateKey(validate_source_status, persistent=False), "aurora_world"
@@ -22,7 +23,16 @@ def plugin() -> Plugin:
             RegistryEntry(SOURCES, "registry", SourceReceiver(), "aurora_world", register_to=REGISTRY_DIRECTORY),
             *(
                 entry_from(method, provider="aurora_world")
-                for method in (WorldSources.prepare, WorldSources.start, WorldSources.stop, WorldSources.clean)
+                for method in (
+                    WorldSources.prepare,
+                    WorldSources.start,
+                    WorldSources.stop,
+                    WorldSources.clean,
+                    WorldRecords.prepare,
+                    WorldRecords.start,
+                    WorldRecords.stop,
+                    WorldRecords.clean,
+                )
             ),
         ),
     )

@@ -17,7 +17,7 @@ from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import Lifecycle, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.storage import StorageService
-from aurora_world import RECORDS, SourceSpec, WorldRecords
+from aurora_world import ENVIRONMENT, SourceSpec, WorldRecords
 from aurora_world.configuration import configured_sources_component
 from aurora_world.environment import TIME, WEATHER, create_time, create_weather
 
@@ -37,6 +37,7 @@ async def main(root: Path, *, live_weather: bool) -> None:
     )
     install_lifecycle_slots(registry)
     ctx, hooks, storage = Context(registry), HookConnections(registry), StorageService(root)
+    records = WorldRecords(ctx, storage)
     copy_missing(
         storage.configuration_directory() / "org.aurora.world/config.toml",
         """
@@ -83,13 +84,21 @@ timeout_seconds = 10
     ):
         registry.replace(replace(registry.get(identity), target=SourceSpec(factory)))
     store = storage.snapshot_store()
-    before = next((cast(dict, record.value)["records"] for record in store.load() if record.address.key == RECORDS), [])
+    before = next(
+        (
+            cast(dict, record.value)["records"]
+            for record in store.load()
+            if record.address.key == ENVIRONMENT and dict(record.address.location)["source_id"] == "environment/weather"
+        ),
+        [],
+    )
     host = Lifecycle(
         ctx,
         hooks,
         [
             configuration_component(registry, ctx, hooks, storage),
-            configured_sources_component(ctx, hooks),
+            records.component(hooks),
+            configured_sources_component(ctx, hooks, records, depends_on=("aurora_world/records",)),
         ],
         persistence=ContextPersistence(ctx, store),
         storage=storage,
@@ -97,15 +106,15 @@ timeout_seconds = 10
     await host.start()
     try:
         await asyncio.wait_for(settled.wait(), timeout=15)
-        records = WorldRecords(ctx).read()
-        assert len([record for record in records if record.source_id == "environment/time"]) == 1
-        assert 1 <= len([record for record in records if record.source_id == "environment/weather"]) <= 4
-        assert records[-1].position.sequence > max((record["sequence"] for record in before), default=0)
-        assert len({record.message_id for record in records}) == len(records)
-        result = {"count": len(records), "observations": [record.payload for record in records[-2:]]}
+        observations = records.observations()
+        assert len([record for record in observations if record.source_id == "environment/time"]) == 1
+        assert 1 <= len([record for record in observations if record.source_id == "environment/weather"]) <= 4
+        assert observations[-1].position.sequence > max((record["sequence"] for record in before), default=0)
+        assert len({record.message_id for record in observations}) == len(observations)
+        result = {"count": len(observations), "observations": [record.payload for record in observations[-2:]]}
     finally:
         await host.stop()
-    assert [record.address.key for record in store.load()] == [RECORDS]
+    assert [record.address.key for record in store.load()] == [ENVIRONMENT, ENVIRONMENT]
     print(json.dumps(result, ensure_ascii=False))
 
 

@@ -18,7 +18,7 @@ from aurora_core.json_data import encode_json
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import RegistryEntry
 
-from .records import RecordRetention, WorldReceipt, WorldRecords, _identity
+from .records import Presentation, WorldReceipt, WorldRecords, _identity
 
 SOURCES = Id("org.aurora.world:registries/sources")
 SOURCE_STATUS = Id("org.aurora.world:state/sources")
@@ -35,7 +35,7 @@ class SourceUnavailableError(RuntimeError):
 
 
 class SourceEmit(Protocol):
-    """只在宿主线程同步提交；来源身份由装配绑定，回执只表示内存接纳。"""
+    """只在宿主线程同步提交；来源身份由装配绑定，回执表示 world 已接纳。"""
 
     def __call__(self, *, message_id: str, payload: object) -> WorldReceipt: ...
 
@@ -47,22 +47,18 @@ class SourceInstance:
     可选 run 主循环由所有者监督；stop 结束其余自有任务，aclose 释放资源。
     停止和释放失败后须能再次调用，run 退出后不自动重启。
     工厂返回前的失败和取消由工厂清理，返回后资源交给 WorldSources 托管。
-    retention 仅约束绑定来源；prepare 完成和每次接纳时统一应用全部已选来源的规则。
     """
 
     start: Callable[[], Awaitable[None]]
     stop: Callable[[], Awaitable[None]]
     aclose: Callable[[], Awaitable[None]]
     run: Callable[[], Awaitable[None]] | None = None
-    retention: RecordRetention | None = None
 
     def __post_init__(self) -> None:
         if not all(callable(action) for action in (self.start, self.stop, self.aclose)):
             raise TypeError("来源实例必须提供可调用的 start/stop/aclose")
         if self.run is not None and not callable(self.run):
             raise TypeError("来源主循环必须可调用")
-        if self.retention is not None and not isinstance(self.retention, RecordRetention):
-            raise TypeError("来源保留规则必须为 RecordRetention")
 
 
 class SourceFactory(Protocol):
@@ -114,10 +110,12 @@ class WorldSources:
     插件内代码并非安全隔离，固定回调只约束正常接口使用，不阻止恶意 Python 反射。
     """
 
-    def __init__(self, ctx: Context, hooks: HookConnections, *, instance_id: str = "aurora_world/sources") -> None:
+    def __init__(
+        self, ctx: Context, hooks: HookConnections, records: WorldRecords, *, instance_id: str = "aurora_world/sources"
+    ) -> None:
         _identity(instance_id)
         self._ctx, self._hooks = ctx, hooks
-        self._records = WorldRecords(ctx)
+        self.records = records
         self._instance_id = instance_id
         self._owner = get_ident()
         self._bindings: dict[str, _Binding] = {}
@@ -138,6 +136,7 @@ class WorldSources:
         source_id: str,
         config: dict[str, object] | None = None,
         factory: SourceFactory | None = None,
+        presentation: Presentation | None = None,
     ) -> None:
         """准备前选择一个来源；source_id 在本所有者内唯一，配置必须为 JSON 对象。"""
         self._check_owner()
@@ -161,6 +160,11 @@ class WorldSources:
         encode_json(values)
         if factory is not None and not callable(factory):
             raise TypeError("来源实例工厂必须可调用")
+        selected = presentation or {
+            "org.aurora.world:sources/environment/time": "time",
+            "org.aurora.world:sources/environment/weather": "weather",
+        }.get(str(identity), "events")
+        self.records.select(source_id, selected)
         self._bindings[source_id] = _Binding(
             source_id, identity, entry.target.factory if factory is None else factory, deepcopy(values)
         )
@@ -195,16 +199,7 @@ class WorldSources:
         self._observe_task(binding)
         if not binding.accepting or self._quiesced:
             raise SourceUnavailableError("来源尚未启动或已经停止接纳")
-        return self._records.append(
-            source_id=binding.source_id, message_id=message_id, payload=payload, retention=self._retention()
-        )
-
-    def _retention(self) -> dict[str, RecordRetention]:
-        return {
-            binding.source_id: binding.instance.retention
-            for binding in self._bindings.values()
-            if binding.instance is not None and binding.instance.retention is not None
-        }
+        return self.records.append(source_id=binding.source_id, message_id=message_id, payload=payload)
 
     def _publish(self, binding: _Binding, status: str | None = None) -> None:
         if status is not None:
@@ -253,6 +248,7 @@ class WorldSources:
         if self._prepare_called or self._quiesced:
             raise RuntimeError("来源不能重复准备或在停止后准备")
         self._prepare_called = True
+        binding = None
         try:
             for binding in self._bindings.values():
                 self._publish(binding, "preparing")
@@ -265,9 +261,10 @@ class WorldSources:
                 if self._quiesced:
                     raise SourceUnavailableError("来源准备期间已停止接纳")
                 self._publish(binding, "prepared")
-            self._records.prune(self._retention())
+            self.records.refresh()
         except BaseException:
-            self._fail(binding, "prepare_failed")
+            if binding is not None:
+                self._fail(binding, "prepare_failed")
             self.stop_accepting()
             raise
         self._prepared = True

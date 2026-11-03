@@ -24,6 +24,7 @@ from aurora_core.storage import StorageService
 from aurora_model_adapter import ModelClient, require_capabilities
 from aurora_model_adapter.configuration import BINDINGS, resolve_model
 from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
+from aurora_world import WorldRecords
 from aurora_world.configuration import CONFIGURATION as WORLD_CONFIGURATION
 from aurora_world.configuration import configured_sources_component
 
@@ -105,6 +106,7 @@ class DefaultAssembly:
             is_executing=lambda: self._executing,
         )
         self._run_operations: RunOperations | None = None
+        self.world_records: WorldRecords | None = None
 
     def _runtime_agent(self) -> ReActAgent:
         if self.agent is None:
@@ -118,6 +120,7 @@ class DefaultAssembly:
         model_owner, bot_owner = f"{self.instance_id}/model", f"{self.instance_id}/bot"
         links = []
         cadence = ()
+        records_components = ()
         try:
             for owner, phase, method in (
                 (model_owner, PREPARE, self.prepare_model),
@@ -132,23 +135,36 @@ class DefaultAssembly:
                     self.hooks.connect(phase, definition.id, slot_instance=owner, handler_instance=owner, target=method)
                 )
             world = ()
-            if any(entry.id == CADENCE_CONFIGURATION for entry in self.registry.entries()):
-                cadence = (
-                    Cadence(self.ctx, self.hooks, self.runtime, instance_id=f"{self.instance_id}/cadence").component(
-                        depends_on=(bot_owner,)
+            if any(entry.id in (CADENCE_CONFIGURATION, WORLD_CONFIGURATION) for entry in self.registry.entries()):
+                self.world_records = WorldRecords(self.ctx, self.storage)
+                records_components = (
+                    self.world_records.component(
+                        self.hooks, instance_id=f"{self.instance_id}/records", depends_on=(bot_owner,)
                     ),
+                )
+            if any(entry.id == CADENCE_CONFIGURATION for entry in self.registry.entries()):
+                assert self.world_records is not None
+                cadence = (
+                    Cadence(
+                        self.ctx,
+                        self.hooks,
+                        self.runtime,
+                        self.world_records,
+                        instance_id=f"{self.instance_id}/cadence",
+                    ).component(depends_on=(records_components[0].instance_id,)),
                 )
             if any(entry.id == WORLD_CONFIGURATION for entry in self.registry.entries()):
                 world = (
                     self._world_component_factory(
                         self.ctx,
                         self.hooks,
+                        records=self.world_records,
                         instance_id=f"{self.instance_id}/world",
-                        depends_on=(cadence[0].instance_id if cadence else bot_owner,),
+                        depends_on=(cadence[0].instance_id if cadence else records_components[0].instance_id,),
                     ),
                 )
         except Exception:
-            for component in cadence:
+            for component in (*cadence, *records_components):
                 self.hooks.disconnect_instance(component.instance_id)
             for link in links:
                 self.hooks.disconnect(link)
@@ -157,6 +173,7 @@ class DefaultAssembly:
         return (
             LifecycleComponent(model_owner, depends_on=depends_on),
             LifecycleComponent(bot_owner, depends_on=(model_owner,), stop_accepting=self.stop_accepting),
+            *records_components,
             *cadence,
             *world,
         )

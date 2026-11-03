@@ -10,7 +10,7 @@ from aurora_bot.cadence.state import CHECKPOINT
 from aurora_bot.conversation import CONVERSATION
 from aurora_cli.main import main as cli_main
 from aurora_config import CONFIGURATION
-from aurora_world import RECORDS, SOURCE_STATUS
+from aurora_world import ENVIRONMENT, RECORDS, SOURCE_STATUS
 
 
 def main() -> int:
@@ -37,7 +37,7 @@ def main() -> int:
                     MESSAGES,
                     RUN,
                     WORK,
-                    *((RECORDS, SOURCE_STATUS) if args.world else ()),
+                    *((RECORDS, ENVIRONMENT, SOURCE_STATUS) if args.world else ()),
                     *((CHECKPOINT,) if args.cadence else ()),
                 )
             ]

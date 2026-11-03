@@ -13,7 +13,7 @@ from aurora_core.lifecycle import Lifecycle, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_world import SOURCES, SourceInstance, SourceSpec, SourceUnavailableError, WorldSources
+from aurora_world import SOURCES, SourceInstance, SourceSpec, SourceUnavailableError, WorldRecords, WorldSources
 from aurora_world.plugin import plugin
 
 
@@ -23,6 +23,7 @@ def environment(root, *, failure=None, source="b", block=None):
     register_plugins(registry, [plugin()])
     ctx, hooks = Context(registry), HookConnections(registry)
     storage = StorageService(root)
+    records = WorldRecords(ctx, storage)
     store = storage.snapshot_store()
     events, captures, failed = [], {}, set()
     entered = asyncio.Event()
@@ -64,13 +65,13 @@ def environment(root, *, failure=None, source="b", block=None):
 
     identity = Id("dev.sources:sources/lifecycle")
     registry.register(RegistryEntry(identity, "source", SourceSpec(factory), "test", register_to=SOURCES))
-    sources = WorldSources(ctx, hooks)
+    sources = WorldSources(ctx, hooks, records)
     for name in ("a", "b"):
         sources.add(identity, source_id=name)
     host = Lifecycle(
         ctx,
         hooks,
-        [sources.component()],
+        [records.component(hooks), sources.component(depends_on=("aurora_world/records",))],
         persistence=ContextPersistence(ctx, store, interval=60),
         storage=storage,
     )

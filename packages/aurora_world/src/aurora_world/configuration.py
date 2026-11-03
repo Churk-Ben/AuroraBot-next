@@ -10,7 +10,7 @@ from aurora_core.discovery import Plugin
 from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import CONFIG, LifecycleComponent
 
-from .records import _identity
+from .records import WorldRecords, WorldView, _identity
 from .sources import SourceFactory, WorldSources
 
 CONFIGURATION = Id("org.aurora.world:configs/sources")
@@ -32,6 +32,30 @@ SOURCE_CONFIG = ConfigSchema(
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            "view": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    **{
+                        name: {"type": "number", "exclusiveMinimum": 0, "default": default}
+                        for name, default in (
+                            ("recent_seconds", 3600),
+                            ("weather_seconds", 3600),
+                            ("refresh_seconds", 30),
+                        )
+                    },
+                    **{
+                        name: {"type": "integer", "minimum": 1, "default": default}
+                        for name, default in (
+                            ("max_chars", 32000),
+                            ("max_event_chars", 8000),
+                            ("time_count", 1),
+                            ("weather_count", 4),
+                        )
+                    },
+                },
+            },
             "sources": {
                 "type": "array",
                 "default": [],
@@ -42,10 +66,11 @@ SOURCE_CONFIG = ConfigSchema(
                     "properties": {
                         "source": {"type": "string", "format": "aurora-id"},
                         "source_id": {"type": "string"},
+                        "presentation": {"type": "string", "enum": ["events", "time", "weather"]},
                         "config": {"type": "object", "default": {}},
                     },
                 },
-            }
+            },
         },
     },
     check=_check_sources,
@@ -60,23 +85,29 @@ class _SourceConfiguration:
     @hook_handler("org.aurora.world:handlers/sources/configure", slot=CONFIG)
     def configure(self) -> None:
         values = cast(dict, SOURCE_CONFIG.parse(self._ctx.get(CONFIG_STATE)))
+        self._sources.records.configure(view=WorldView(**values["view"]))
         for source in values["sources"]:
             identity = Id(source["source"])
             self._sources.add(
-                identity, source_id=source["source_id"], config=source["config"], factory=self._factories.get(identity)
+                identity,
+                source_id=source["source_id"],
+                config=source["config"],
+                factory=self._factories.get(identity),
+                presentation=source.get("presentation"),
             )
 
 
 def configured_sources_component(
     ctx: Context,
     hooks: HookConnections,
+    records: WorldRecords,
     *,
     instance_id: str = "aurora_world/sources",
     depends_on: tuple[str, ...] = (),
     source_factories: Mapping[Id, SourceFactory] | None = None,
 ) -> LifecycleComponent:
     """先加载和选择全部声明，prepare 才创建来源；依赖 aurora_config 组件。"""
-    sources = WorldSources(ctx, hooks, instance_id=instance_id)
+    sources = WorldSources(ctx, hooks, records, instance_id=instance_id)
     configuration = _SourceConfiguration(ctx, sources, source_factories or {})
     entry = entry_from(configuration.configure, provider="aurora_world.configuration")
     link = hooks.connect(

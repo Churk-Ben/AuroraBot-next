@@ -50,6 +50,7 @@ async def main(root, *, configured=False):
     identity = Id("dev.world:sources/manual")
     registry.register(RegistryEntry(identity, "source", SourceSpec(factory), "test", register_to=SOURCES))
     storage = StorageService(root)
+    records = WorldRecords(ctx, storage)
     if configured:
         from aurora_config import configuration_component, copy_missing
         from aurora_world.configuration import configured_sources_component
@@ -59,23 +60,22 @@ async def main(root, *, configured=False):
             f'[[sources]]\nsource = "{identity}"\nsource_id = "workshop/sensor"\n'.encode(),
         )
         components = [
-            configured_sources_component(ctx, hooks),
+            configured_sources_component(ctx, hooks, records, depends_on=("aurora_world/records",)),
             configuration_component(registry, ctx, hooks, storage),
         ]
     else:
-        sources = WorldSources(ctx, hooks)
+        sources = WorldSources(ctx, hooks, records)
         sources.add(identity, source_id="workshop/sensor")
-        components = [sources.component()]
+        components = [sources.component(depends_on=("aurora_world/records",))]
     store = storage.snapshot_store()
     host = Lifecycle(
         ctx,
         hooks,
-        components,
+        [records.component(hooks), *components],
         persistence=ContextPersistence(ctx, store, interval=60),
         storage=storage,
     )
     await host.start()
-    records = WorldRecords(ctx)
     observed = []
     handle = ctx.subscribe(observed.append, key=RECORDS, location={})
     try:

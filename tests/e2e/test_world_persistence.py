@@ -14,6 +14,7 @@ from aurora_core.ctx import Context, StateKey
 from aurora_core.discovery import load_plugins, register_plugins
 from aurora_core.persistence import ContextPersistence
 from aurora_core.snapshots import JsonSnapshotStore
+from aurora_core.storage import StorageService
 from aurora_world import RECORDS, SOURCES, WorldRecords
 
 
@@ -30,7 +31,9 @@ def test_receipt_precedes_flush_and_failed_flush_preserves_retryable_records(tmp
         path = tmp_path / "world.json"
         ctx, store, persistence = environment(path)
         await persistence.start()
-        records = WorldRecords(ctx)
+        storage = StorageService(tmp_path / "data")
+        records = WorldRecords(ctx, storage)
+        records.open()
         receipt = records.append(source_id="source", message_id="1", payload="原文")
         assert store.load() == ()
         save = store.save
@@ -53,12 +56,14 @@ def test_receipt_precedes_flush_and_failed_flush_preserves_retryable_records(tmp
             await persistence.close()
             ctx.close()
 
+        records.close()
         ctx, _, persistence = environment(path)
         observed = []
         handle = ctx.subscribe(observed.append, key=RECORDS, location={})
         try:
             await persistence.start()
-            restored = WorldRecords(ctx)
+            restored = WorldRecords(ctx, storage)
+            restored.open()
             assert restored.read() == (receipt.record,)
             assert restored.read(after=receipt.record.position) == ()
             assert observed == []
@@ -68,6 +73,8 @@ def test_receipt_precedes_flush_and_failed_flush_preserves_retryable_records(tmp
             assert new.record.position.sequence == 2
             assert len(observed) == 1
         finally:
+            restored.close()
+            storage.close()
             ctx.unsubscribe(handle)
             await persistence.close()
             ctx.close()
@@ -128,13 +135,15 @@ def test_world_distribution_owns_records_sources_and_lifecycle_definitions():
     plugin = load_plugins(enabled=["aurora_world"])[0]
     assert plugin.requires == ()
     entries = {entry.id: entry for entry in plugin.entries}
-    assert len(entries) == 7
+    assert len(entries) == 12
     assert all(
         entry.id.namespace == "org.aurora.world" and entry.provider == "aurora_world" for entry in entries.values()
     )
     assert entries[SOURCES].kind == "registry"
     assert {str(entry.id) for entry in entries.values() if entry.kind == "hook_handler"} == {
-        f"org.aurora.world:handlers/sources/{phase}" for phase in ("prepare", "start", "stop", "clean")
+        f"org.aurora.world:handlers/{owner}/{phase}"
+        for owner in ("sources", "records")
+        for phase in ("prepare", "start", "stop", "clean")
     }
     entry = entries[RECORDS]
     assert entry.id == RECORDS and entry.kind == "state_key" and entry.provider == "aurora_world"

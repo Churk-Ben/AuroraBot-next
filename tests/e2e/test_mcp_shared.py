@@ -34,7 +34,7 @@ from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
 from aurora_model_adapter.configuration import ADAPTERS
 from aurora_model_adapter.fake import FakeModel, FakeReply
-from aurora_world import RECORDS, SOURCE_STATUS, WorldRecords
+from aurora_world import ENVIRONMENT, RECORDS, SOURCE_STATUS
 from aurora_world.environment import TIME
 from test_mcp_stdio import alive
 
@@ -211,13 +211,18 @@ def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, m
             before = {path: path.read_bytes() for path in (tmp_path / "config").rglob("*.toml")}
             await host.start()
             try:
-                assert {record.source_id for record in WorldRecords(ctx).read()} == {"clock"}
+                assert {dict(address.location)["source_id"] for address in ctx.list(key=ENVIRONMENT)} == {"clock"}
                 assert len(ctx.list(key=WORLD_STATUS)) == len(declarations)
                 assert len(ctx.list(key=SOURCE_STATUS)) == len(declarations) + 1
                 handle = operations.submit("调用工具", instance_id="main").run
                 directory = tmp_path / "server0"
                 await until(lambda: (directory / "entered").exists())
-                await until(lambda: any(record.source_id == "server0" for record in WorldRecords(ctx).read()))
+                await until(
+                    lambda: (
+                        ctx.list(key=RECORDS)
+                        and any(record["source_id"] == "server0" for record in cast(dict, ctx.get(RECORDS))["records"])
+                    )
+                )
                 if mode == "source_stop":
                     for connection in hooks.for_slot(STOP, "default/world"):
                         await hooks.invoke(connection)
@@ -302,7 +307,9 @@ def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, m
                 )
                 await restored_host.start()
                 try:
-                    assert any(record.source_id == "server0" for record in WorldRecords(restored).read())
+                    assert any(
+                        record["source_id"] == "server0" for record in cast(dict, restored.get(RECORDS))["records"]
+                    )
                     await asyncio.sleep(0.05)
                     assert restored_models[0].requests == []
                     assert (tmp_path / "server0/calls").read_text(encoding="utf-8").splitlines() == ["probe"]

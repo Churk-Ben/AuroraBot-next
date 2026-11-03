@@ -1,14 +1,15 @@
 """独立的世界输入与共享环境状态包。"""
 
 from .records import (
+    ENVIRONMENT,
     RECORDS,
     CursorError,
     MessageConflictError,
-    RecordRetention,
     WorldPosition,
     WorldReceipt,
     WorldRecord,
     WorldRecords,
+    WorldView,
 )
 from .sources import (
     SOURCE_STATUS,
@@ -22,12 +23,12 @@ from .sources import (
 )
 
 __all__ = [
+    "ENVIRONMENT",
     "RECORDS",
     "SOURCES",
     "SOURCE_STATUS",
     "CursorError",
     "MessageConflictError",
-    "RecordRetention",
     "SourceEmit",
     "SourceFactory",
     "SourceInstance",
@@ -38,4 +39,5 @@ __all__ = [
     "WorldRecord",
     "WorldRecords",
     "WorldSources",
+    "WorldView",
 ]

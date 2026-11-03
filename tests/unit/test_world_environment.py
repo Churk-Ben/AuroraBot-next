@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from time import time
 from typing import cast
 
 import httpx
@@ -53,8 +54,13 @@ def environment(factory, config):
     identity = Id("dev.test:sources/environment")
     registry.register(RegistryEntry(identity, "source", SourceSpec(factory), "test", register_to=SOURCES))
     ctx, hooks = Context(registry), HookConnections(registry)
-    sources = WorldSources(ctx, hooks)
-    sources.add(identity, source_id="environment/test", config=config)
+    clock = factory.keywords.get("now")
+    records = WorldRecords(ctx, now=(lambda: clock().timestamp()) if clock else time)
+    records.open()
+    sources = WorldSources(ctx, hooks, records)
+    sources.add(
+        identity, source_id="environment/test", config=config, presentation="weather" if "place" in config else "time"
+    )
     return ctx, hooks, sources
 
 
@@ -85,18 +91,18 @@ def test_clock_has_no_catch_up_and_stops_without_another_observation():
     async def scenario():
         clock = Schedule()
         ctx, hooks, sources = environment(partial(create_time, now=clock.now, sleep=clock.sleep), {})
-        records = WorldRecords(ctx)
-        assert records.read() == ()
+        records = sources.records
+        assert records.observations() == ()
         await sources.prepare()
-        assert records.read() == ()
+        assert records.observations() == ()
         await sources.start()
         assert await clock.waiting.get() == 60
-        observed = [records.read()[0]]
+        observed = [records.observations()[0]]
         for seconds in (86400, -86400):
             clock.advance(seconds)
             assert await clock.waiting.get() == 60
-            observed.append(records.read()[0])
-        values = records.read()
+            observed.append(records.observations()[0])
+        values = records.observations()
         assert len(values) == 1 and values[0].position.sequence == 3
         assert observed[0].payload == observed[2].payload
         assert len({value.message_id for value in observed}) == 3
@@ -104,7 +110,8 @@ def test_clock_has_no_catch_up_and_stops_without_another_observation():
         clock.advance(60)
         await asyncio.sleep(0)
         await sources.clean()
-        assert records.read() == values
+        assert records.observations() == values
+        sources.records.close()
         hooks.close()
         ctx.close()
 
@@ -147,14 +154,14 @@ def test_weather_failure_is_observed_and_next_period_can_recover(failure):
         assert requests == []
         await sources.start()
         assert await clock.waiting.get() == 900
-        first = WorldRecords(ctx).read()[0]
+        first = sources.records.observations()[0]
         assert isinstance(first.payload, dict)
         assert first.payload["status"] == "unavailable"
         assert "temperature_c" not in first.payload and "secret-response" not in str(first.payload)
         assert len(requests) == 1
         clock.advance(900)
         assert await clock.waiting.get() == 900
-        second = WorldRecords(ctx).read()[1]
+        second = sources.records.observations()[1]
         assert isinstance(second.payload, dict)
         assert second.payload["status"] == "available"
         assert second.payload["place"] == "南京" and second.payload["condition"] == "多云"
@@ -162,6 +169,7 @@ def test_weather_failure_is_observed_and_next_period_can_recover(failure):
         assert second.message_id != first.message_id
         await sources.stop()
         await sources.clean()
+        sources.records.close()
         hooks.close()
         ctx.close()
 
@@ -195,12 +203,13 @@ def test_pending_weather_request_is_bounded_and_cancelled_before_transport_close
         await entered.wait()
         if timeout:
             assert await clock.waiting.get() == 900
-            assert cast(dict, WorldRecords(ctx).read()[0].payload)["error"] == "timeout"
+            assert cast(dict, sources.records.observations()[0].payload)["error"] == "timeout"
         await sources.stop()
         await sources.clean()
         assert events == ["request.finished", "transport.closed"]
         if not timeout:
-            assert WorldRecords(ctx).read() == ()
+            assert sources.records.observations() == ()
+        sources.records.close()
         hooks.close()
         ctx.close()
 
@@ -217,23 +226,25 @@ def test_weather_keeps_four_samples_within_one_hour_and_prunes_on_prepare():
             transport=httpx.MockTransport(lambda request: httpx.Response(200, json=weather_data())),
         )
         ctx, hooks, sources = environment(factory, LOCATION)
-        records = WorldRecords(ctx)
+        records = sources.records
+        clock.current -= timedelta(hours=2)
         records.append(
             source_id="environment/test",
             message_id="old",
             payload={
-                "observed_at": (clock.current - timedelta(hours=2)).isoformat(),
+                "observed_at": clock.current.isoformat(),
                 "status": "unavailable",
             },
         )
+        clock.current += timedelta(hours=2)
         await sources.prepare()
-        assert records.read() == ()
+        assert records.observations() == ()
         await sources.start()
         await clock.waiting.get()
         for _ in range(4):
             clock.advance(900)
             await clock.waiting.get()
-        retained = records.read()
+        retained = records.observations()
         assert len(retained) == 4
         assert [record.position.sequence for record in retained] == [3, 4, 5, 6]
         assert [cast(dict, record.payload)["observed_at"] for record in retained] == [
@@ -241,9 +252,10 @@ def test_weather_keeps_four_samples_within_one_hour_and_prunes_on_prepare():
         ]
         clock.advance(3600)
         await clock.waiting.get()
-        assert len(records.read()) == 1 and records.read()[0].position.sequence == 7
+        assert len(records.observations()) == 1 and records.observations()[0].position.sequence == 7
         await sources.stop()
         await sources.clean()
+        sources.records.close()
         hooks.close()
         ctx.close()
 
@@ -275,7 +287,7 @@ def test_time_updates_expire_weather_without_an_extra_weather_request():
                 register_to=SOURCES,
             )
         )
-        sources.add(identity, source_id="time")
+        sources.add(identity, source_id="time", presentation="time")
         await sources.prepare()
         await sources.start()
         await weather_clock.waiting.get()
@@ -284,9 +296,10 @@ def test_time_updates_expire_weather_without_an_extra_weather_request():
         time_clock.advance(3600)
         await time_clock.waiting.get()
         assert len(requests) == 1
-        assert [record.source_id for record in WorldRecords(ctx).read()] == ["time"]
+        assert [record.source_id for record in sources.records.observations()] == ["time"]
         await sources.stop()
         await sources.clean()
+        sources.records.close()
         hooks.close()
         ctx.close()
 

@@ -126,12 +126,18 @@ async def run(root: Path) -> dict:
                 )
             source_path.write_text(selection, encoding="utf-8")
             clients = MCPClients(ctx, hooks, instance_id="test/mcp")
-            sources = mcp_world_component(ctx, hooks, clients)
+            records = WorldRecords(ctx, storage)
+            sources = mcp_world_component(ctx, hooks, clients, records, depends_on=("aurora_world/records",))
             store = storage.snapshot_store()
             host = Lifecycle(
                 ctx,
                 hooks,
-                [sources, clients.component(), configuration_component(registry, ctx, hooks, storage)],
+                [
+                    records.component(hooks),
+                    sources,
+                    clients.component(),
+                    configuration_component(registry, ctx, hooks, storage),
+                ],
                 persistence=ContextPersistence(ctx, store, interval=60),
                 storage=storage,
             )
@@ -142,7 +148,6 @@ async def run(root: Path) -> dict:
             def status(identity, ctx=ctx):
                 return cast(dict, ctx.get(WORLD_STATUS, location={"source_id": identity}))
 
-            records = WorldRecords(ctx)
             try:
                 restored = records.read()
                 previous_count = len(restored)

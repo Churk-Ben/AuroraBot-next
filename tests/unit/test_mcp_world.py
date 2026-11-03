@@ -112,6 +112,7 @@ def environment(client, config=None):
     register_plugins(registry, [world_plugin(), plugin()])
     ctx = Context(registry)
     records = WorldRecords(ctx)
+    records.open()
 
     def emit(**kwargs):
         return records.append(source_id="test", **kwargs)
@@ -175,6 +176,7 @@ def test_plugin_requires_explicit_dependencies_and_does_not_connect():
 
 def test_world_factory_is_bound_per_host_without_mutating_shared_definition(tmp_path):
     async def scenario():
+        record_services = []
         registry = bootstrap()
         install_lifecycle_slots(registry)
         register_plugins(
@@ -195,6 +197,8 @@ def test_world_factory_is_bound_per_host_without_mutating_shared_definition(tmp_
             for number in range(2):
                 ctx, hooks = Context(registry), HookConnections(registry)
                 storage = StorageService(tmp_path / str(number))
+                world_records = WorldRecords(ctx, storage)
+                record_services.append(world_records)
                 path = storage.configuration_directory() / "org.aurora.world/config.toml"
                 path.parent.mkdir(parents=True)
                 path.write_text(
@@ -207,9 +211,12 @@ def test_world_factory_is_bound_per_host_without_mutating_shared_definition(tmp_
                     ctx,
                     hooks,
                     [
+                        world_records.component(hooks),
                         configuration_component(registry, ctx, hooks, storage),
                         LifecycleComponent("client"),
-                        mcp_world_component(ctx, hooks, cast(MCPClients, client)),
+                        mcp_world_component(
+                            ctx, hooks, cast(MCPClients, client), world_records, depends_on=("aurora_world/records",)
+                        ),
                     ],
                     storage=storage,
                 )
@@ -219,12 +226,12 @@ def test_world_factory_is_bound_per_host_without_mutating_shared_definition(tmp_
                 await host.start()
                 assert cast(SourceSpec, registry.get(WORLD_SOURCE).target).factory is definition
             await clients[0].events.put(ResourceUpdated(uri=URI))
-            await until(lambda: len(WorldRecords(contexts[0]).read()) == 1)
-            assert WorldRecords(contexts[1]).read() == ()
+            await until(lambda: len(record_services[0].read()) == 1)
+            assert record_services[1].read() == ()
             await hosts[0].stop()
             assert clients[0].leases == 0 and clients[1].leases == 1
             await clients[1].events.put(ResourceUpdated(uri=URI))
-            await until(lambda: len(WorldRecords(contexts[1]).read()) == 1)
+            await until(lambda: len(record_services[1].read()) == 1)
         finally:
             for host in hosts:
                 await host.stop()

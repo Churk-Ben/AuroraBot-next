@@ -56,8 +56,11 @@ def environment():
         return SourceInstance(start, stop, close)
 
     registry.register(RegistryEntry(SOURCE, "source", SourceSpec(factory), "test", register_to=SOURCES))
-    sources = WorldSources(ctx, hooks)
+    records = WorldRecords(ctx)
+    records.open()
+    sources = WorldSources(ctx, hooks, records)
     yield registry, ctx, hooks, sources, captures, events
+    records.close()
     hooks.close()
     ctx.close()
 
@@ -101,13 +104,13 @@ def test_same_definition_has_independent_bound_identities_and_config_copies(envi
                 a(source_id="sensor/b", message_id="2", payload="不能冒用")
             with ThreadPoolExecutor(max_workers=1) as executor, pytest.raises(RuntimeError, match="线程"):
                 executor.submit(a, message_id="thread", payload=None).result()
-            assert len(WorldRecords(ctx).read()) == 2
+            assert len(sources.records.read()) == 2
             sources.stop_accepting()
             sources.stop_accepting()
             for emit in (a, b):
                 with pytest.raises(SourceUnavailableError):
                     emit(message_id="1", payload="原文")
-            assert len(WorldRecords(ctx).read()) == 2
+            assert len(sources.records.read()) == 2
         finally:
             await host.stop()
         for emit in (a, b):
@@ -136,7 +139,7 @@ def test_before_start_and_after_stop_callbacks_cannot_reopen(environment):
         await sources.clean()
         with pytest.raises(RuntimeError):
             await sources.prepare()
-        assert WorldRecords(ctx).read() == ()
+        assert sources.records.read() == ()
         assert ctx.get(SOURCE_STATUS, location={"source_id": "sensor/a"}) == {
             "definition_id": str(SOURCE),
             "status": "closed",

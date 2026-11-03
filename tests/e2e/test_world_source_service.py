@@ -34,6 +34,7 @@ def environment(root, factory, text=None, *, timeout=1.0):
     register_plugins(registry, load_plugins(enabled=["aurora_config", "aurora_world", "aurora_world.configuration"]))
     registry.register(RegistryEntry(SOURCE, "source", SourceSpec(factory), "test", register_to=SOURCES))
     ctx, hooks, storage = Context(registry), HookConnections(registry), StorageService(root)
+    records = WorldRecords(ctx, storage)
     path = storage.configuration_directory() / "org.aurora.world" / "config.toml"
     if text is not None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,7 +44,8 @@ def environment(root, factory, text=None, *, timeout=1.0):
         ctx,
         hooks,
         [
-            configured_sources_component(ctx, hooks),
+            records.component(hooks),
+            configured_sources_component(ctx, hooks, records, depends_on=("aurora_world/records",)),
             configuration_component(registry, ctx, hooks, storage),
         ],
         persistence=ContextPersistence(ctx, store, interval=60),
@@ -137,7 +139,7 @@ def test_background_exit_closes_only_its_source_and_observes_error(tmp_path, end
             state["error"] == {"return": None, "raise": "background_failed", "cancel": "background_cancelled"}[ending]
         )
         assert "secret-runtime-credential" not in str(state) + caplog.text
-        assert len(WorldRecords(ctx).read()) == 1
+        assert len(cast(dict, ctx.get(RECORDS))["records"]) == 1
         await host.stop()
         assert all(task.done() for task in tasks.values())
         assert [item.address.key for item in store.load()] == [RECORDS]

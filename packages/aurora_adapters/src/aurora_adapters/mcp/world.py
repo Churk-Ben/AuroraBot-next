@@ -13,7 +13,15 @@ from aurora_core.hooks import HookConnections
 from aurora_core.json_data import decode_json, encode_json
 from aurora_core.lifecycle import LifecycleComponent
 from aurora_core.registry import RegistryEntry
-from aurora_world import SOURCES, MessageConflictError, SourceEmit, SourceInstance, SourceSpec, SourceUnavailableError
+from aurora_world import (
+    SOURCES,
+    MessageConflictError,
+    SourceEmit,
+    SourceInstance,
+    SourceSpec,
+    SourceUnavailableError,
+    WorldRecords,
+)
 from aurora_world.configuration import configured_sources_component
 from mcp import Client
 from mcp.client.subscriptions import ResourceUpdated, Subscription, SubscriptionLost, ToolsListChanged
@@ -280,6 +288,7 @@ def mcp_world_component(
     ctx: Context,
     hooks: HookConnections,
     clients: MCPClients,
+    records: WorldRecords,
     *,
     instance_id: str = "aurora_world/sources",
     depends_on: tuple[str, ...] = (),
@@ -291,6 +300,7 @@ def mcp_world_component(
     return configured_sources_component(
         ctx,
         hooks,
+        records,
         instance_id=instance_id,
         depends_on=tuple(dict.fromkeys((clients.instance_id, *depends_on))),
         source_factories={WORLD_SOURCE: _WorldFactory(ctx, clients)},

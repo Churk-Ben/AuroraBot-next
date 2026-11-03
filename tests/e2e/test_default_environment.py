@@ -12,7 +12,7 @@ from aurora_api.server import serve
 from aurora_core import entry_from
 from aurora_core.discovery import load_plugins
 from aurora_core.snapshots import JsonSnapshotStore
-from aurora_world import RECORDS, SOURCE_STATUS, SourceSpec, WorldRecords
+from aurora_world import ENVIRONMENT, SOURCE_STATUS, SourceSpec
 from aurora_world.environment import TIME, WEATHER, create_time, create_weather
 from test_default_assembly import seed, setup
 
@@ -95,16 +95,22 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
             try:
                 assert await clocks[0].waiting.get() == (3 if restart else 2)
                 assert await clocks[1].waiting.get() == 900
-                records = WorldRecords(ctx).read()
+                assert assembly.world_records is not None
+                records = assembly.world_records.observations()
                 previous_weather = tuple(record for record in previous if record.source_id == "environment/weather")
                 assert records[: len(previous_weather)] == previous_weather
                 assert len(records) == len(previous_weather) + 2
                 if previous:
-                    assert records[-1].position.sequence == previous[-1].position.sequence + 2
+                    assert records[-1].position.sequence == previous_weather[-1].position.sequence + 1
                 assert len({record.message_id for record in records}) == len(records)
                 assert clients[0].requests == []
-                async with serve(registry, keys=[RECORDS, SOURCE_STATUS], port=0) as url, CtxClient(url) as client:
-                    value = cast(dict, await client.request("get", key=str(RECORDS), location={}))
+                async with serve(registry, keys=[ENVIRONMENT, SOURCE_STATUS], port=0) as url, CtxClient(url) as client:
+                    value = cast(
+                        dict,
+                        await client.request(
+                            "get", key=str(ENVIRONMENT), location={"source_id": "environment/weather"}
+                        ),
+                    )
                     assert value["records"][-1]["payload"]["place"] == "南京"
                     state = cast(
                         dict,
@@ -113,24 +119,32 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
                         ),
                     )
                     assert state["status"] == "running" and state["accepting"] is True
-                    async with client.watch(key=str(RECORDS), location={}) as changes:
+                    async with client.watch(
+                        key=str(ENVIRONMENT), location={"source_id": "environment/time"}
+                    ) as changes:
                         clocks[0].wake.put_nowait(None)
                         assert await clocks[0].waiting.get() == (3 if restart else 2)
                         change = await asyncio.wait_for(anext(changes), timeout=2)
                         assert change["value"]["records"][-1]["payload"]["kind"] == "time"
-                    value = cast(dict, await client.request("get", key=str(RECORDS), location={}))
-                    assert len(value["records"]) == len(records)
-                    assert value["records"][-1]["sequence"] == records[-1].position.sequence + 1
+                    value = cast(
+                        dict,
+                        await client.request("get", key=str(ENVIRONMENT), location={"source_id": "environment/time"}),
+                    )
+                    assert len(value["records"]) == 1
+                    assert (
+                        value["records"][-1]["sequence"]
+                        == next(item for item in records if item.source_id == "environment/time").position.sequence + 1
+                    )
                 assert clients[0].requests == []
                 result = await assembly.runtime.submit("显式交流").run.wait()
                 assert result.status == "completed" and clients[0].requests
-                previous = WorldRecords(ctx).read()
+                previous = assembly.world_records.observations()
             finally:
                 await host.stop()
             snapshot = JsonSnapshotStore(tmp_path / "framework/ctx.json").load()
             assert all(item.address.key != SOURCE_STATUS for item in snapshot)
-            stored = next(item.value for item in snapshot if item.address.key == RECORDS)
-            assert len(cast(dict, stored)["records"]) == len(previous)
+            stored = [item.value for item in snapshot if item.address.key == ENVIRONMENT]
+            assert sum(len(cast(dict, value)["records"]) for value in stored) == len(previous)
             if not restart:
                 text = path.read_text(encoding="utf-8")
                 path.write_text(text.replace("interval_seconds = 2", "interval_seconds = 3"), encoding="utf-8")

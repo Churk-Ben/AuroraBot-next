@@ -23,13 +23,16 @@ logger = logging.getLogger(__name__)
 class Cadence:
     """每个默认 bot 仅装配一个转发所有者；不创建激活或等待业务完成。
 
-    持久状态按 bot instance_id 定位。首次启用从当前保留窗口开始，之后严格遵循游标；
+    持久状态按 bot instance_id 定位。首次启用从数据库可用历史开始，之后严格遵循游标；
     来源选择变化、裁剪缺口和未知转交均暂停，重启不能自动清除诊断。完整回执保留原始
     消息和引导关联，适用于有限规模输入，不承诺逐条落盘或崩溃下的恰好一次执行。
     """
 
-    def __init__(self, ctx: Context, hooks: HookConnections, runtime: AgentRuntime, *, instance_id: str) -> None:
+    def __init__(
+        self, ctx: Context, hooks: HookConnections, runtime: AgentRuntime, records: WorldRecords, *, instance_id: str
+    ) -> None:
         self.ctx, self.hooks, self.runtime = ctx, hooks, runtime
+        self.records = records
         self.instance_id = instance_id
         self._location: dict[str, str] = {}
         self._state: dict = {}
@@ -71,6 +74,10 @@ class Cadence:
     @hook_handler("org.aurora.bot:handlers/cadence/prepare", slot=PREPARE)
     def prepare(self) -> None:
         selected = cast(dict, CADENCE_CONFIG.parse(self.ctx.get(CONFIG_STATE)))["source_ids"]
+        if any(self.records.presentation(source_id) != "events" for source_id in selected):
+            raise ValueError(
+                "cadence 只能消费归档事件；需要转交的环境来源须在 world 配置中显式选择 presentation=events"
+            )
         self._location = {"instance_id": cast(dict, self.ctx.get(BOT_CONFIG))["instance_id"]}
         try:
             self._state = cast(dict, self.ctx.get(CHECKPOINT, location=self._location))
@@ -103,7 +110,7 @@ class Cadence:
         self._changed.set()
 
     async def _forward(self) -> None:
-        records = WorldRecords(self.ctx)
+        records = self.records
         try:
             while self._accepting:
                 await self._changed.wait()

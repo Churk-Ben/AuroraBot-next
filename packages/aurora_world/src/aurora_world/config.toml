@@ -7,7 +7,6 @@ sources = []
 # source_id = "environment/time"
 # [sources.config]
 # interval_seconds = 60
-# retain_count = 1
 #
 # 环境来源需要显式启用 aurora_world.environment。
 # [[sources]]
@@ -19,5 +18,13 @@ sources = []
 # longitude = 118.7778
 # interval_seconds = 900
 # timeout_seconds = 10
-# retain_count = 4
-# retain_seconds = 3600
+
+# world 统一管理呈现；来源配置只包含采样和连接参数。
+[view]
+recent_seconds = 3600
+max_chars = 32000
+max_event_chars = 8000
+time_count = 1
+weather_count = 4
+weather_seconds = 3600
+refresh_seconds = 30
