@@ -2,6 +2,12 @@
 
 ## 2026-11-03
 
+### 配置本地 data 的 world 试用环境
+
+- 保留现有 host 插件、模型绑定和运行期凭证，将 world 的旧来源保留参数移至统一 `[view]`：近期 3600 秒、32000 字符预算、8000 字符单条预览、30 秒刷新；时间保留 1 条，南京天气保留一小时内最多 4 条。原配置备份为 `data/config/org.aurora.world/config.toml.before-world-view`。
+- 经用户明确确认，对 `data` 执行旧日志迁移；2 条记录的原文、记录身份和序号保留，其他 ctx 状态原样，原快照备份为 `data/framework/ctx.before-world-database.json`。迁移前在副本验证，迁移后完成实际数据库及快照核对。
+- 全部已启用插件的配置加载、关联校验和凭证可解析性检查通过；未启动真实模型或天气请求。继续使用每 60 秒的时间采样与每 900 秒的南京天气采样，未启用 cadence 自动转发。实际本地配置和数据由 git 忽略，不进入提交。
+
 ### 整理以 ctx 为中心的主动 bot 上下文设计
 
 - 新增独立讨论稿 [以 ctx 为中心的主动 bot 上下文设计](aurora_bot_ctx_prompt_design.md)：稳定的世界规则和人格进入 system，本次唤起原因与业务 ctx 视图通过 user 提供，运行中保留 assistant/tool 关系；关注与行动选择交给 bot，框架维护来源、身份和执行事实。
