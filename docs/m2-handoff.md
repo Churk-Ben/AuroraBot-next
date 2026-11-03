@@ -110,7 +110,7 @@ CLI 基础能力：
 - 内置 commands/ 直接子包导出无参数 plugin()，自动发现；外部插件通过 aurora.plugins entry point 显式选择。
 - main、commander、declarations、parsing、execution、host、presentation 分担入口、发现、声明、解析、执行、宿主和展示，不通过具体命令 ID 特判。
 - 命令绑定 operation 或 executor 二选一；runtime 声明是否需要宿主。passthrough 只在显式启用时保留原始 argv，不拼接 shell 字符串。
-- CLI 装配入口是同步工厂，关键字接收 registry、ctx、hooks、storage，返回 LifecycleComponent 可迭代对象；资源初始化在 prepare/start。这不冻结默认 bot 的装配格式。
+- CLI 装配入口是同步工厂，关键字接收 registry、ctx、hooks、storage、workspace_root，返回 LifecycleComponent 可迭代对象；资源初始化在 prepare/start。workspace_root 来自宿主入口解析的 --root。这不冻结默认 bot 的装配格式。
 - M2 交付时已有 about、check、donk、help、ctx get/set/delete/list/watch、run、id/list；随后增加 `run submit/activate/cancel`，没有常驻 chat 入口。id list 不启动宿主，不包含 prepare/start 动态登记的项。
 - CLI 操作本进程宿主；另起进程不能凭共享数据目录取消在途任务。流式对话与取消须维持实际宿主关联，bot 不硬依赖 CLI/API 实现。
 

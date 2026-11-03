@@ -1,6 +1,6 @@
 # MCP 通用接入需求与设计草案
 
-状态：B5.1 配置与迁移、B5.2 HTTP 协商、B5.3 stdio 已实现，B5.4 工具自动选择已实现，产品装配待完成。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
+状态：B5.1 配置与迁移、B5.2 HTTP 协商、B5.3 stdio、B5.4 工具自动选择与产品装配已实现。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
 
 本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口、HTTP 协商和 stdio 已实现；自动工具命名与精确过滤已实现，产品装配仍为拟议设计。remote/local 均支持 legacy/auto/固定新版，工具桥默认自动发现，可显式 include/exclude 和 aliases；local 由宿主通过 MCPClients 的 workspace_root 明确提供工作区根目录。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
 
@@ -214,15 +214,17 @@ v2 已实现算法：`mcp_<server_slug>_<tool_slug>_<digest>`。slug 将 ASCII �
 
 ## 8. 产品装配与包边界
 
-通用接入不能停留在库接口。拟提供可选 `aurora_adapters.mcp.bot` 插件和 `aurora-adapters[mcp-bot]` extra，集中复用 MCPClients、MCPTools 和 DefaultAssembly；这些名称尚未登记。该插件显式 requires 既有 MCP 工具插件与 bot 默认装配，消费者仍须显式启用完整插件集合，不由 requires 偷偷加载依赖。
+可选 `aurora_adapters.mcp.bot` 插件和 `aurora-adapters[mcp-bot]` extra 已实现，集中复用 MCPClients、MCPTools 和 DefaultAssembly。该插件显式 requires 既有 MCP 工具插件与 bot 默认装配，消费者仍须显式启用完整插件集合，不由 requires 偷偷加载依赖。
 
-拟议宿主装配 ID 为 `org.aurora.adapters:assemblies/mcp/default_bot`。后续在现有 CLI/API 共用宿主路径中选择该装配，并提供一次性初始化预设，避免用户手写 Python。预设只生成缺失配置，已有 host.toml 需先展示差异；不改变普通 DefaultAssembly 的默认依赖和行为。
+宿主装配 ID 为 `org.aurora.adapters:assemblies/mcp/default_bot`。CLI/API 共用宿主选择该装配；`python -m aurora_adapters.mcp.preset <data-dir> [--world] [--api]` 生成一次性预设，无需手写 Python。预设只生成缺失配置；已有 host.toml 选择不同时展示规范化差异、生成 host.mcp.toml 候选并返回 2，用户显式应用后生效。普通 DefaultAssembly 的默认依赖和行为不变。宿主工厂增加必需的 workspace_root 关键字，来自 CLI 在入口解析的 --root，stdio 相对路径据此解析；原有工厂须同步接收该参数，无兼容转发层。
 
-组合装配创建一个 MCPClients，prepare 先完成连接与目录，再进入模型和工具检查。DefaultAssembly 接收组合装配提供的工具选择增量，并与 bot 原有本地工具选择合并；不把运行期生成目录伪装成 TOML 配置或写回文件。不得通过修改私有 _specs、复制 prepare_bot 或绕过工具工厂来装配。重复工具/实例身份必须显式失败。
+组合装配创建一个 MCPClients，prepare 先完成连接与目录，再进入模型和工具检查。DefaultAssembly 的 additional_tools 回调接收既有选择副本，返回增量；产品装配只补入尚未显式选择的 MCP 工具，保留既有实例身份，新实例采用工具 ID 的 local_path。不把运行期生成目录写回 ctx 配置或 TOML。最终选择统一经过原有 schema、名称和实例身份校验；用户显式重复选择仍失败。不修改私有 _specs、复制 prepare_bot 或绕过工具工厂。
 
-基础 adapters 继续仅依赖 core；mcp 提供客户端与两种传输；mcp-tools 可依赖 agent；mcp-world 可依赖 world；只有可选 mcp-bot 依赖 bot。agent/world/bot 均不反向依赖 adapters。更改公共注入接口时同步消费者和测试，拟议新 ID/插件仅在落地时加入公共 ID 目录。
+基础 adapters 继续仅依赖 core；mcp 提供客户端与两种传输；mcp-tools 可依赖 agent；mcp-world 可依赖 world；只有可选 mcp-bot 依赖 bot。agent/world/bot 均不反向依赖 adapters。预设与 CLI 复用 aurora_config.host.HOST_SCHEMA，产品 extra 无需 CLI/API，实际宿主另行安装。
 
 世界来源若一起启用，组合装配复用同一个 MCPClients，并替换 DefaultAssembly 已有的来源装配注入点，保证每个 ctx 只有一个来源所有者；不并排启动通用 configured_sources_component 与 MCP 专用来源所有者。该路径纳入 B3；工具独立宿主始终无需 world。
+
+来源实例工厂通过 configured_sources_component 的 source_factories 注入，不将 ctx/clients 写入公共 SourceSpec；不同宿主可复用同一来源定义。DefaultAssembly.world_component_factory 提供单一装配入口，普通来源仍使用其原工厂。
 
 启用配置中的服务属于明确使用意图；单独查询插件定义、配置 schema 或公共 ID 不得启动命令、解析凭证或访问网络。首轮已启用服务启动/发现失败使对应组合装配失败，沿生命周期清理已启动资源；暂不引入“可选服务失败后静默忽略”的策略。用户可通过 enabled=false 显式排除服务。
 

@@ -2,6 +2,15 @@
 
 ## 2026-11-03
 
+### M4.B5.4：接入默认 bot 产品装配与初始化预设
+
+- 新增可选 `aurora_adapters.mcp.bot` 插件、`aurora-adapters[mcp-bot]` extra 和 `org.aurora.adapters:assemblies/mcp/default_bot`。共享一个 MCPClients，目录发现先于模型和工具准备；DefaultAssembly 通过 additional_tools 增量合并工具，保留已显式选择的 MCP 实例身份，新增实例使用工具 ID 的 local_path，不改写 TOML、ctx 配置或历史快照。
+- `python -m aurora_adapters.mcp.preset <data-dir> [--world] [--api]` 生成显式插件选择和缺失模板。已有 host.toml 选择不同时保留原文件，输出规范化差异与 host.mcp.toml 候选并返回 2；候选冲突报错，不创建模型、连接或子进程。宿主 schema 移入 aurora_config.host，CLI 与预设复用同一解析契约，adapters 不依赖 CLI/API。
+- 正式 CLI/API 宿主工厂增加必需 workspace_root 关键字，来自 --root，独立于数据目录；同步默认装配、live_workshop、测试消费者与指南，无签名猜测或兼容转发。第三方装配工厂须同步接收该参数。公开 ID/插件为新增，无旧 ID 替换；自动实例身份只作用于未显式选择的工具。
+- DefaultAssembly 提供单一 world_component_factory 入口；world 按实例注入 source_factories，MCP 来源复用共享连接，普通来源沿用原工厂，不再向公共 SourceSpec 写入宿主 ctx/clients。两个 ctx 复用同一来源定义的独立接纳和关闭验证通过。
+- 新增 14 项验收：正式 CLI 的 HTTP/stdio 与显式选择保留、正式 API 双传输往返、四种预设、原文件/候选保护、非法宿主及依赖显式启用、来源定义复用。完整检查中 969 项 Python、97 项 TS、5 项终端测试通过；新增测试的类型标注修正后单独重跑 pyright 为零错误，格式/lint 与 TS 类型检查通过。12 个 wheel 构建完成，隔离安装验证基础、客户端、世界、工具、agent 与产品 extra；产品 extra 无 CLI/API 时可生成预设，另装正式宿主后验收双传输 CLI/API。82 个本地链接/锚点与 9 段 TOML 示例通过。仅使用假模型和本机测试服务。
+- B5.4 产品入口已完成，扩展 B3 共享关闭矩阵继续推进；未修改 README.md、AGENTS.md、用户审查报告或已有用户数据。
+
 ### M4.B5.4：完成工具自动选择与内部目录整合
 
 - MCPTools 默认发现 tools 能力服务的完整目录，支持精确 include/exclude、显式别名及 v2 稳定自动名称；原始服务名和远端工具名参与 SHA-256 摘要，ASCII slug 仅用于阅读。Unicode、截断和同名服务工具不依赖返回顺序；自动名称、显式别名、本地工具模型名称和公共 ID 统一检查冲突，不添加临时编号或登记部分目录。

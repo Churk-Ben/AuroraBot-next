@@ -16,7 +16,7 @@ KEY = Id("dev.m1:state/value")
 ASSEMBLY = Id("dev.m1:assemblies/watch")
 
 
-def assemble(*, registry, ctx, hooks, storage):
+def assemble(*, registry, ctx, hooks, storage, workspace_root):
     fault = os.environ.get("AURORA_M1_FAULT", "")
     ready = asyncio.Event()
     worker = None

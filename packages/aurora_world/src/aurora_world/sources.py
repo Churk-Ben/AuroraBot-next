@@ -131,7 +131,14 @@ class WorldSources:
         if get_ident() != self._owner:
             raise RuntimeError("来源接口必须在创建它的宿主线程调用")
 
-    def add(self, identity: Id, *, source_id: str, config: dict[str, object] | None = None) -> None:
+    def add(
+        self,
+        identity: Id,
+        *,
+        source_id: str,
+        config: dict[str, object] | None = None,
+        factory: SourceFactory | None = None,
+    ) -> None:
         """准备前选择一个来源；source_id 在本所有者内唯一，配置必须为 JSON 对象。"""
         self._check_owner()
         if self._prepare_called or self._quiesced:
@@ -152,7 +159,11 @@ class WorldSources:
         if type(values) is not dict:
             raise TypeError("来源配置必须为 JSON 对象")
         encode_json(values)
-        self._bindings[source_id] = _Binding(source_id, identity, entry.target.factory, deepcopy(values))
+        if factory is not None and not callable(factory):
+            raise TypeError("来源实例工厂必须可调用")
+        self._bindings[source_id] = _Binding(
+            source_id, identity, entry.target.factory if factory is None else factory, deepcopy(values)
+        )
 
     def component(self, *, depends_on: tuple[str, ...] = ()) -> LifecycleComponent:
         """连接来源所有者的生命周期；不创建来源、任务或状态。"""

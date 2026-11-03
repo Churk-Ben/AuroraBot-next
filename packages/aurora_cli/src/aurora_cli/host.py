@@ -27,7 +27,7 @@ async def execute(
     assembly: Id | None,
     config: object,
 ) -> int:
-    """工厂同步接收 registry/ctx/hooks/storage，在 prepare/start 内初始化资源。"""
+    """工厂接收 registry/ctx/hooks/storage/workspace_root，prepare/start 内初始化资源。"""
     registry = context.registry
     ctx = install_context(registry)
     lifecycle: Lifecycle | None = None
@@ -42,7 +42,11 @@ async def execute(
         hooks = HookConnections(registry)
         try:
             initialize_host_config(storage.configuration_directory())
-            components = () if factory is None else factory(registry=registry, ctx=ctx, hooks=hooks, storage=storage)
+            components = (
+                ()
+                if factory is None
+                else factory(registry=registry, ctx=ctx, hooks=hooks, storage=storage, workspace_root=context.root)
+            )
             if inspect.iscoroutine(components):
                 components.close()
                 raise TypeError("装配工厂必须同步返回组件")

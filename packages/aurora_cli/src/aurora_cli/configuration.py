@@ -4,19 +4,9 @@ from importlib.resources import files
 from pathlib import Path
 from typing import cast
 
-from aurora_config import ConfigSchema, copy_missing, read_toml
+from aurora_config import copy_missing, read_toml
+from aurora_config import host as host_config
 from aurora_config.templates import checked_path
-
-HOST_SCHEMA = ConfigSchema(
-    {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "plugins": {"type": "array", "items": {"type": "string", "pattern": r"\S"}, "default": []},
-            "assembly": {"type": "string", "format": "aurora-id"},
-        },
-    }
-)
 
 
 def read_host_config(root: Path) -> dict[str, object]:
@@ -24,7 +14,7 @@ def read_host_config(root: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     try:
-        return cast(dict[str, object], HOST_SCHEMA.parse(read_toml(path)))
+        return cast(dict[str, object], host_config.HOST_SCHEMA.parse(read_toml(path)))
     except (ValueError, TypeError) as error:
         raise ValueError(f"宿主配置 {path}：{error}") from None
 

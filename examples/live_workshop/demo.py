@@ -294,7 +294,7 @@ class Workshop:
                 await self.source
 
 
-def assemble(*, registry, ctx, hooks, storage):
+def assemble(*, registry, ctx, hooks, storage, workspace_root):
     entry = registry.get(INSPECT_TOOL)
     registry.replace(
         replace(

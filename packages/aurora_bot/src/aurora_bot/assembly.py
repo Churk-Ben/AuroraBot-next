@@ -1,7 +1,9 @@
 """配置驱动的默认单 bot 装配；资源在恢复后创建，激活由调用方显式发起。"""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from copy import deepcopy
+from pathlib import Path
 from typing import cast
 
 from aurora_agent.model import ModelCall
@@ -33,6 +35,7 @@ from .assembly_config import (
     RUN,
     WORK,
     BotConfig,
+    ToolSelection,
     parse_config,
     validate_json,
 )
@@ -73,12 +76,16 @@ class DefaultAssembly:
         storage: StorageService,
         credential_resolver: Callable[[str], str] = environment_credential,
         instance_id: str = "default",
+        additional_tools: Callable[[tuple[ToolSelection, ...]], Iterable[ToolSelection]] | None = None,
+        world_component_factory: Callable[..., LifecycleComponent] = configured_sources_component,
     ) -> None:
         if not instance_id:
             raise ValueError("装配实例身份不能为空")
         self.registry, self.ctx, self.hooks, self.storage = registry, ctx, hooks, storage
         self.credential_resolver = credential_resolver
         self.instance_id = instance_id
+        self._additional_tools = additional_tools
+        self._world_component_factory = world_component_factory
         self.client: ModelClient | None = None
         self.agent: ReActAgent | None = None
         self.defaults: ReActDefaults | None = None
@@ -124,7 +131,7 @@ class DefaultAssembly:
             world = ()
             if any(entry.id == WORLD_CONFIGURATION for entry in self.registry.entries()):
                 world = (
-                    configured_sources_component(
+                    self._world_component_factory(
                         self.ctx, self.hooks, instance_id=f"{self.instance_id}/world", depends_on=(bot_owner,)
                     ),
                 )
@@ -142,6 +149,9 @@ class DefaultAssembly:
     @hook_handler("org.aurora.bot:handlers/assembly/prepare_model", slot=PREPARE)
     async def prepare_model(self) -> None:
         self.config = parse_config(self.ctx.get(CONFIG))
+        if self._additional_tools is not None:
+            additions = self._additional_tools(tuple(deepcopy(self.config["tools"])))
+            self.config = parse_config({**self.config, "tools": [*self.config["tools"], *additions]})
         names: set[str] = set()
         for selection in self.config["tools"]:
             entry = self.registry.get(Id(selection["tool"]))
@@ -347,7 +357,7 @@ class DefaultAssembly:
 
 
 def assemble(
-    *, registry: DefinitionRegistry, ctx: Context, hooks: HookConnections, storage: StorageService
+    *, registry: DefinitionRegistry, ctx: Context, hooks: HookConnections, storage: StorageService, workspace_root: Path
 ) -> tuple[LifecycleComponent, ...]:
     """宿主兼容的同步装配入口；读取配置和分配资源留到 prepare。"""
     return DefaultAssembly(registry=registry, ctx=ctx, hooks=hooks, storage=storage).components()

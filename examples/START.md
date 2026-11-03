@@ -405,6 +405,21 @@ uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-tool
 
 两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；工具桥与世界通知桥共同使用时的完整关闭验收属于 B3。
 
+### MCP 默认 bot 产品预设
+
+安装 `aurora-adapters[mcp-bot]` 和所需宿主 `aurora-cli`；API 另需 `aurora-api`。工作区开发环境已有这些包。执行一次预设，填写生成的模型 profiles/bindings 与 MCP servers，即可通过正式入口使用工具，不需要手写 Python 装配：
+
+```powershell
+uv run --locked python -m aurora_adapters.mcp.preset .aurora-mcp --api --world
+# 填写 .aurora-mcp/config 下的模型和 MCP 配置后：
+uv run --locked aurora --root . -d .aurora-mcp org.aurora.bot:commands/run/submit "使用可用工具完成任务" --instance-id main
+uv run --locked aurora --root . -d .aurora-mcp serve --port 8765 --endpoints '["org.aurora.bot:endpoints/conversation"]'
+```
+
+instance_id 应与 `org.aurora.bot/config.toml` 一致。`--world` 显式启用世界配置和 MCP 来源插件，来源列表仍需按下一节填写；`--api` 显式启用 API 插件。只需工具时可省略两项。预设不创建连接、子进程或模型，不覆盖已有文件。已有 host.toml 与预设不同时显示差异，写入 `host.mcp.toml` 并返回 2；审阅并显式应用候选后启动。候选已存在且不同则报错保留。
+
+预设选择 `org.aurora.adapters:assemblies/mcp/default_bot`，先发现工具，再与 bot 的本地工具选择合并。自动补入工具的实例身份使用工具 ID 的 local_path；已显式选择的 MCP 工具保留原实例身份，不重复添加。运行期目录不写回 TOML 或配置状态，名称/实例冲突仍拒绝启动。标准装配工厂新增 workspace_root 关键字，第三方工厂须同步接收；它来自 `--root`，与数据目录独立，stdio 默认 cwd 和相对路径均以此为准。
+
 ### MCP 世界通知桥
 
 世界来源目前使用 2026-07-28 的订阅契约；即使旧版连接声明 resources，来源也会明确报 unsupported_subscription_protocol，不尝试未实现的旧订阅。该连接仍可供工具使用。

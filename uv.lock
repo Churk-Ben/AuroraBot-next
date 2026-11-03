@@ -233,6 +233,16 @@ mcp = [
     { name = "mcp" },
     { name = "tomli-w" },
 ]
+mcp-bot = [
+    { name = "anyio" },
+    { name = "aurora-agent" },
+    { name = "aurora-bot" },
+    { name = "aurora-config" },
+    { name = "aurora-world", extra = ["config"] },
+    { name = "httpx2" },
+    { name = "mcp" },
+    { name = "tomli-w" },
+]
 mcp-tools = [
     { name = "anyio" },
     { name = "aurora-agent" },
@@ -255,7 +265,9 @@ requires-dist = [
     { name = "anyio", marker = "extra == 'mcp'", specifier = ">=4.15,<5" },
     { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapters" },
     { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapters" },
+    { name = "aurora-adapters", extras = ["mcp-tools", "mcp-world"], marker = "extra == 'mcp-bot'", editable = "packages/aurora_adapters" },
     { name = "aurora-agent", marker = "extra == 'mcp-tools'", editable = "packages/aurora_agent" },
+    { name = "aurora-bot", marker = "extra == 'mcp-bot'", editable = "packages/aurora_bot" },
     { name = "aurora-config", marker = "extra == 'mcp'", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-world", extras = ["config"], marker = "extra == 'mcp-world'", editable = "packages/aurora_world" },
@@ -263,7 +275,7 @@ requires-dist = [
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
     { name = "tomli-w", marker = "extra == 'mcp'", specifier = ">=1.2,<2" },
 ]
-provides-extras = ["mcp", "mcp-world", "mcp-tools"]
+provides-extras = ["mcp", "mcp-world", "mcp-tools", "mcp-bot"]
 
 [[package]]
 name = "aurora-agent"

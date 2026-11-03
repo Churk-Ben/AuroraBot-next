@@ -339,6 +339,14 @@ B4 通过 `aurora-adapters[mcp-world]` extra 增加 world/config 依赖。插件
 
 工具选择位于 v2 servers.<服务名>.tools，include/exclude 选择远端名称，aliases 指定本地名称。默认通配发现全部工具，缺少别名时使用 v2 稳定自动名称；空 include 不登记工具。MCPTools.tool_ids 在准备完成后提供本宿主已登记身份，名称冲突在整批登记前拒绝。旧配置显式迁移保留原工具名称与公共 ID，没有旧工具的服务迁移为 include=[]，不扩大暴露范围、不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
 
+B5.4 已登记可选产品插件 `aurora_adapters.mcp.bot`，requires 为 `aurora_adapters.mcp.tools` 与 `aurora_bot.assembly`，依赖须显式启用。安装 `aurora-adapters[mcp-bot]`，不强制安装 CLI/API；宿主分别安装并选择。
+
+| ID | kind | 用途 |
+| --- | --- | --- |
+| `org.aurora.adapters:assemblies/mcp/default_bot` | `assembly` | 共享 MCPClients，完成工具发现后向 DefaultAssembly 提供增量；可选世界来源复用同一连接 |
+
+预设模块 `aurora_adapters.mcp.preset` 只补缺失模板，宿主选择冲突时输出独立候选和差异。运行期新增工具实例采用工具 ID 的 local_path，已有显式选择保留原实例身份；不改写配置或快照。来源实例工厂通过 world 的 source_factories 注入，不修改公共来源定义。CLI/API 装配工厂均接收 workspace_root（CLI --root 解析值），提供给 stdio 路径解析。
+
 ## 7. aurora_api
 
 ### 7.1 传输契约与基础端点

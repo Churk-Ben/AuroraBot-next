@@ -1,5 +1,6 @@
 """显式启用的 TOML 来源装配；需要安装 aurora-world[config]。"""
 
+from collections.abc import Mapping
 from typing import cast
 
 from aurora_config import ConfigSchema, ConfigSpec, ConfigTemplate, config_entries
@@ -10,7 +11,7 @@ from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import CONFIG, LifecycleComponent
 
 from .records import _identity
-from .sources import WorldSources
+from .sources import SourceFactory, WorldSources
 
 CONFIGURATION = Id("org.aurora.world:configs/sources")
 CONFIG_STATE = Id("org.aurora.world:state/config")
@@ -52,14 +53,18 @@ SOURCE_CONFIG = ConfigSchema(
 
 
 class _SourceConfiguration:
-    def __init__(self, ctx: Context, sources: WorldSources) -> None:
+    def __init__(self, ctx: Context, sources: WorldSources, factories: Mapping[Id, SourceFactory]) -> None:
         self._ctx, self._sources = ctx, sources
+        self._factories = dict(factories)
 
     @hook_handler("org.aurora.world:handlers/sources/configure", slot=CONFIG)
     def configure(self) -> None:
         values = cast(dict, SOURCE_CONFIG.parse(self._ctx.get(CONFIG_STATE)))
         for source in values["sources"]:
-            self._sources.add(Id(source["source"]), source_id=source["source_id"], config=source["config"])
+            identity = Id(source["source"])
+            self._sources.add(
+                identity, source_id=source["source_id"], config=source["config"], factory=self._factories.get(identity)
+            )
 
 
 def configured_sources_component(
@@ -68,10 +73,11 @@ def configured_sources_component(
     *,
     instance_id: str = "aurora_world/sources",
     depends_on: tuple[str, ...] = (),
+    source_factories: Mapping[Id, SourceFactory] | None = None,
 ) -> LifecycleComponent:
     """先加载和选择全部声明，prepare 才创建来源；依赖 aurora_config 组件。"""
     sources = WorldSources(ctx, hooks, instance_id=instance_id)
-    configuration = _SourceConfiguration(ctx, sources)
+    configuration = _SourceConfiguration(ctx, sources, source_factories or {})
     entry = entry_from(configuration.configure, provider="aurora_world.configuration")
     link = hooks.connect(
         CONFIG, entry.id, slot_instance=instance_id, handler_instance=instance_id, target=configuration.configure

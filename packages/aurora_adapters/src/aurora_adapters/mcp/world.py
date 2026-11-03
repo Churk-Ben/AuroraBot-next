@@ -263,15 +263,17 @@ class _ResourceSource:
 
 
 class _WorldFactory:
-    def __init__(self) -> None:
-        self.binding: tuple[Context, MCPClients] | None = None
+    def __init__(self, ctx: Context, clients: MCPClients) -> None:
+        self.ctx, self.clients = ctx, clients
 
     async def __call__(self, *, source_id: str, emit: SourceEmit, config: dict[str, object]) -> SourceInstance:
         values = cast(dict, WORLD_CONFIG.parse(config))
-        if self.binding is None:
-            raise RuntimeError("MCP 世界来源尚未装配客户端所有者")
-        source = _ResourceSource(*self.binding, source_id, emit, values)
+        source = _ResourceSource(self.ctx, self.clients, source_id, emit, values)
         return SourceInstance(source.start, source.stop, source.close, source.run)
+
+
+async def _unbound_factory(*, source_id: str, emit: SourceEmit, config: dict[str, object]) -> SourceInstance:
+    raise RuntimeError("MCP 世界来源尚未装配客户端所有者")
 
 
 def mcp_world_component(
@@ -284,18 +286,15 @@ def mcp_world_component(
 ) -> LifecycleComponent:
     """装配同一 world 来源所有者并注入共享客户端，替代 configured_sources_component。"""
     spec = ctx.registry.get(WORLD_SOURCE).target
-    if not isinstance(spec, SourceSpec) or not isinstance(spec.factory, _WorldFactory):
+    if not isinstance(spec, SourceSpec) or spec.factory is not _unbound_factory:
         raise TypeError("MCP 世界来源定义不匹配")
-    if spec.factory.binding is not None:
-        raise RuntimeError("MCP 世界来源已经绑定所有者")
-    component = configured_sources_component(
+    return configured_sources_component(
         ctx,
         hooks,
         instance_id=instance_id,
         depends_on=tuple(dict.fromkeys((clients.instance_id, *depends_on))),
+        source_factories={WORLD_SOURCE: _WorldFactory(ctx, clients)},
     )
-    spec.factory.binding = (ctx, clients)
-    return component
 
 
 def _validate_status(value: object) -> None:
@@ -308,7 +307,7 @@ def plugin() -> Plugin:
         "aurora_adapters.mcp.world",
         (
             RegistryEntry(
-                WORLD_SOURCE, "source", SourceSpec(_WorldFactory()), "aurora_adapters.mcp.world", register_to=SOURCES
+                WORLD_SOURCE, "source", SourceSpec(_unbound_factory), "aurora_adapters.mcp.world", register_to=SOURCES
             ),
             RegistryEntry(
                 WORLD_STATUS, "state_key", StateKey(_validate_status, persistent=False), "aurora_adapters.mcp.world"

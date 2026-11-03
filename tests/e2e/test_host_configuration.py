@@ -41,7 +41,7 @@ def test_host_default_assembly_reads_toml_before_prepare_and_keeps_runtime_edits
     path.write_text('value = "file"\n', encoding="utf-8")
     observations = []
 
-    def factory(*, registry, ctx, hooks, storage):
+    def factory(*, registry, ctx, hooks, storage, workspace_root):
         @hook_handler("dev.configuration:handlers/prepare", slot=PREPARE)
         def prepare():
             observations.append(ctx.get(CONFIG))

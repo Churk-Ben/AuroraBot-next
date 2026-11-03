@@ -7,14 +7,27 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from aurora_adapters.mcp.clients import MCPClients
 from aurora_adapters.mcp.configuration import PROTOCOL_VERSION
-from aurora_adapters.mcp.world import WORLD_STATUS, MCPWorldError, _ResourceSource, plugin
+from aurora_adapters.mcp.world import (
+    WORLD_SOURCE,
+    WORLD_STATUS,
+    MCPWorldError,
+    _ResourceSource,
+    mcp_world_component,
+    plugin,
+)
 from aurora_adapters.mcp.world_config import WORLD_CONFIG
+from aurora_config import configuration_component
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
 from aurora_core.discovery import load_plugins, register_plugins
+from aurora_core.hooks import HookConnections
+from aurora_core.lifecycle import Lifecycle, LifecycleComponent, install_lifecycle_slots
+from aurora_core.storage import StorageService
 from aurora_world import WorldRecords
 from aurora_world.plugin import plugin as world_plugin
+from aurora_world.sources import SourceSpec
 from mcp.client.subscriptions import ResourceUpdated, SubscriptionLost, ToolsListChanged
 from mcp.types import BlobResourceContents, TextResourceContents
 
@@ -26,6 +39,8 @@ def values(**kwargs):
 
 
 class FakeClient:
+    instance_id = "client"
+
     def __init__(self):
         self.protocol_version = PROTOCOL_VERSION
         self.events = asyncio.Queue()
@@ -156,6 +171,67 @@ def test_plugin_requires_explicit_dependencies_and_does_not_connect():
     definitions = plugin().entries
     assert len(definitions) == 2
     assert all(entry.id.namespace == "org.aurora.adapters" for entry in definitions)
+
+
+def test_world_factory_is_bound_per_host_without_mutating_shared_definition(tmp_path):
+    async def scenario():
+        registry = bootstrap()
+        install_lifecycle_slots(registry)
+        register_plugins(
+            registry,
+            load_plugins(
+                enabled=[
+                    "aurora_config",
+                    "aurora_world",
+                    "aurora_world.configuration",
+                    "aurora_adapters.mcp",
+                    "aurora_adapters.mcp.world",
+                ]
+            ),
+        )
+        definition = cast(SourceSpec, registry.get(WORLD_SOURCE).target).factory
+        hosts, clients, contexts = [], [], []
+        try:
+            for number in range(2):
+                ctx, hooks = Context(registry), HookConnections(registry)
+                storage = StorageService(tmp_path / str(number))
+                path = storage.configuration_directory() / "org.aurora.world/config.toml"
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    f'[[sources]]\nsource="{WORLD_SOURCE}"\nsource_id="shared"\n'
+                    f'[sources.config]\nconnection_id="local"\nresources=[{{uri="{URI}"}}]\n',
+                    encoding="utf-8",
+                )
+                client = FakeClient()
+                host = Lifecycle(
+                    ctx,
+                    hooks,
+                    [
+                        configuration_component(registry, ctx, hooks, storage),
+                        LifecycleComponent("client"),
+                        mcp_world_component(ctx, hooks, cast(MCPClients, client)),
+                    ],
+                    storage=storage,
+                )
+                hosts.append(host)
+                clients.append(client)
+                contexts.append(ctx)
+                await host.start()
+                assert cast(SourceSpec, registry.get(WORLD_SOURCE).target).factory is definition
+            await clients[0].events.put(ResourceUpdated(uri=URI))
+            await until(lambda: len(WorldRecords(contexts[0]).read()) == 1)
+            assert WorldRecords(contexts[1]).read() == ()
+            await hosts[0].stop()
+            assert clients[0].leases == 0 and clients[1].leases == 1
+            await clients[1].events.put(ResourceUpdated(uri=URI))
+            await until(lambda: len(WorldRecords(contexts[1]).read()) == 1)
+        finally:
+            for host in hosts:
+                await host.stop()
+        assert cast(SourceSpec, registry.get(WORLD_SOURCE).target).factory is definition
+        assert all(client.leases == 0 and client.closed.is_set() for client in clients)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("mode", ["notification", "resource", "event"])

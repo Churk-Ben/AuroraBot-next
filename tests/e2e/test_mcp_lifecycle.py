@@ -62,9 +62,17 @@ assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 def test_mcp_distribution_and_plugin_boundaries():
     requirements = metadata.requires("aurora-adapters")
     assert requirements is not None
-    assert not any(item.startswith("aurora-bot") for item in requirements)
-    assert all("extra == 'mcp-tools'" in item for item in requirements if item.startswith("aurora-agent"))
-    assert all("extra == 'mcp-world'" in item for item in requirements if item.startswith("aurora-world"))
+    assert all("extra == 'mcp-bot'" in item for item in requirements if item.startswith("aurora-bot"))
+    assert all(
+        "extra == 'mcp-tools'" in item or "extra == 'mcp-bot'" in item
+        for item in requirements
+        if item.startswith("aurora-agent")
+    )
+    assert all(
+        "extra == 'mcp-world'" in item or "extra == 'mcp-bot'" in item
+        for item in requirements
+        if item.startswith("aurora-world")
+    )
     assert "mcp==2.3.0; extra == 'mcp'" in requirements
     plugins = load_plugins(enabled=["aurora_config", "aurora_adapters.mcp"])
     plugin = next(item for item in plugins if item.name == "aurora_adapters.mcp")
