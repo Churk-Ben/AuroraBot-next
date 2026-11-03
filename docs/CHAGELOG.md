@@ -2,6 +2,16 @@
 
 ## 2026-11-03
 
+### 将 Aurora-QQ 通知适配为 bot 的 MCP 世界事件
+
+- 在相邻 `Aurora-QQ` 项目以 MCP `2026-07-28` 的 `subscriptions/listen` 和 `notifications/resources/updated` 替换旧 `org.aurorabot/world-events` 通知扩展。公开事件资源为 `qq://events/inbox`，读取返回严格的 `message_id/payload` 信封；保留原事件摘要身份、发生时间、会话范围和完整 OneBot 数据，直接匹配 bot 现有 `mode = "event"` 契约。旧扩展不保留兼容转发，旧宿主须改用资源订阅；30 个远端工具名及 tool-contract 元数据保持不变。
+- 每个 stdio 服务进程仅接纳一个事件消费者，拒绝未知资源和重复订阅。订阅注册后才启动 NapCat 监听，确认响应不等待联网；工具发现不启动来源。上一条被读取后才通知下一条，避免 SDK 合并同 URI 通知导致连续事件被覆盖；最多保留一条待取 JSON，单条上限 512 KiB。手动停止后恢复保留已通知未读取事件，订阅取消、连接关闭及准备失败均收束事件任务。
+- 读取确认仅代表客户端取走，不代表 world 提交或模型处理；断线、取消订阅和进程重启不自动重放，world 对实际收到的稳定消息身份持久去重。继续保留自身消息和无意义事件过滤。QQ 使用 SDK 2.3 的预期工具/资源错误类型，明确呈现未订阅、需要确认、禁用原始动作和 NapCat 拒绝等诊断，不通过放宽原有断言掩盖失败。
+- 更新本地 data：显式启用 `aurora_adapters.mcp.world`，QQ 连接固定新版并要求 tools/resources 能力，新增 `qq/events` 世界来源；恢复 `qq_start_events`、`qq_stop_events`，目前开放 29 个工具，raw action 仍关闭。保留模型、时间、南京天气及 Token 环境引用，更新系统提示；cadence 自动唤醒仍关闭。四份原配置分别备份为 `.before-mcp-events`，本任务未改写业务快照，data 与备份仍不进入 Git。
+- 用户确认后同步 QQ README 和配置模板，提供当前 host/MCP/world 接入示例、迁移边界、可选 cadence 配置和跨项目验收命令。源码及测试移除旧事件扩展引用。QQ 的 41 项测试、Ruff 格式/lint 与 Pyright 通过；其独立环境明确跳过需要 bot 包的集成测试，该项随后在 bot 环境单独通过。
+- 跨项目验收使用真实 QQ stdio 服务和模拟 OneBot：12 条连续消息有序归档、重复消息去重，两次宿主启动后记录身份稳定，共享连接仍能调用工具，关闭后无自有任务残留。QQ wheel 构建及干净环境安装后的工具目录、事件资源和本地状态调用通过；实际 data 的 6 份声明配置、来源配置及原快照内存恢复校验通过。未连接真实 NapCat、调用真实模型或执行 QQ 发送/管理动作。
+- bot 完整 `uv run --locked aurora check` 通过：1036 项 Python、97 项 TS、5 项终端测试，格式、lint、Python/TS 类型检查通过，仅有既有 Pydantic ReadOnly 提示。QQ README 的 4 段 TOML、2 段 JSON 和格式校验通过；QQ 收尾提交为 `27a9468`。
+
 ### 核对本地工具可见性并清空试用对话
 
 - 针对模型回复“没有工具”，使用实际 data 配置和运行期环境连接 QQ MCP；确认 27 个工具完成发现、接入 main 工具插槽，并进入模型请求及 LiteLLM 的供应商请求结构。当前模型适配器声明支持工具；未发现本地工具装配缺失，尚未确定此前模型回复的具体原因，未调用真实模型或 QQ 业务工具。
