@@ -138,26 +138,12 @@ def test_defaults_override_and_local_declaration_are_inert(tmp_path):
     assert not (tmp_path / "not-created").exists()
 
 
-@pytest.mark.parametrize(
-    "server,code",
-    [
-        (
-            {"type": "local", "command": ["unavailable"], "environment": {"APP_TOKEN": "{env:MISSING}"}},
-            "unsupported_transport",
-        ),
-    ],
-)
-def test_unimplemented_modes_fail_before_any_connection(monkeypatch, server, code):
-    monkeypatch.setattr(module, "open_client", lambda *a: pytest.fail("预检前不得创建传输"))
-
+def test_local_service_requires_explicit_workspace_before_starting():
     async def scenario():
-        value = config()
-        value["servers"]["second"] = server
-        owner, ctx = owner_for(value)
+        owner, ctx = owner_for(config({"type": "local", "command": ["unavailable"]}))
         try:
-            with pytest.raises(MCPClientError, match=code):
+            with pytest.raises(MCPClientError, match="workspace_required"):
                 await owner.prepare()
-            assert not [task for task in asyncio.all_tasks() if task.get_name().startswith("aurora-mcp:")]
         finally:
             await owner.clean()
             ctx.close()
@@ -217,7 +203,7 @@ def test_shutdown_budget_preserves_cleanup_for_later_wait(monkeypatch):
         finished = []
 
         @asynccontextmanager
-        async def connect(*args):
+        async def connect(*args, **kwargs):
             try:
                 yield SimpleNamespace(server_capabilities=ServerCapabilities(), protocol_version=PROTOCOL_VERSION)
             finally:

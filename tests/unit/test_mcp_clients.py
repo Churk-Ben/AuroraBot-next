@@ -115,7 +115,7 @@ def test_partial_prepare_failure_closes_existing_clients(monkeypatch, failure):
         started = asyncio.Event()
 
         @asynccontextmanager
-        async def connect(config, resolver, negotiation):
+        async def connect(config, resolver, negotiation, *, workspace_root=None):
             identity = config["connection_id"]
             task = asyncio.current_task()
             events.append((identity, "enter"))
@@ -159,7 +159,7 @@ def test_close_wait_can_resume_without_recancelling_cleanup(monkeypatch, wait_ca
         exits = []
 
         @asynccontextmanager
-        async def connect(config, resolver, negotiation):
+        async def connect(config, resolver, negotiation, *, workspace_root=None):
             task = asyncio.current_task()
             try:
                 yield fake_client()
@@ -201,7 +201,7 @@ def test_shutdown_drains_borrowers_before_closing_client(monkeypatch):
         events = []
 
         @asynccontextmanager
-        async def connect(config, resolver, negotiation):
+        async def connect(config, resolver, negotiation, *, workspace_root=None):
             try:
                 yield fake_client()
             finally:
@@ -244,7 +244,7 @@ def test_shutdown_drains_borrowers_before_closing_client(monkeypatch):
 def test_close_failure_is_explicit_and_never_reported_as_closed(monkeypatch, error_type):
     async def scenario():
         @asynccontextmanager
-        async def connect(config, resolver, negotiation):
+        async def connect(config, resolver, negotiation, *, workspace_root=None):
             yield fake_client()
             raise error_type("secret-close-error")
 

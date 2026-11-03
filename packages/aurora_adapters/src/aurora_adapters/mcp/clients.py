@@ -5,6 +5,7 @@ import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import cast
 
 from aurora_core import entry_from, hook_handler
@@ -59,11 +60,13 @@ class MCPClients:
         *,
         instance_id: str = "aurora_adapters/mcp",
         resolve_env: Callable[[str], str | None] = os.environ.get,
+        workspace_root: Path | None = None,
     ) -> None:
         if not instance_id or not instance_id.strip():
             raise ValueError("MCP 所有者身份不能为空")
         self._ctx, self._hooks, self._instance_id = ctx, hooks, instance_id
         self._resolve_env = resolve_env
+        self._workspace_root = workspace_root
         self._connections: dict[str, _Connection] = {}
         self._connected = False
         self._configured = False
@@ -148,7 +151,9 @@ class MCPClients:
             async with AsyncExitStack() as stack:
                 async with asyncio.timeout(binding.config["timeout"]["startup"]):
                     client = await stack.enter_async_context(
-                        transports.open_client(binding.config, self._resolve_env, binding.negotiation)
+                        transports.open_client(
+                            binding.config, self._resolve_env, binding.negotiation, workspace_root=self._workspace_root
+                        )
                     )
                 binding.client = client
                 binding.negotiation.negotiated_protocol = client.protocol_version
@@ -182,12 +187,6 @@ class MCPClients:
         if not self._configured or self._loop is not None or self._closing:
             raise RuntimeError("MCP 客户端尚未配置或已开始准备")
         self._loop = asyncio.get_running_loop()
-        for identity, binding in self._connections.items():
-            code = "unsupported_transport" if binding.config["type"] != "remote" else None
-            if code:
-                binding.phase, binding.error = "failed", code
-                self._publish(binding)
-                raise MCPClientError(code, location=f"servers.{identity}")
         for identity, binding in self._connections.items():
             binding.phase = "connecting"
             self._publish(binding)

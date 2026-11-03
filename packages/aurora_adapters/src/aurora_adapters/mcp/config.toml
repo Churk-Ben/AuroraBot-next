@@ -3,7 +3,7 @@ schema_version = 2
 
 [servers]
 
-# remote 支持 legacy（默认）、auto 和固定新版；local 待后续交付。
+# remote/local 均支持 legacy（默认）、auto 和固定新版。
 # [servers.local]
 # type = "remote"
 # url = "http://127.0.0.1:8000/mcp"
@@ -18,3 +18,13 @@ schema_version = 2
 # [servers.local.tools]
 # include = ["echo"]
 # aliases = { echo = "local_echo" }
+
+# 本地 stdio 服务；宿主须为 MCPClients 显式提供 workspace_root。
+# [servers.files]
+# type = "local"
+# command = ["python", "server.py"]
+# cwd = "."
+# [servers.files.environment]
+# APP_TOKEN = "{env:APP_TOKEN}"
+# [servers.files.tools]
+# include = []

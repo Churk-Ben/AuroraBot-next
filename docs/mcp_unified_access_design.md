@@ -1,8 +1,8 @@
 # MCP 通用接入需求与设计草案
 
-状态：B5.1 配置与迁移、B5.2 HTTP 协商已实现，B5.3–B5.4 仍为设计。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
+状态：B5.1 配置与迁移、B5.2 HTTP 协商、B5.3 stdio 已实现，B5.4 仍为设计。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
 
-本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口和 HTTP 协商已实现；stdio、自动工具命名及产品装配仍为拟议设计。remote 支持 legacy/auto/固定新版，工具桥须显式 include 和 aliases；下文 local 示例目前仅可通过声明校验，启用时明确拒绝。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
+本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口、HTTP 协商和 stdio 已实现；自动工具命名及产品装配仍为拟议设计。remote/local 均支持 legacy/auto/固定新版，工具桥须显式 include 和 aliases；local 由宿主通过 MCPClients 的 workspace_root 明确提供工作区根目录。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
 
 ## 1. 目标与范围
 
@@ -25,7 +25,7 @@
 
 | 维度 | 当前实现 | 本设计目标 |
 | --- | --- | --- |
-| 传输 | MCPClients 仅打开 Streamable HTTP | remote/local 共用客户端所有者；local 使用 stdio |
+| 传输 | MCPClients 支持 Streamable HTTP 与有界 stdio | remote/local 共用客户端所有者；local 使用 stdio |
 | 协议 | B5.2 已支持 HTTP legacy/auto/固定新版；实际版本与有界尝试摘要可观察 | legacy、auto、固定新版三种策略，记录实际协商版本 |
 | 配置 | B5.1 已提供 v2 servers、headers/environment 引用、显式迁移及服务内工具过滤 | servers 映射、headers/environment 引用、服务内工具过滤 |
 | 工具 | 已有稳定别名、分页发现、原子登记、单次调用 | 复用 B2，增加自动名称和默认产品接线 |
@@ -143,9 +143,9 @@ flowchart TD
 
 保留 MCPClients 的单事件循环、借用计数和后台所有者任务。每个服务只有一个所有者任务，由它进入并退出 SDK 上下文；借用方不得自行关闭共享客户端。两种传输只在创建资源、注入运行期参数和回收时分支，业务调用不按 transport 分叉。
 
-B5.2 已按实际职责拆分：configuration.py 负责声明；credentials.py 负责引用校验与运行期展开；clients.py 只负责连接所有权与生命周期；transports.py 创建 HTTP 传输并约束 HTTP 错误/重定向，stdio 待接入；negotiation.py 负责协商后校验和有界尝试摘要；errors.py 统一安全错误码；tools.py/world.py 继续作为消费者。迁移器复用 URL 与名称约束，不复制运行期配置解析。私有配置对象可以使用带 type 的联合类型，不引入传输插件注册中心、第二套 JSON-RPC 编解码或泛化 harness。
+B5.2–B5.3 已按实际职责拆分：configuration.py 负责声明；credentials.py 负责引用校验与运行期展开；clients.py 只负责连接所有权与生命周期；transports.py 汇合两种传输并约束 HTTP 错误/重定向；stdio.py 负责工作区路径、进程树及有界管道；negotiation.py 负责协商后校验和有界尝试摘要；errors.py 统一安全错误码；tools.py/world.py 继续作为消费者。迁移器复用 URL 与名称约束，不复制运行期配置解析。私有配置对象可以使用带 type 的联合类型，不引入传输插件注册中心、第二套 JSON-RPC 编解码或泛化 harness。
 
-stdio 优先复用官方 SDK 的 StdioServerParameters/stdio_client。SDK 已提供管道收发、基础环境和进程回收，但是否满足 Aurora 的取消与 Windows 退出约束必须通过实际进程验证；发现缺陷时优先采用已验证的 SDK 修复，不复制整套传输。[SDK stdio 接口](https://py.sdk.modelcontextprotocol.io/api/mcp/client/stdio/)
+stdio 复用官方 SDK 的 StdioServerParameters、基础环境、消息校验器及公开平台进程工具，会话和协商继续使用同一个 Client。锁定 SDK 的 stdio_client 没有单帧上限，且 POSIX 正常退出不回收残留后代，因此 stdio.py 只补充有界分帧、进程观察与回收，不调用私有函数或复制协议编解码/会话。每帧上限为 4 MiB（UTF-8 字节，不含换行），接收使用零容量通道施加背压，原始 stderr 直接丢弃；无未结束消息无限缓存。关闭先关 stdin、最多等待 2 秒，再终止所属 Windows Job/POSIX 进程组及回收管道；进程回收任务受独立保护，startup 取消不打断收尾，shutdown 超时后仍可再次等待。回收范围是继承所属 Job/进程组的后代，不扫描进程名或根据持久 PID 杀进程。[SDK stdio 接口](https://py.sdk.modelcontextprotocol.io/api/mcp/client/stdio/)
 
 SDK 类型只在 adapters 内使用。agent 继续接收 ToolSpec、ExecutionPlug 和 JSON 观察，world 继续接收来源消息；core 不增加 MCP、子进程或鉴权语义。
 
@@ -237,7 +237,7 @@ include = ["qq_get_status"]
 - 本地进程崩溃不自动重启；远程断线不自动重放。未来重连必须重新发现、检查目录变化并处理待定调用，不以恢复状态推断动作已完成。
 - stdio 实例默认属于单一宿主；第二个宿主会启动第二个进程。共享服务、多消费者广播和唯一回复所有权须单独设计，不能由传输类型推导。
 
-继续使用非持久 CLIENT_STATUS 及 `{owner, connection_id}` 定位，v2 的 servers 键直接作为 connection_id。B5.2 已新增 type、configured_protocol、negotiated_protocol、negotiation_attempts，阶段复用 phase，不增加同义 stage。旧 protocol_version 字段被 negotiated_protocol 替代，无兼容别名；状态不持久，无业务快照迁移。尝试摘要最多四条，只存方法、HTTP 状态和数值 RPC 错误码；能力拒绝时仍可观察已经确认的版本，accepting 为 false。PID 随 stdio 实现后只用于运行观察，不作为恢复后的进程所有权证据。
+继续使用非持久 CLIENT_STATUS 及 `{owner, connection_id}` 定位，v2 的 servers 键直接作为 connection_id。B5.2 已新增 type、configured_protocol、negotiated_protocol、negotiation_attempts，阶段复用 phase，不增加同义 stage。旧 protocol_version 字段被 negotiated_protocol 替代，无兼容别名；状态不持久，无业务快照迁移。尝试摘要最多四条，只存方法、HTTP 状态和数值 RPC 错误码；能力拒绝时仍可观察已经确认的版本，accepting 为 false。进程对象与 PID 仅由运行期传输持有，不写入状态或作为恢复后的所有权证据。
 
 诊断至少区分 configuration_invalid、credential_unavailable、process_start_failed、process_exited、startup_timeout、unsupported_protocol、missing_capability、catalog_failed、request_timeout、result_unknown 和 close_failed；名称在实现时与既有代码表统一，不另建平行错误体系。状态不包含 headers/env 实值、原始 stderr、URL 查询参数或 SDK 对象。
 
@@ -286,12 +286,12 @@ MCP 配置、客户端/工具组件和资源来源的现有公共定义原则上
 | --- | --- | --- |
 | B5.1 配置与迁移（已交付） | v2 schema、模板、运行期引用、显式迁移候选输出 | 不启动资源、无凭证落盘、暴露范围与旧 ID 保持 |
 | B5.2 HTTP 协议协商（已交付） | legacy/auto/固定新版、版本和能力诊断 | 旧/新测试服务、RPC/HTTP 错误分类、协商预算、单次工具调用 |
-| B5.3 stdio | SDK 传输接入同一所有者、环境和工作区路径 | Windows/Linux 真子进程、EOF/取消、后代与管道回收 |
+| B5.3 stdio（已交付） | SDK 会话接入有界管道、同一所有者、环境和工作区路径 | Windows/Linux 真子进程、EOF/取消、后代与管道回收 |
 | B5.4 工具与产品接线 | 自动名称/过滤、可选组合装配及初始化预设 | CLI/API 无自编 Python 接线、无重复登记、不自动启用依赖 |
 | B3 扩展验收 | 世界来源和工具共用客户端、跨传输关闭矩阵 | 资源独立、停止接纳、收尾、最后落盘、独立安装 |
 | 事件后续切片 | world-events 或事件日志的明确契约 | 另按交付保证排期，不以工具验收替代 |
 
-B5.1 迁移入口为 `python -m aurora_adapters.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。当前不做 local 的目录解析或启动；工具桥不支持默认通配及缺少别名的自动命名，明确报 unsupported_tool_selection。迁移及运行示例见[启动指南](../examples/START.md#mcp-独立客户端验收)。
+B5.1 迁移入口为 `python -m aurora_adapters.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。local 在 prepare 解析目录和环境后启动；工具桥不支持默认通配及缺少别名的自动命名，明确报 unsupported_tool_selection。迁移及运行示例见[启动指南](../examples/START.md#mcp-独立客户端验收)。
 
 B5.1 的 startup/catalog/execution 分别提供操作预算；SDK 请求与 HTTP 空闲读取上限取三者最大值，避免执行超时提前截断目录或握手。shutdown 限制每服务每次 stop/clean 等待，超时保留清理任务供再次等待；迁移显式写出默认 10 秒。
 

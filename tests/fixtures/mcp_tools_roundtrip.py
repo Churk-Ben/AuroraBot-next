@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import socket
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -29,31 +30,61 @@ TOOL = Id("org.aurora.adapters:tools/mcp/local_echo")
 STATE = Id("dev.mcp:state/work")
 
 
-async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VERSION) -> dict:
-    """通过真实本机 HTTP 完成发现、工具执行及业务错误观察，不调用真实模型。"""
+def echo_service(record) -> MCPServer:
+    """两种传输共用同一工具声明和执行结果。"""
     service = MCPServer("aurora-tools-test")
-    calls = []
 
     @service.tool()
     def echo(text: str) -> dict[str, str]:
         """返回结构化测试文本；指定值触发业务失败。"""
-        calls.append(text)
+        record(text)
         if text == "fail":
             raise ValueError("测试业务错误")
         return {"text": text}
 
-    listener = socket.socket()
-    listener.bind(("127.0.0.1", 0))
-    port = listener.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(service.streamable_http_app(), log_level="critical", lifespan="on"))
-    serving = asyncio.create_task(server.serve(sockets=[listener]))
+    return service
+
+
+async def run(
+    root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VERSION, transport: str = "remote"
+) -> dict:
+    """通过真实本机 HTTP 或 stdio 完成工具及假模型默认装配验收。"""
+    root = root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    calls = []
+    service = echo_service(calls.append)
+    listener = None
+    server = None
+    serving = None
+    if transport == "remote":
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(service.streamable_http_app(), log_level="critical", lifespan="on"))
+        serving = asyncio.create_task(server.serve(sockets=[listener]))
+        declaration = {"type": "remote", "url": f"http://127.0.0.1:{port}/mcp"}
+    else:
+        (root / "calls.jsonl").write_text("", encoding="utf-8")
+        declaration = {
+            "type": "local",
+            "command": [sys.executable, str(Path(__file__).resolve()), str(root), "--stdio-server"],
+        }
+
+    def observed_calls():
+        return (
+            calls
+            if transport == "remote"
+            else [json.loads(line) for line in (root / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
+        )
+
     try:
-        async with asyncio.timeout(10):
-            while not server.started:
-                if serving.done():
-                    await serving
-                    raise RuntimeError("本机 MCP 服务未启动")
-                await asyncio.sleep(0.01)
+        if server is not None and serving is not None:
+            async with asyncio.timeout(10):
+                while not server.started:
+                    if serving.done():
+                        await serving
+                        raise RuntimeError("本机 MCP 服务未启动")
+                    await asyncio.sleep(0.01)
         registry = bootstrap()
         install_lifecycle_slots(registry)
         enabled = ["aurora_config", "aurora_adapters.mcp", "aurora_agent.tools", "aurora_adapters.mcp.tools"]
@@ -80,9 +111,8 @@ async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VE
                 "schema_version": 2,
                 "servers": {
                     "local": {
-                        "type": "remote",
+                        **declaration,
                         "protocol": protocol,
-                        "url": f"http://127.0.0.1:{port}/mcp",
                         "required_capabilities": ["tools"],
                         "timeout": {"catalog": 2, "execution": 2},
                         "tools": {"include": ["echo"], "aliases": {"echo": "local_echo"}},
@@ -90,7 +120,7 @@ async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VE
                 },
             },
         )
-        clients = MCPClients(ctx, hooks)
+        clients = MCPClients(ctx, hooks, workspace_root=root)
         bridge = MCPTools(registry, ctx, hooks, clients)
         components = [bridge.component(), clients.component(), configuration_component(registry, ctx, hooks, storage)]
         assembly = None
@@ -146,7 +176,7 @@ async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VE
                 observed = json.loads(next(message["content"] for message in messages if message["role"] == "tool"))
                 assert observed["status"] == "completed"
                 assert observed["value"]["structuredContent"] == {"text": "你好"}
-                assert messages[-1]["content"] == "完成" and calls == ["你好"]
+                assert messages[-1]["content"] == "完成" and observed_calls() == ["你好"]
             else:
 
                 def state(part):
@@ -190,7 +220,7 @@ async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VE
                     assert results[0]["status"] == "completed"
                     assert results[0]["value"]["structuredContent"] == {"text": "你好"}
                     assert results[1]["error"]["code"] == "mcp_tool_error"
-                    assert results[1]["value"]["content"] and calls == ["你好", "fail"]
+                    assert results[1]["value"]["content"] and observed_calls() == ["你好", "fail"]
                     assert ctx.snapshot(persistent_only=True).records == ()
                 finally:
                     if tool.aclose:
@@ -198,11 +228,12 @@ async def run(root: Path, *, with_bot: bool = False, protocol: str = PROTOCOL_VE
         finally:
             await host.stop()
         assert not [task for task in asyncio.all_tasks() if task.get_name().startswith("aurora-mcp:")]
-        return {"tool_bridge": True, "default_bot": with_bot, "calls": len(calls)}
+        return {"tool_bridge": True, "default_bot": with_bot, "calls": len(observed_calls())}
     finally:
-        server.should_exit = True
-        await serving
-        listener.close()
+        if server is not None and serving is not None and listener is not None:
+            server.should_exit = True
+            await serving
+            listener.close()
 
 
 if __name__ == "__main__":
@@ -210,5 +241,20 @@ if __name__ == "__main__":
     parser.add_argument("root", type=Path)
     parser.add_argument("--bot", action="store_true")
     parser.add_argument("--protocol", choices=["legacy", "auto", PROTOCOL_VERSION], default=PROTOCOL_VERSION)
+    parser.add_argument("--transport", choices=["remote", "local"], default="remote")
+    parser.add_argument("--stdio-server", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(asyncio.run(run(args.root, with_bot=args.bot, protocol=args.protocol)), ensure_ascii=False))
+    if args.stdio_server:
+
+        def record(text):
+            with (args.root / "calls.jsonl").open("a", encoding="utf-8") as output:
+                output.write(json.dumps(text, ensure_ascii=False) + "\n")
+
+        echo_service(record).run()
+    else:
+        print(
+            json.dumps(
+                asyncio.run(run(args.root, with_bot=args.bot, protocol=args.protocol, transport=args.transport)),
+                ensure_ascii=False,
+            )
+        )

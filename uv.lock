@@ -227,12 +227,14 @@ dependencies = [
 
 [package.optional-dependencies]
 mcp = [
+    { name = "anyio" },
     { name = "aurora-config" },
     { name = "httpx2" },
     { name = "mcp" },
     { name = "tomli-w" },
 ]
 mcp-tools = [
+    { name = "anyio" },
     { name = "aurora-agent" },
     { name = "aurora-config" },
     { name = "httpx2" },
@@ -240,6 +242,7 @@ mcp-tools = [
     { name = "tomli-w" },
 ]
 mcp-world = [
+    { name = "anyio" },
     { name = "aurora-config" },
     { name = "aurora-world", extra = ["config"] },
     { name = "httpx2" },
@@ -249,6 +252,7 @@ mcp-world = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", marker = "extra == 'mcp'", specifier = ">=4.15,<5" },
     { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapters" },
     { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapters" },
     { name = "aurora-agent", marker = "extra == 'mcp-tools'", editable = "packages/aurora_agent" },

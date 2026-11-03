@@ -3,6 +3,7 @@
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx2
 from mcp import Client
@@ -11,6 +12,7 @@ from mcp.client.streamable_http import streamable_http_client
 from .credentials import resolve_values
 from .errors import MCPClientError
 from .negotiation import Negotiation, confirm
+from .stdio import parameters, stdio_transport
 
 
 class _HTTPBoundary:
@@ -62,11 +64,28 @@ class _HTTPBoundary:
 
 @asynccontextmanager
 async def open_client(
-    config: dict, resolve_env: Callable[[str], str | None], state: Negotiation
+    config: dict, resolve_env: Callable[[str], str | None], state: Negotiation, *, workspace_root: Path | None = None
 ) -> AsyncIterator[Client]:
-    """创建 HTTP 会话；凭证仅存在于本次运行的 HTTP 客户端内。"""
-    if config["type"] != "remote":
-        raise MCPClientError("unsupported_transport")
+    """两种传输共用 SDK 会话与协商；凭证仅存在于本次运行的资源内。"""
+    request_timeout = max(config["timeout"][key] for key in ("startup", "catalog", "execution"))
+    async with Client(
+        _transport(config, resolve_env, state, workspace_root),
+        mode=config["protocol"],
+        read_timeout_seconds=request_timeout,
+        input_required_max_rounds=0,
+        cache=None,
+    ) as client:
+        await confirm(client, config, state)
+        yield client
+
+
+@asynccontextmanager
+async def _transport(config, resolve_env, state, workspace_root):
+    if config["type"] == "local":
+        server = parameters(config, workspace_root, resolve_env)
+        async with stdio_transport(server, state) as streams:
+            yield streams
+        return
     try:
         headers = resolve_values(config.get("headers", {}), resolve_env, headers=True)
     except ValueError as error:
@@ -75,20 +94,14 @@ async def open_client(
         ) from None
     request_timeout = max(config["timeout"][key] for key in ("startup", "catalog", "execution"))
     boundary = _HTTPBoundary(state)
-    async with httpx2.AsyncClient(
-        headers=headers,
-        timeout=httpx2.Timeout(request_timeout),
-        follow_redirects=False,
-        trust_env=False,
-        event_hooks={"request": [boundary.request], "response": [boundary.response]},
-    ) as http:
-        transport = streamable_http_client(config["url"], http_client=http)
-        async with Client(
-            transport,
-            mode=config["protocol"],
-            read_timeout_seconds=request_timeout,
-            input_required_max_rounds=0,
-            cache=None,
-        ) as client:
-            await confirm(client, config, state)
-            yield client
+    async with (
+        httpx2.AsyncClient(
+            headers=headers,
+            timeout=httpx2.Timeout(request_timeout),
+            follow_redirects=False,
+            trust_env=False,
+            event_hooks={"request": [boundary.request], "response": [boundary.response]},
+        ) as http,
+        streamable_http_client(config["url"], http_client=http) as streams,
+    ):
+        yield streams

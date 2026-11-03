@@ -79,7 +79,7 @@ def test_configured_host_preserves_files_and_finishes_resources_before_snapshot(
         entered = asyncio.Event()
 
         @asynccontextmanager
-        async def connect(config, resolver, negotiation):
+        async def connect(config, resolver, negotiation, *, workspace_root=None):
             events.append("created")
             try:
                 entered.set()

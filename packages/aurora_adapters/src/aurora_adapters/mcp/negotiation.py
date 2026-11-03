@@ -1,6 +1,7 @@
 """复用 SDK 公共协商入口；策略校验和安全尝试摘要独立于连接所有权。"""
 
 from dataclasses import dataclass, field
+from typing import Never
 
 from mcp import Client
 from mcp.types import DiscoverResult, InitializeResult
@@ -31,7 +32,7 @@ class Negotiation:
         self.attempts.append(attempt)
         return attempt
 
-    def fail(self, code: str) -> None:
+    def fail(self, code: str) -> Never:
         self.failure = code
         raise MCPClientError(code) from None
 

@@ -82,7 +82,7 @@ def environment(tmp_path, monkeypatch):
     )
 
     @asynccontextmanager
-    async def open_client(config, resolver, negotiation):
+    async def open_client(config, resolver, negotiation, *, workspace_root=None):
         try:
             yield client
         finally:

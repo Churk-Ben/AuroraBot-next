@@ -310,7 +310,28 @@ timeout = { startup = 10, catalog = 30, execution = 30, shutdown = 10 }
 
 headers 支持 `{env:NAME}` 引用和固定前缀；Authorization 等凭证字段不能填写纯字面量。引用只在 prepare 创建连接时解析，不进入 ctx、快照或日志；缺失或非法值报告服务名与字段位置。`enabled = false` 不创建连接、解析凭证或登记工具。地址不可包含凭证、查询串、片段或环境引用；修改配置后重启生效。
 
-B5.2 支持 HTTP(S) Streamable HTTP 的 legacy、auto 和固定 2026-07-28 三种策略，默认 legacy。允许的实际版本为 2025-11-25 与 2026-07-28；legacy 直接旧握手，auto 由 SDK 探测并按策略回退，固定新版显式 discover 后检查能力。HTTP 401/403、5xx、重定向和损坏 JSON 明确失败，不掩盖为成功回退；RPC 错误本身不作为版本证据。local 的工作区路径解析与子进程启动随 B5.3 交付，当前启用时报 unsupported_transport。SDK 固定 2.3.0，不自动处理多轮输入或重放工具动作。
+B5.2–B5.3 支持 HTTP(S) Streamable HTTP 和 stdio 的 legacy、auto 和固定 2026-07-28 三种策略，默认 legacy。允许的实际版本为 2025-11-25 与 2026-07-28；legacy 直接旧握手，auto 由 SDK 探测并按策略回退，固定新版显式 discover 后检查能力。HTTP 401/403、5xx、重定向和损坏 JSON 明确失败，不掩盖为成功回退；RPC 错误本身不作为版本证据。local 与 remote 使用相同协商及工具执行路径。SDK 固定 2.3.0，不自动处理多轮输入或重放工具动作。
+
+本地服务由宿主显式装配 `MCPClients(ctx, hooks, workspace_root=workspace_root)`；workspace_root 是宿主选定的项目目录，不能把任意调用时 cwd 当作默认根。相对 cwd 基于该根目录，prepare 检查目录存在；不填写 cwd 时使用工作区根。command 是参数数组，不拼接 shell 字符串；环境变量只继承 SDK 基础集合，再覆盖显式 environment，不修改宿主环境。
+
+```toml
+schema_version = 2
+
+[servers.files]
+type = "local"
+command = ["python", "server.py"]
+cwd = "tools"
+protocol = "legacy"
+
+[servers.files.environment]
+APP_TOKEN = "{env:APP_TOKEN}"
+
+[servers.files.tools]
+include = ["read_file"]
+aliases = { read_file = "files_read_file" }
+```
+
+stdio 的 stdout 仅允许 JSON-RPC，每条消息上限 4 MiB，非法 JSON、未结束消息超限和 EOF 都明确失败；原始 stderr 丢弃，避免洪泛阻塞或泄露凭证。关闭先关 stdin、限时等待，再回收所属 Windows Job/POSIX 进程组，根进程已退出也会清理其所属后代。启动失败不自动重启，工具动作不自动重发；后台观察能报告本地进程退出，但不将 ready 当作永久健康保证。
 
 根级 `[timeout]` 提供公共超时，各服务逐字段覆盖；startup/catalog/execution/shutdown 默认分别为 10/30/30/10 秒，限制握手、完整目录发现、单次工具调用和每服务每次 stop/clean 等待。工具执行同时受 agent 外层超时约束。SDK 请求与 HTTP 空闲读取上限取前三者的最大值，各操作通过自己的外层预算提前结束。关闭等待超时不取消正在执行的 finally，可再次等待；真正的关闭异常需诊断后重建宿主。
 
@@ -324,7 +345,7 @@ uv run --locked python -m aurora_adapters.mcp.migrate data/config/org.aurora.ada
 
 迁移保留服务名、固定新版策略、工具名称与公共 ID；没有旧工具选择的连接转为 `include = []`。同一远端工具对应多个旧别名时停止转换。保留 bot 的显式工具选择及实例身份、world 的 connection_id 和业务快照，不合并多个 bot/工具实例；需核对 bot 的 tool_timeout。候选新增 shutdown=10 秒，关闭超时后仍须继续等待清理。差异忽略注释和排版，不回显原文件注释。
 
-产品入口尚不自动装配 MCP；世界通知和工具分别通过下面的桥接组件显式装配，stdio 留至后续切片。添加插件清单仅登记定义，不会自动连接服务。
+产品入口尚不自动装配 MCP；世界通知和工具分别通过下面的桥接组件显式装配。添加插件清单仅登记定义，不会自动连接服务。
 
 ### MCP 工具桥
 
@@ -377,6 +398,8 @@ uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-tools-acc
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-bot-acceptance --bot
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-legacy-acceptance --protocol legacy
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-acceptance --protocol auto
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-stdio-acceptance --transport local --protocol legacy
+uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-stdio-bot-acceptance --transport local --protocol auto --bot
 ```
 
 两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；工具桥与世界通知桥共同使用时的完整关闭验收属于 B3。

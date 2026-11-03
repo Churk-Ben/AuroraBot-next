@@ -18,6 +18,10 @@ class MCPClientError(RuntimeError):
 def error_code(error: BaseException, fallback: str) -> str:
     if isinstance(error, BaseExceptionGroup):
         codes = {error_code(item, fallback) for item in error.exceptions}
+        if "close_failed" in codes:
+            return "close_failed"
+        if len(codes) > 1:
+            codes.discard("transport_failed")
         return codes.pop() if len(codes) == 1 else fallback
     if isinstance(error, MCPClientError):
         return error.code
