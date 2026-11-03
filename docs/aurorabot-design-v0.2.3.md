@@ -7,7 +7,7 @@
 
 配套附件：[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。保留规划身份并列出当前组件定义；名称存在不表示行为或字段已经冻结。
 
-执行能力由三个平级包分担：`aurora_control` 提供执行契约与四种控制组合，`aurora_agent` 提供 ReAct、模型调用、工具执行与运行调度，`aurora_bot` 负责默认装配、资源和产品入口。五条可运行示例见 [启动指南](../examples/START.md)，执行定义见 [公共 ID 目录第 6 节](aurorabot-id-catalog-v0.2.3.md#6-控制agent-与-bot-定义已实现)，独立 harness 的边界与后续工作见 [拆包评估](aurora_agent_extraction_assessment.md)。本文其余规划部分保留设计语境，当前验收范围见 [变更记录](CHAGELOG.md)。
+执行能力由三个平级包分担：`aurora_control` 提供执行契约与四种控制组合，`aurora_agent` 提供 ReAct、模型调用、工具执行与运行调度，`aurora_bot` 负责默认装配、资源和产品入口。五条可运行示例见 [启动指南](../examples/START.md)，执行定义见 [公共 ID 目录第 6 节](aurorabot-id-catalog-v0.2.3.md#6-控制agentbot-与世界定义)，独立 harness 的边界与后续工作见 [拆包评估](aurora_agent_extraction_assessment.md)。本文其余规划部分保留设计语境，当前验收范围见 [变更记录](CHAGELOG.md)。
 
 ## 1. 项目概述
 
@@ -421,7 +421,9 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - M4.B2 已通过 `aurora-adapters[mcp-tools]` 和 `aurora_adapters.mcp.tools` 插件接入 agent。MCP 配置 tools 列表显式映射 connection_id、remote_name 与本地 name；MCPTools 在 prepare 分页发现并原子登记 ToolSpec，名称/schema 冲突或选项缺失阻止启动。DefaultAssembly.components(depends_on=...) 保证发现先于模型与工具检查；实例 ExecutionPlug 接入 ToolExecutor，保留 before_call/after_call、参数校验、超时与取消。结果保留 MCP 内容块和 structuredContent；ToolExecutionError 使业务失败仍保留 JSON 内容，协议错误、超时、无效结果和结果未知使用不同错误码。调用使用 SDK session 的单次请求，不因 HEADER_MISMATCH、断线或额外交互重发。工具目录变化须重建宿主，不热改集合；外部真实服务兼容性验证尚未进行。
 - MCP 客户端由独立生命周期组件持有，世界与工具桥只持有使用引用。配置完成后创建资源，消费者就绪后开放输入；停止接纳后结束来源与运行任务，待依赖者清理完再关闭客户端，最后由宿主落盘。单个来源停止不能关闭在途工具仍使用的客户端。
 
-推进顺序为来源契约与模拟/周期验收 → MCP 客户端与世界通知桥 → MCP 工具桥及共享资源验收 → cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
+通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。该草案尚未实现；现有客户端、配置和资源桥仍遵循上述边界，业务事件扩展与可靠投递单独设计。
+
+后续推进顺序为 MCP 通用接入 B5 → 扩展共享资源验收 B3 → cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
 
 ## 8. 模型适配与绑定
 

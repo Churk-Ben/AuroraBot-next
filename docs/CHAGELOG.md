@@ -2,6 +2,13 @@
 
 ## 2026-11-03
 
+### 编写 MCP 通用接入需求与设计草案
+
+- 新增 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)，明确由 Aurora 自身支持 HTTP/stdio，复用一套连接所有权和工具执行契约，不要求第三方服务改传输。区分已交付 B1/B2/B4、样本观察和未实现设计。
+- 提出按服务名组织的 v2 TOML、local/remote、独立 protocol、运行期 headers/environment 引用、自动工具命名与过滤、可选产品装配及显式迁移。新配置默认 legacy，旧配置迁移显式保留固定新版；auto 的回退边界按锁定 SDK 行为说明，不把 RPC 错误当作版本证据，不重放工具动作。
+- 明确 Windows/跨平台子进程回收、共享关闭、错误诊断、包依赖及 CLI/API 产品验收；业务事件扩展和带游标事件日志独立于传输与工具兼容。增加计划 B5 切片，B3 扩展到两种传输；同步主架构与计划入口，拟议公共 ID/插件尚不登记为已实现。
+- 本轮仅修改文档，不修改实现、宿主配置、README.md 或 AGENTS.md；用户的 OpenCode 配置及参考文件不纳入本次提交。2 段 TOML 示例及合并结果解析通过，57 个本地链接/锚点、代码块格式与差异检查通过；修正主架构中公共 ID 第 6 节的既有失效锚点。不运行无关业务测试或真实 MCP/模型调用。
+
 ### M4.B2：将 MCP 工具接入 agent 执行契约
 
 - 新增 `aurora_adapters.mcp.tools` 插件与 `aurora-adapters[mcp-tools]` extra，显式依赖 MCP 客户端和 agent 工具插件；仅工具桥引入 agent，不引入 world/bot/CLI/API，既有客户端与通知路径保持可独立安装。工作区开发依赖同时安装工具与通知 extra，产品入口仍不自动启用 MCP。
