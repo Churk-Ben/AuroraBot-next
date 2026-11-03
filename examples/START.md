@@ -171,7 +171,7 @@ uv run --locked python examples/live_workshop/main.py --data-dir build/workshop-
 
 该进程持续运行，模拟世界变化并通过示例内的调度策略触发巡检。工具内部组合四种控制组件，报告保存在本地台账中。按 Ctrl+C 关闭宿主、任务、模型和存储。
 
-`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳、可选 TOML 装配与后台主循环托管，W2.3 还提供时间与天气周期来源，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。cadence 尚待接入；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
+`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳、可选 TOML 装配与后台主循环托管，W2.3 还提供时间与天气周期来源，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。W3 已提供默认 bot 的可选 cadence；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
 
 TOML 路径需要安装 `aurora-world[config]`，显式启用 aurora_config、aurora_world、aurora_world.configuration 及来源提供插件；宿主同时装配 `configuration_component` 和 `configured_sources_component`。后者在 config 阶段读取 `org.aurora.world/config.toml`，默认空列表不启动任何来源。每个 `[[sources]]` 包含 source 定义 ID、唯一 source_id 和可选的 `[sources.config]`。来源参数不承载运行期凭证；修改配置需重新启动，状态覆盖不保存到文件。夹具的 `--configured` 模式验证此路径：
 
@@ -269,9 +269,31 @@ pnpm --filter @aurorabot/tui start
 
 两个命令分别在两个终端运行。`--world` 开放世界记录与来源状态，TUI 状态页筛选 `org.aurora.world` 即可读取，F7 可编辑 TOML。观察包含采样时间、地点、温度、天气描述及数据有效时间；天气来自 [Open-Meteo 当前天气接口](https://open-meteo.com/en/docs)，属于天气模型数据，载荷保留提供方归属。超时、网络失败或无效响应写入 `status=unavailable` 和固定错误代码，不伪造天气；时间来源继续运行，下一个天气周期会重新采样。
 
-环境采样只进入世界记录，不自动形成引导或调用模型；默认装配继续由显式交流激活。时间默认只保留最新 1 条，天气按 observed_at 采样时间保留最近一小时内最多 4 条，包括不可用观察；满一小时的旧条目不再保留。保留数量和时长可通过上述参数调整，与采样间隔分别配置。启动准备完成及每次来源写入时统一裁剪，因此时间更新也会清理过期天气；无输入或停机时不另设清理任务，下次启动先应用规则。其他未声明保留规则的来源继续完整保存。
+未启用 cadence 时，环境采样只进入世界记录，不自动形成引导或调用模型；默认装配继续由显式交流激活。时间默认只保留最新 1 条，天气按 observed_at 采样时间保留最近一小时内最多 4 条，包括不可用观察；满一小时的旧条目不再保留。保留数量和时长可通过上述参数调整，与采样间隔分别配置。启动准备完成及每次来源写入时统一裁剪，因此时间更新也会清理过期天气；无输入或停机时不另设清理任务，下次启动先应用规则。其他未声明保留规则的来源继续完整保存。
 
 裁剪会更新实际记录与快照，序号不重新编号；旧版 world 日志可直接读取，下次写入升级为 v2，旧程序不能读取新格式。裁剪后仅保留窗口内的消息参与去重，窗口外的同身份重投会作为新输入。读取位置落后于裁剪边界时明确报错，消费者须核对后重新读取窗口，不自动跳过缺失历史。每次环境采样仍是新的观察，重启不补发离线周期；来源状态显示主循环是否运行，天气是否可用以对应观察的 status 为准。
+
+### 最小 cadence：原样转发世界记录
+
+在默认 bot 的 `host.toml` 插件清单中显式加入 `aurora_world`、`aurora_bot.cadence`，保留已有的 bot、模型和配置依赖。来源按前节另行配置；只接收程序写入的世界记录时，无需启用 world 配置或环境插件。MCP 默认 bot 装配同样复用这一路径。
+
+首次启动只补齐缺失的 `<data-dir>/config/org.aurora.bot/cadence.toml`，默认 `source_ids = []` 不转发。选择实际来源实例后重启，例如只关注天气：
+
+```toml
+source_ids = ["environment/weather"]
+```
+
+首次选择从当前保留窗口开始。每条选定世界记录的 payload 原样形成一条引导，空闲时可启动运行，运行中继续接纳；配置选中的周期观察将调用所配置的模型。来源及世界消息身份保存在转交关联中，不给模型载荷加包装；回执表示已提交引导，不表示业务完成。直接交流继续使用同一 AgentRuntime。
+
+```powershell
+uv run --locked --env-file .env python scripts/serve_bot.py --world --cadence --edit-config
+```
+
+`--cadence` 仅开放观察状态，不启用插件。TUI 状态页读取 `org.aurora.bot:state/cadence`，location 的 instance_id 与 bot 配置一致；其中 position 为扫描位置，pending 为尚无确定回执的原消息，receipts 保存消息、guidance_id、sequence 和 run_id。F7 可编辑来源选择，正常关闭后重启生效。已有消费状态绑定了原来源集合，改变集合会暂停，不能通过改配置悄悄改变消费范围。
+
+`error=TransferUncertain` 表示须核对 pending 是否已经进入 agent；`CursorInvalid` 表示日志换代、缺失或裁剪缺口；`SelectionChanged` 表示来源范围不一致。暂停不阻断直接交流，也不会因重启自动解除。核对时先停止宿主并保留完整快照，对照 world、pending、receipts 与 agent 数据；不能仅凭文本相同认定已投递。首版没有自动核对或重置命令，须由宿主明确决定修复后的消费状态，不能直接删除游标来重放。
+
+完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重仍限于保留窗口，窗口外的同身份重投视为新记录。离线回归为 `uv run --locked pytest tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 的正式替换及完整双路径矩阵留在 M4.W4。
 
 ## MCP 独立客户端验收
 

@@ -37,7 +37,7 @@
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
 | `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
 | `aurora_logging` | `org.aurora.logging` | Python 运行时；当前未登记公共定义 |
-| `aurora_world` | `org.aurora.world` | Python 运行时；世界记录、来源登记与生命周期处理器，配置来源和 cadence 后续交付 |
+| `aurora_world` | `org.aurora.world` | Python 运行时；世界记录、来源登记、声明配置与生命周期处理器；cadence 归 bot 插件所有 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
 | `aurora_tui` | `org.aurora.tui` | TUI 本地 |
 | `aurora_panel` | `org.aurora.panel` | WebUI 本地 |
@@ -294,10 +294,21 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 已实现上述状态与 Python 接口；不承载全部直接对话，不要求记录绑定某个 run |
 | 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | W2.1–W2.3 已交付登记、绑定接纳、声明配置、后台托管与时间/天气来源，并接入默认装配 |
 | MCP 客户端、世界来源桥与工具桥 | `org.aurora.adapters`；B1/B2/B4 定义见第 6.6 节 | 独立客户端、世界通知桥和工具桥已交付，不改变 world/agent 的定义归属 |
-| cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 在 bot 包内提供可选插件；插件名与完整 ID 随实现登记，不建立独立 cadence 包 |
+| cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 已提供 `aurora_bot.cadence` 可选插件，复用默认装配的 AgentRuntime；不建立独立 cadence 包 |
 | 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
 
-来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，避免同一输入经两条路径重复提交。M4.W4 将 live_workshop 改为正式 world/cadence 的消费者，替换其示例自有调度。
+`aurora_bot.cadence` 的新增定义如下；插件入口属于 `aurora.plugins`，requires 为 `aurora_bot.assembly`、`aurora_world`、`aurora_config`，不隐式启用依赖，也不新增 operation、执行插槽或调度所有者。
+
+| 当前定义 | kind | 定位与职责 |
+| --- | --- | --- |
+| `org.aurora.bot:configs/cadence` | config | 来源选择与 `org.aurora.bot/cadence.toml` 模板声明 |
+| `org.aurora.bot:state/cadence_config` | state_key | 全局 `source_ids` 配置，非持久化，默认空列表 |
+| `org.aurora.bot:state/cadence` | state_key | 按 instance_id 保存来源选择绑定、完整消费位置、pending 原消息、receipts 引导关联与固定 error；持久化 |
+| `org.aurora.bot:handlers/cadence/prepare` | hook_handler | 校验配置与恢复的消费绑定，未知转交保持暂停 |
+| `org.aurora.bot:handlers/cadence/start` | hook_handler | 先订阅再读取，向既有 Runtime 逐条原样提交 |
+| `org.aurora.bot:handlers/cadence/stop` | hook_handler | 取消订阅并等待转发任务结束，不取消独立运行句柄 |
+
+来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，宿主须避免同一输入经两条路径重复提交。所有 ID 和插件为新增，不替换旧定义、不改写已有 TOML 或快照；含 cadence 消费状态的快照须显式启用其插件才能恢复，缺失定义不被忽略。未知投递、裁剪缺口及来源选择变化的暂停规则见[设计第 7.7 节](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。M4.W4 将 live_workshop 改为正式 world/cadence 的消费者，替换其示例自有调度。
 
 ### 6.6 MCP 客户端、世界通知桥与工具桥（M4.B1/B2/B4 已实现）
 
@@ -463,7 +474,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | config configuration 端点 | `register_to` | `org.aurora.api:registries/endpoints`；API 缺席时未连接并告警 |
 | bot conversation 端点 | 已实现操作绑定 | `org.aurora.bot:operations/run/submit` 与 `org.aurora.bot:operations/run/cancel`；复用现有操作 |
 | world 来源 | 记录、来源装配、声明配置、后台托管与时间/天气来源已实现 | 世界记录由 world 提供；来源不直接决定 agent 运行 |
-| cadence | M4-W 规划读取与提交 | 订阅选定世界记录，向目标实例的既有 AgentRuntime 提交引导 |
+| cadence | M4.W3 已实现读取与提交 | 订阅选定世界记录，向目标实例的既有 AgentRuntime 提交引导，保存转交关联及消费位置 |
 | ReAct 默认处理器 | `register_to` | `org.aurora.core:registries/hook_handlers` |
 | AgentRuntime | 宿主入口 | `get_agent`、`execute`、`is_executing`；不引用 DefaultAssembly |
 | control 组件 | 执行插槽 | 通过 ExecutionSlot 连接 ExecutionPlug，业务数据经 ctx 绑定交换 |
@@ -475,7 +486,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
 | TUI/Panel 的订阅 | 连接与订阅支持 | `org.aurora.client:services/event_stream` |
 
-M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，cadence 待后续实现。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧配置和快照无需迁移；含世界记录的新快照恢复时必须显式启用 aurora_world，缺失定义不会被静默忽略。
+M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，W3 已实现最小 cadence，W4 示例替换与双路径整体验收待实施。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧配置和快照无需迁移；含世界记录的新快照恢复时必须显式启用 aurora_world，缺失定义不会被静默忽略。
 
 ## 14. 第三方声明示例
 

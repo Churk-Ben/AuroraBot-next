@@ -361,7 +361,7 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 首版 cadence 对订阅范围内的世界消息原样转发：一条消息形成一条引导，保留内容与来源关联，暂不做语义聚类、合并或延迟调度。消息身份、重复识别、消费位置和转交回执用于可靠交付；来源消息、世界记录、引导、run_id 与 execution_id 分别管理。世界消息可能在一个已有运行中被接纳，不假设一条消息对应一个独立 run。
 
-world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。M4.W1 已确定以下记录侧 D11 规则，转交一致性与消费恢复由 M4.W3 补齐。接收回执不承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
+world 的持久来源记录与 ctx 变化通知配合使用，cadence 可按位置重新读取记录；瞬时通知不承担历史补发。M4.W1 已确定以下记录侧 D11 规则，M4.W3 已补齐转交关联与消费恢复。接收回执不承诺即时落盘；转交结果不确定时明确暂停待核对，不自动重放。恢复状态不代表透明续跑或工具动作可重试。
 
 - `aurora_world` 仅依赖 core，记录状态为 `org.aurora.world:state/records`，使用全局 `location={}`。`WorldRecords(ctx)` 不写状态、不启动任务；`append(source_id=..., message_id=..., payload=...)` 同步接纳严格 JSON 内容，不要求 bot、run 或消费者存在。首次追加创建 journal_id，记录包含独立 record_id、来源身份和从 1 递增的序号。来源登记与生命周期使用下面的 W2.1 接口，不改变记录格式。
 - source_id 是来源实例身份，须由接入方稳定地区分平台、账户、通道等实际消息 ID 作用域；message_id 在该来源下稳定。两个字段按原字符串精确比较，不自动规范化。保留窗口内同身份同内容返回原记录及 `duplicate=True`，没有触发裁剪时不写入或再次通知；不同内容抛出 `MessageConflictError`。JSON 对象键序不影响去重，数组顺序以及布尔值、整数、浮点数的编码保留区别；凭证在写入前由来源排除。
@@ -394,7 +394,15 @@ finally:
     ctx.close()
 ```
 
-正式 cadence 不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。`live_workshop` 当前的模拟世界与自有调度属于示例，M4.W4 将其改为正式能力的消费者；不能直接把示例循环当成可交付的 cadence。世界来源和 cadence 持有自己的后台资源，关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。
+M4.W3 已提供 `aurora_bot.cadence` 可选插件，不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。DefaultAssembly 在登记 cadence 配置定义时装配一个转发所有者，依赖 bot 组件；启用 world 配置时，来源组件进一步依赖 cadence，确保先订阅再开放来源。关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。`live_workshop` 当前的模拟世界与自有调度仍属示例，M4.W4 再将其改为正式能力消费者。
+
+cadence 的首版 D11 转交规则如下：
+
+- 配置复用 aurora_config，模板位于 `aurora_bot.cadence/config.tomls/cadence.toml`，复制到 `<data-dir>/config/org.aurora.bot/cadence.toml`。`source_ids` 精确选择来源实例，默认空列表不转发。配置状态不持久化，运行期修改不热装配，也不写回 TOML。插件须同时显式启用 `aurora_bot.assembly`、`aurora_world` 和 `aurora_config` 及各自依赖。
+- 先订阅全局世界记录，再按位置读取；通知只唤醒读取，不携带独立的待转交队列。首次消费从当前保留窗口开始，此后不静默跳过裁剪缺口。按全局记录顺序扫描，未选择的来源只推进位置；每条选定记录的 payload 原样传入同一 AgentRuntime.submit，不加前缀、不合并，不等待业务完成。取消期间的明确写入前拒绝会等待原运行收尾再读取；取消运行不永久停用 cadence。
+- `org.aurora.bot:state/cadence` 按 `location={"instance_id": ...}` 持久保存 version、来源选择绑定、完整 position、pending、receipts 和 error。每次提交先保存 pending 原消息，再同步提交；成功回执与新位置一次写入并清除 pending。回执保留原消息、guidance_id、引导 sequence 和 run_id；接纳不代表业务完成。正常恢复不会再次提交已关联记录，尚未转交的保留记录可以继续形成新引导。
+- 提交异常、回执保存失败或恢复出 pending 均以 `TransferUncertain` 暂停；日志缺失、换代、锚点不符或裁剪缺口以 `CursorInvalid` 暂停；来源选择与已有消费绑定不符以 `SelectionChanged` 暂停。显式激活占用且没有 Runtime 句柄时为 `RuntimeBusy`，其他转发故障为 `ForwarderFailed`。诊断只使用固定代码，暂停不影响直接交流，重启不自动清除。首版不提供自动核对、重置游标或重放操作；恢复流程由宿主明确审核，不能凭相似文本或残留运行状态推断转交成功。
+- pending、回执、inbox 和世界记录随宿主异步快照保存，提交过程没有异步等待，但不构成外部副作用的持久事务；崩溃可能回到较早快照，不能宣称恰好一次执行。来源去重仍限于 world 保留窗口，已裁剪来源消息重投按新世界记录处理。首版完整保存关联及原始载荷，不自动裁剪；大规模日志与人工核对工具留待后续。
 
 M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
 
@@ -409,7 +417,7 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - TOML 装配通过可选的 `aurora_world.configuration` 插件接入 aurora_config，安装 extra 为 `aurora-world[config]`；基础 world 仍仅依赖 core。宿主显式启用 aurora_world、aurora_config 和配置插件，并装配 configuration_component 与 configured_sources_component；后者依赖前者，在 config 阶段选择全部来源，prepare 才调用工厂。模板复制到配置目录的 `org.aurora.world/config.toml`，只补齐缺失文件，默认 sources 为空。每项声明 source 公共 ID、唯一 source_id 和 config 对象；通用结构及引用在创建前校验，来源专用参数由工厂校验。配置状态非持久化，改 ctx 不写回文件，也不热装配来源。
 - 环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。W2.3 的 `aurora_world.environment` 可选插件提供 time/weather 两个来源，`aurora-world[environment]` extra 引入 config/httpx，基础 world 保持仅依赖 core。时间按宿主本地时区采样；天气使用配置中的地点标签、经纬度和请求超时，经 [Open-Meteo](https://open-meteo.com/en/docs) 读取当前天气模型数据，记录提供方、有效时间、摄氏温度、WMO 天气代码与描述、km/h 风速。默认时间间隔 60 秒，天气 900 秒；相对等待从本次观察完成后开始，不追赶错过的周期。
 - 每次采样使用启动会话和计数作为 message_id，表示新的观察，不将轮询当成外部事件修订；重启不补发离线周期，也不将同一有效时间的天气误判为完整事件历史。天气超时、网络/HTTP 错误或无效数据形成不可用观察，不影响时间来源；当前请求不重试，下个周期重新采样。关闭取消在途请求并等待主循环退出，之后关闭 HTTP 客户端。来源参数不保存凭证，天气载荷保留来源归属。
-- 默认 bot 增加 world/config 的包依赖，但仍须显式启用 world 插件。登记 world 配置定义时，DefaultAssembly 连接一个来源所有者，其生命周期依赖 bot 组件；配置选择先于所有 prepare，bot 就绪后开放环境输入，关闭时先收束来源再关闭 bot/模型。没有 world 配置定义时保持原装配行为；来源不自动调用模型，cadence 尚未接入。正式启动脚本用 `--world` 显式开放世界记录和来源状态，复用 TUI 状态页观察。
+- 默认 bot 增加 world/config 的包依赖，但仍须显式启用 world 插件。登记 world 配置定义时，DefaultAssembly 连接一个来源所有者；配置选择先于所有 prepare，bot 及可选 cadence 就绪后开放环境输入，关闭时先收束来源再关闭转发、bot/模型。没有 world 配置定义时保持原装配行为；只有显式启用 cadence 并选择来源才自动形成引导。正式启动脚本用 `--world` 开放世界记录和来源状态，用 `--cadence` 开放消费状态和暂停诊断，复用 TUI 状态页观察。
 - 可运行的程序及 TOML 装配恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，后者使用 `--configured`；[environment_roundtrip.py](../tests/fixtures/environment_roundtrip.py) 验证环境来源独立安装与恢复，默认使用模拟天气传输，`--live-weather` 显式访问真实服务。模拟来源、自研环境周期和 MCP 来源共用已有入口，不增加另一套来源事件总线。
 - M4.B1 已提供可选 `aurora-adapters[mcp]` 与 `aurora_adapters.mcp` 插件。`MCPClients` 在 config 阶段选择声明，prepare 阶段创建连接；每个 SDK 上下文由同一后台任务进入与退出，消费者通过异步借用上下文使用。stop 封闭入口、取消并等待剩余借用，clean 在依赖者清理后关闭客户端，最后由宿主落盘。关闭等待超时或取消可再次等待，不重复取消正在收尾的任务；真正的关闭失败阻止宿主假报关闭成功。基础 adapters 仅依赖 core，MCP extra 引入 config/SDK/httpx2/tomli-w，无 world/agent/bot 依赖。
 - MCP B5.1 使用 schema_version=2、默认空 servers 映射，服务名直接作为 connection_id；模板只补缺失文件。声明支持 local/remote、协议策略、所需能力、四类超时和 headers/environment 环境引用；B5.2–B5.3 已支持 remote/local 的 legacy/auto/固定新版协商；local 在 prepare 解析显式 workspace_root 下的 cwd 和环境，按参数数组启动自有进程。stdio 单帧限制 4 MiB，stderr 丢弃，关闭回收所属 Job/进程组。旧 connections/tools 布局须通过 python -m aurora_adapters.mcp.migrate 生成候选并显式应用，保留旧身份、工具别名与暴露范围，不覆盖用户文件。凭证在连接创建时单独解析，不进入 TOML、ctx 或快照。URL 不接受 userinfo、查询串或片段；服务端任意元数据不写入观察状态。配置与状态均非持久，固定错误码区分启动超时、协议/能力拒绝、传输和关闭失败。ready 不是持续健康探测，断线在请求时诊断，不自动重放请求或重连。
@@ -423,7 +431,7 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 
 通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1–B5.3 的 v2 配置、运行期引用、显式迁移与 HTTP/stdio 传输已交付；内部按声明、凭证、传输、协商、错误与所有权分工，stdio 管道与进程管理单独成模块，工具目录与执行已分模块并支持自动名称，可选产品装配及一次性预设已完成，业务事件扩展与可靠投递单独设计。
 
-B3 已完成 HTTP、stdio、混合连接的共享关闭与失败回收验收；后续推进 cadence 与 live_workshop 集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
+B3 已完成 HTTP、stdio、混合连接的共享关闭与失败回收验收，W3 最小 cadence 已实现；后续推进 W4 live_workshop 与双路径集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
 
 ## 8. 模型适配与绑定
 
@@ -508,7 +516,7 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 | `aurora_cli` | core、api | 接收已启用的命令声明，不导入 bot 插件实现 |
 | `aurora_api` | core；按实际需要复用 CLI 公开适配描述 | 提供 client 传输；不强制经过 CLI，不导入 bot 插件实现 |
 | `aurora_logging` | core；按实际需要 | 当前提供日志配置 |
-| `aurora_world` | core；后续声明配置时使用 config | 世界记录已实现，不依赖 agent/bot；cadence 将通过其公开记录与 ctx 订阅接入 |
+| `aurora_world` | core；config/environment extras 提供配置与环境依赖 | 世界记录已实现，不依赖 agent/bot；cadence 通过其公开记录与 ctx 订阅接入 |
 | `aurora_adapters` | core；mcp extra 引入 config、mcp、httpx2；mcp-world 加入 world/config，mcp-tools 加入 agent | 客户端、世界通知桥与工具桥已实现；world/agent/bot 不反向依赖 adapters |
 | `aurora_client` | TS 传输与所需生成类型 | 实现统一 ctx 接口和既有 ctx ID 入口 |
 | `aurora_tui`、`aurora_panel` | client | 使用 ctx interface，不参与后端插件装配 |
@@ -558,7 +566,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录及 W2.1–W2.3 来源装配、声明配置、后台托管与环境周期已交付，并接入默认装配；接续 MCP、cadence 与双路径验收；详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录、W2.1–W2.3 来源装配及环境周期、B1–B5 MCP 接入与共享关闭、W3 最小 cadence 已交付；接续 W4 live_workshop 与双路径整体验收。详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 
