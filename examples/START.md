@@ -403,7 +403,7 @@ uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-stdio-bot
 uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-tools-acceptance --transport local --automatic --bot
 ```
 
-两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；工具桥与世界通知桥共同使用时的完整关闭验收属于 B3。
+两条路径均只访问本机测试 MCP 服务，默认 bot 使用假模型。外部真实 MCP 服务兼容性验证另行安排；B3 已完成工具桥与世界通知桥的 HTTP、stdio、混合连接共享关闭验收，使用正式产品装配和假模型。
 
 ### MCP 默认 bot 产品预设
 

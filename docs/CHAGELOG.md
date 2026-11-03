@@ -2,6 +2,15 @@
 
 ## 2026-11-03
 
+### M4.B3：完成共享客户端与跨传输生命周期验收
+
+- 新增正式 MCP 产品装配的 30 项本机集成验收，覆盖 HTTP、stdio、混合连接三种布局。工具与 MCP 世界来源共享同一客户端，普通时间来源同时由唯一 world 所有者管理；验证来源停止不打断在途工具、工具超时、运行取消、宿主退出、进程断线，以及关闭等待被取消或超时后再次等待。
+- 明确断言来源、工具、模型、客户端和最终快照的收尾顺序；所有自有任务结束，stdio 进程被回收，外部 HTTP 服务不由客户端结束。混合布局中本地服务退出后，另一远程来源与连接仍接纳；发送后的断线保留 mcp_result_unknown，超时为 mcp_timeout，远端调用日志均只有一次，不自动重发。
+- 目录选择失败、模型工厂失败和旧协议来源启动失败均回收已准备的共享资源并完成最终落盘。取消或正常关闭后重建宿主可恢复世界记录，但不启动模型、不重放工具动作；配置文件原样保留，客户端/配置状态不进入业务快照。测试服务与进程闸门集中在 tests/fixtures/mcp_shared_server.py，未新增产品示例或第二套执行机制。
+- 最终完整 `pnpm exec uv run --locked aurora check` 通过：999 项 Python、97 项 TS、5 项原生终端测试，格式、lint、Python/TS 类型检查通过。Windows 工作区和最终 wheel 的独立产品环境分别通过 30 项共享回归；混合布局强化为本地故障后，相关 10 项工作区回归及安装环境故障验证通过。代码与 B5.4 的 12 个最终 wheel 一致，本批只新增测试并同步文档。
+- Fedora Linux/Python 3.12.14 的干净 wheel 环境通过 30 项共享回归及 6 项正式 CLI/API 验收；补验本地服务优先的混合来源停止和故障隔离，两项通过。各环境使用最终本地 wheel 的显式约束，未以工作区导入替代安装验收。107 个文档本地链接/锚点、11 段 TOML 示例和差异检查通过。
+- B5 通用 MCP 接入与 B3 共享关闭闭环完成；下一阶段为 W3/W4 cadence 与 live_workshop 正式集成。业务事件可靠投递、外部真实 MCP 兼容性及真实模型验收仍单独安排，本轮未调用外部服务。README.md、AGENTS.md、用户审查报告及用户数据保持原状。
+
 ### M4.B5.4：接入默认 bot 产品装配与初始化预设
 
 - 新增可选 `aurora_adapters.mcp.bot` 插件、`aurora-adapters[mcp-bot]` extra 和 `org.aurora.adapters:assemblies/mcp/default_bot`。共享一个 MCPClients，目录发现先于模型和工具准备；DefaultAssembly 通过 additional_tools 增量合并工具，保留已显式选择的 MCP 实例身份，新增实例使用工具 ID 的 local_path，不改写 TOML、ctx 配置或历史快照。

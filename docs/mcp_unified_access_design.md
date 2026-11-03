@@ -1,6 +1,6 @@
 # MCP 通用接入需求与设计草案
 
-状态：B5.1 配置与迁移、B5.2 HTTP 协商、B5.3 stdio、B5.4 工具自动选择与产品装配已实现。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收待完成。
+状态：B5.1 配置与迁移、B5.2 HTTP 协商、B5.3 stdio、B5.4 工具自动选择与产品装配已实现。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收已完成。
 
 本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口、HTTP 协商和 stdio 已实现；自动工具命名与精确过滤已实现，产品装配仍为拟议设计。remote/local 均支持 legacy/auto/固定新版，工具桥默认自动发现，可显式 include/exclude 和 aliases；local 由宿主通过 MCPClients 的 workspace_root 明确提供工作区根目录。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
 
@@ -222,7 +222,7 @@ v2 已实现算法：`mcp_<server_slug>_<tool_slug>_<digest>`。slug 将 ASCII �
 
 基础 adapters 继续仅依赖 core；mcp 提供客户端与两种传输；mcp-tools 可依赖 agent；mcp-world 可依赖 world；只有可选 mcp-bot 依赖 bot。agent/world/bot 均不反向依赖 adapters。预设与 CLI 复用 aurora_config.host.HOST_SCHEMA，产品 extra 无需 CLI/API，实际宿主另行安装。
 
-世界来源若一起启用，组合装配复用同一个 MCPClients，并替换 DefaultAssembly 已有的来源装配注入点，保证每个 ctx 只有一个来源所有者；不并排启动通用 configured_sources_component 与 MCP 专用来源所有者。该路径纳入 B3；工具独立宿主始终无需 world。
+世界来源若一起启用，组合装配复用同一个 MCPClients，并替换 DefaultAssembly 已有的来源装配注入点，保证每个 ctx 只有一个来源所有者；不并排启动通用 configured_sources_component 与 MCP 专用来源所有者。该路径已通过 B3 的 HTTP、stdio、混合连接共享关闭验收；工具独立宿主始终无需 world。
 
 来源实例工厂通过 configured_sources_component 的 source_factories 注入，不将 ctx/clients 写入公共 SourceSpec；不同宿主可复用同一来源定义。DefaultAssembly.world_component_factory 提供单一装配入口，普通来源仍使用其原工厂。
 
@@ -292,7 +292,7 @@ MCP 配置、客户端/工具组件和资源来源的现有公共定义原则上
 | B5.2 HTTP 协议协商（已交付） | legacy/auto/固定新版、版本和能力诊断 | 旧/新测试服务、RPC/HTTP 错误分类、协商预算、单次工具调用 |
 | B5.3 stdio（已交付） | SDK 会话接入有界管道、同一所有者、环境和工作区路径 | Windows/Linux 真子进程、EOF/取消、后代与管道回收 |
 | B5.4 工具与产品接线 | 自动名称/过滤、可选组合装配及初始化预设 | CLI/API 无自编 Python 接线、无重复登记、不自动启用依赖 |
-| B3 扩展验收 | 世界来源和工具共用客户端、跨传输关闭矩阵 | 资源独立、停止接纳、收尾、最后落盘、独立安装 |
+| B3 扩展验收（已完成） | 世界来源和工具共用客户端、跨传输关闭矩阵 | 资源独立、停止接纳、收尾、最后落盘、独立安装 |
 | 事件后续切片 | world-events 或事件日志的明确契约 | 另按交付保证排期，不以工具验收替代 |
 
 B5.1 迁移入口为 `python -m aurora_adapters.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。local 在 prepare 解析目录和环境后启动；工具桥已支持默认通配及缺少别名的自动命名，显式 include=[] 仍不暴露工具。迁移及运行示例见[启动指南](../examples/START.md#mcp-独立客户端验收)。
@@ -317,6 +317,8 @@ B5.1 的 startup/catalog/execution 分别提供操作预算；SDK 请求与 HTTP
 | 分发 | 基础 adapters/control 无 agent/模型；mcp 无 world/bot；mcp-tools 无 world/bot；mcp-world 无 agent/bot；mcp-bot 显式安装；wheel 包含模板 |
 
 普通回归使用假模型、模拟 HTTP 与本机测试进程，不调用真实供应商。实现阶段运行针对性回归、完整检查与 wheel 安装验收；保留现有五条产品示例，专项验收放 tests/fixtures。
+
+B3 的本机回归位于 `tests/e2e/test_mcp_shared.py`：三种连接布局分别验证来源独立停止、工具超时、显式运行取消、宿主停止、进程断线、关闭等待取消/超时、目录/模型/来源启动失败。关闭顺序断言覆盖来源、工具、模型、客户端和最终快照；远程服务保持由外部所有者管理，stdio 自有进程被回收。恢复保留世界记录，但不启动模型、不重放工具。旧协议不支持新版资源订阅，仍明确拒绝，不因传输打通而扩展事件保证。
 
 真实兼容性单独记录：先对 ncd/Aurora-QQ 做握手和目录验证，再执行明确选定的只读状态工具。发消息、订阅业务事件和其他副作用不由“接入成功”隐含授权。记录 SDK/服务版本、传输、协商版本、能力及未验收边界，不记录凭证。
 
