@@ -1,5 +1,38 @@
 # 变更记录
 
+## 2026-11-04
+
+### 按包归置模块测试并清理里程碑验收入口
+
+- 将根目录 39 个单元测试文件及 4 个包级契约测试文件迁到对应的 `packages/<包>/tests/unit`、`tests/contract`，覆盖 core、config、control、agent、adapter、bot、CLI、API、logging 和 world。按实际职责将原 `test_bot_control.py`、`test_bot_tools.py` 分别归入 control 和 agent，并改为 `test_control.py`、`test_tools.py`。
+- 工作区安装测试移至根目录 `tests/e2e/test_workspace.py`；跨包契约、生成产物一致性、示例和真实进程集成继续保留在根目录 `tests`。根目录 `conftest.py` 提供按需加载 agent 的共享装配 fixture，消除 bot 测试对 agent 测试文件的直接导入，保留原有测试断言。
+- pytest 默认发现同时覆盖 `packages/*/tests` 和根目录 `tests`；Pyright 纳入包内测试及共享 fixture。同步设计文档、测试命令和示例启动指南中的路径，经用户确认同步 AGENTS.md 的目录、测试规范和示例命令；适配器测试按当前工作区合并后的 `aurora_adapter` 归置，不改动公共 ID、配置或快照。
+- 删除独立的 `test_m2_acceptance.py`、`test_m1_shutdown.py`、`test_m1_cli_process.py` 入口，将仍有效的 bot 无宿主依赖、并发写入与最终落盘、真实 CLI 中断及故障恢复测试分别并入 `test_package_boundaries.py`、`test_lifecycle_persistence.py`、`test_cli.py`。CLI 夹具改为 `cli_shutdown_plugin.py`，同步临时插件名、测试命名空间和故障注入环境变量；保留全部断言和 5 项参数化用例。
+- 删除没有自动化消费者的 `tests/fixtures/environment_roundtrip.py` 手工验收脚本，文档改为引用现有环境来源单元测试与默认装配环境集成测试，覆盖周期采样、观察、持久化和恢复。其余进程夹具均仍被当前回归使用，检查、契约生成和产品启动脚本继续保留。
+- 经用户确认删除 `scripts/accept_m2.py`，移除里程碑专用的真实模型双模式验收编排和报告入口；现有默认装配回归继续验证工具往返、终态、收尾和恢复。同步 AGENTS.md 与示例启动指南，真实模型验收改用当前 CLI、独立数据目录及显式配置。本次未调用真实模型或天气服务。
+- 验收：迁移前后收集到相同的 1042 项用例；719 项包级测试、合并后的 42 项 CLI/生命周期/包边界回归全部通过。在 `packages/aurora_bot` 下单独运行会话测试，4 项通过，共享 fixture 不依赖其他包测试的收集顺序。最终 `uv run --locked aurora check` 全部通过：1042 项 Python、97 项 TS、5 项终端测试，以及格式、lint、Python/TS 类型检查；仅有既有 Pydantic ReadOnly 提示。迁移后的 20 处测试路径引用及文档格式检查通过。
+
+### 合并模型与外部协议适配到单数 aurora_adapter
+
+- 将 `aurora_model_adapter` 并入 `aurora_adapter.model`，将 `aurora_adapters` 改为 `aurora_adapter`，仅发布 `aurora-adapter`。统一维护模型协议、FakeModel、供应商工厂及 MCP 客户端与桥；移除旧分发包、导入路径和插件入口，不提供兼容转发。
+- 基础包仅依赖 core；`[model]` 安装配置服务，`[litellm]` 加入原 LiteLLM SDK 依赖，`[mcp]`、`[mcp-world]`、`[mcp-tools]`、`[mcp-bot]` 按原职责安装。agent 仅依赖基础包，bot 选择 `[litellm]`。插件仍须显式启用，发现模型插件不加载 SDK，MCP 客户端和世界桥不导入模型模块。
+- 模型插件改为 `aurora_adapter.model`，MCP 插件前缀改为 `aurora_adapter.mcp`；定义统一归属 `org.aurora.adapter`。MCP ID 只更换命名空间；模型 ID 按下表更换，provider 与插件名同步。公共 ID 的 registries/tools 等集合 domain 及配置字段保留既有契约，本次单数命名针对适配包。
+
+| 旧模型 ID（前缀 org.aurora.model_adapter:） | 新 ID（前缀 org.aurora.adapter:） |
+| --- | --- |
+| `registries/adapters` | `registries/model/adapters` |
+| `services/model_client` | `services/model/client` |
+| `schemas/model_request`、`model_response`、`model_chunk`、`model_capabilities` | `schemas/model/request`、`response`、`chunk`、`capabilities` |
+| `adapters/litellm` | `adapters/model/litellm` |
+| `configs/profiles`、`configs/bindings` | `configs/model/profiles`、`configs/model/bindings` |
+| `state/config`、`state/bindings` | `state/model/config`、`state/model/bindings` |
+
+- 包内模板统一位于 `aurora_adapter/config.tomls/`。用户配置根目录下的 `org.aurora.model_adapter/profiles.toml`、`bindings.toml` 分别迁至 `org.aurora.adapter/model/profiles.toml`、`model/bindings.toml`，`org.aurora.adapters/config.toml` 迁至 `org.aurora.adapter/mcp.toml`。模板仍只复制缺失文件；升级前须显式备份并迁移原配置，更新 host 插件/assembly、profile.adapter、bot 显式工具 ID、world source ID 等引用，否则旧选择会被拒绝或新模板为空。既有 MCP v1→v2 migrate 命令只转换配置结构，不承担本次包名或快照迁移。
+- 模型配置、MCP 配置与观察状态均非持久，无这些状态项的正常快照可原样恢复；业务值中的旧工具或来源 ID，以及 world 数据库已有来源身份仍需宿主核对并显式迁移，避免历史引用失效或去重身份变化。未知状态继续报错，不自动忽略；本任务未修改用户 data、凭证、业务快照或数据库。
+- 同步 workspace/锁文件、消费者、示例、公共 ID 目录与架构说明。用户允许同步 AGENTS.md 的适配包职责与命名；README.md 当前为空，无相关内容需要修改。历史变更条目保留当时名称。
+- 分发验收：11 个 wheel 构建通过，模型 profiles/bindings 与 MCP 三份模板均包含在统一包内。所有 Aurora 依赖约束到本次 wheel，在 7 个干净环境中分别验证 control 独立运行、无 config/SDK/产品包的 agent 工具往返与恢复、无 SDK 的模型插件发现，以及 MCP 客户端、世界桥、工具桥和假模型默认 bot 的本机往返；产品 extra 不要求 CLI/API。未调用真实模型或外部 MCP 服务。
+- 最终 `uv run --locked aurora check` 全部通过：1042 项 Python、97 项 TypeScript、5 项终端测试，格式、lint、Python/TypeScript 类型检查通过，仅保留既有 Pydantic ReadOnly 提示。默认 bot 与 live_workshop 的自定义模型模板同步迁到 model 子目录，模型切换与重启恢复通过；变更文档的本地链接和 `git diff --check` 通过。验证基于包含并发测试归置工作的当前工作区，未混合提交其他任务改动。
+
 ## 2026-11-03
 
 ### 将 Aurora-QQ 通知适配为 bot 的 MCP 世界事件

@@ -29,13 +29,12 @@
 | --- | --- | --- |
 | `aurora_core` | `org.aurora.core` | Python 运行时 |
 | `aurora_config` | `org.aurora.config` | Python 运行时 |
-| `aurora_adapters` | `org.aurora.adapters` | Python 运行时；MCP 可选插件 |
+| `aurora_adapter` | `org.aurora.adapter` | Python 运行时；模型与 MCP 插件 |
 | `aurora_cli` | `org.aurora.cli` | Python 运行时 |
 | `aurora_control` | `org.aurora.control` | Python 运行时 |
 | `aurora_agent` | `org.aurora.agent` | Python 运行时 |
 | `aurora_bot` | `org.aurora.bot` | Python 运行时 |
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
-| `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
 | `aurora_logging` | `org.aurora.logging` | Python 运行时；当前未登记公共定义 |
 | `aurora_world` | `org.aurora.world` | Python 运行时；世界记录、来源登记、声明配置与生命周期处理器；cadence 归 bot 插件所有 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
@@ -74,7 +73,7 @@
 | 本节其余 core 注册表 | `org.aurora.core:registries/registries` |
 | `org.aurora.config:registries/configs` | `org.aurora.core:registries/registries` |
 | `org.aurora.cli:registries/commands` | `org.aurora.core:registries/registries` |
-| `org.aurora.model_adapter:registries/adapters` | `org.aurora.core:registries/registries` |
+| `org.aurora.adapter:registries/model/adapters` | `org.aurora.core:registries/registries` |
 | `org.aurora.agent:registries/tools` | `org.aurora.core:registries/registries` |
 | `org.aurora.bot:registries/agents` | `org.aurora.core:registries/registries` |
 | `org.aurora.api:registries/endpoints` | `org.aurora.core:registries/registries` |
@@ -145,23 +144,23 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 
 命令由 CLI 接收并登记。未安装或未启用 CLI 时，指向命令表的声明保留为未连接并 warning，不阻断其他能力。`ctx/watch` 组合订阅、渲染与取消订阅，不要求与操作一一对应。
 
-## 5. aurora_model_adapter
+## 5. aurora_adapter.model
 
 | ID | kind | 状态 | 用途 |
 | --- | --- | --- | --- |
-| `org.aurora.model_adapter:registries/adapters` | `registry` | 已实现 | 接收模型适配器工厂 |
-| `org.aurora.model_adapter:services/model_client` | `service` | 已实现 | 上层消费的统一 ModelClient 协议 |
-| `org.aurora.model_adapter:adapters/litellm` | `adapter` | 已实现 | 基于 LiteLLM 创建 ModelClient |
-| `org.aurora.model_adapter:schemas/model_request` | `schema` | 已实现 | 统一模型请求 |
-| `org.aurora.model_adapter:schemas/model_response` | `schema` | 已实现 | 统一模型响应 |
-| `org.aurora.model_adapter:schemas/model_chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
-| `org.aurora.model_adapter:schemas/model_capabilities` | `schema` | 已实现 | streaming、tool_calls 能力声明 |
-| `org.aurora.model_adapter:configs/profiles` | `config` | 已实现 | profile 模板、结构与状态关系 |
-| `org.aurora.model_adapter:configs/bindings` | `config` | 已实现 | 角色绑定模板、结构与 profile 引用校验 |
-| `org.aurora.model_adapter:state/config` | `state_key` | 已实现 | 适配器选择与连接配置；来源为包内 TOML 模板 |
-| `org.aurora.model_adapter:state/bindings` | `state_key` | 已实现 | 逻辑模型角色与服务实例的可恢复绑定描述；来源为包内 TOML 模板 |
+| `org.aurora.adapter:registries/model/adapters` | `registry` | 已实现 | 接收模型适配器工厂 |
+| `org.aurora.adapter:services/model/client` | `service` | 已实现 | 上层消费的统一 ModelClient 协议 |
+| `org.aurora.adapter:adapters/model/litellm` | `adapter` | 已实现 | 基于 LiteLLM 创建 ModelClient |
+| `org.aurora.adapter:schemas/model/request` | `schema` | 已实现 | 统一模型请求 |
+| `org.aurora.adapter:schemas/model/response` | `schema` | 已实现 | 统一模型响应 |
+| `org.aurora.adapter:schemas/model/chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
+| `org.aurora.adapter:schemas/model/capabilities` | `schema` | 已实现 | streaming、tool_calls 能力声明 |
+| `org.aurora.adapter:configs/model/profiles` | `config` | 已实现 | profile 模板、结构与状态关系 |
+| `org.aurora.adapter:configs/model/bindings` | `config` | 已实现 | 角色绑定模板、结构与 profile 引用校验 |
+| `org.aurora.adapter:state/model/config` | `state_key` | 已实现 | 适配器选择与连接配置；来源为包内 TOML 模板 |
+| `org.aurora.adapter:state/model/bindings` | `state_key` | 已实现 | 逻辑模型角色与服务实例的可恢复绑定描述；来源为包内 TOML 模板 |
 
-插件入口为 `aurora_model_adapter`，依赖 aurora_config，登记 adapters、model_client、四个模型 schema、两个配置声明及其非持久状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
+安装 `aurora-adapter[model]` 可加载模型配置插件，`aurora-adapter[litellm]` 另提供供应商 SDK。插件入口为 `aurora_adapter.model`，依赖 aurora_config，登记 adapters、model_client、四个模型 schema、两个配置声明及其非持久状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
 
 模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 
@@ -196,7 +195,7 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 
 ### 6.2 aurora_agent
 
-agent 包依赖 control、core 与 model_adapter。ReAct 循环、模型调用、工具执行和默认阶段分别提供插件。`aurora_agent.react_defaults` 要求同时启用 `aurora_agent.react`、`aurora_agent.model` 与 `aurora_agent.tools`。
+agent 包依赖 control、core 与 adapter.model。ReAct 循环、模型调用、工具执行和默认阶段分别提供插件。`aurora_agent.react_defaults` 要求同时启用 `aurora_agent.react`、`aurora_agent.model` 与 `aurora_agent.tools`。
 
 | ID | kind | 提供插件 |
 | --- | --- | --- |
@@ -262,7 +261,7 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 
 多 agent 通信、多模型聚合、MCP 和额外消息传输属于后续扩展，未实现的规划名称不作为已登记定义列出。具体定义以所选插件的 `id list` 输出为准，名称存在不代表组件已连接或执行。
 
-MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再预留 bot 的 mcp_servers 注册表。该旧规划 ID 从未登记，无配置或快照迁移；适配器定义的完整 ID 和插件入口随 M4-B 实现登记，不提供旧名兼容层。MCP 工具桥复用实际存在的 `org.aurora.agent:registries/tools`、工具 ExecutionPlug 及执行器插槽，bot 只负责装配。
+MCP 客户端与桥接实现计划归属可选包 `aurora_adapter.mcp`，不再预留 bot 的 mcp_servers 注册表。该旧规划 ID 从未登记，无配置或快照迁移；适配器定义的完整 ID 和插件入口随 M4-B 实现登记，不提供旧名兼容层。MCP 工具桥复用实际存在的 `org.aurora.agent:registries/tools`、工具 ExecutionPlug 及执行器插槽，bot 只负责装配。
 
 ### 6.5 世界记录与 cadence 的归属
 
@@ -298,7 +297,7 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 | --- | --- | --- |
 | 世界输入记录、读取与变化观察 | `org.aurora.world` | M4.W1 已实现上述状态与 Python 接口；不承载全部直接对话，不要求记录绑定某个 run |
 | 世界来源及其生命周期、配置 | `org.aurora.world`；第三方来源使用自己的命名空间 | W2.1–W2.3 已交付登记、绑定接纳、声明配置、后台托管与时间/天气来源，并接入默认装配 |
-| MCP 客户端、世界来源桥与工具桥 | `org.aurora.adapters`；B1/B2/B4 定义见第 6.6 节 | 独立客户端、世界通知桥和工具桥已交付，不改变 world/agent 的定义归属 |
+| MCP 客户端、世界来源桥与工具桥 | `org.aurora.adapter`；B1/B2/B4 定义见第 6.6 节 | 独立客户端、世界通知桥和工具桥已交付，不改变 world/agent 的定义归属 |
 | cadence 配置、消费位置及转交关联 | `org.aurora.bot` | M4.W3 已提供 `aurora_bot.cadence` 可选插件，复用默认装配的 AgentRuntime；不建立独立 cadence 包 |
 | 引导提交与执行 | 既有 `org.aurora.bot:operations/run/submit` 及 AgentRuntime | cadence 复用既有入口，不新增调度所有者，不向 world 命名空间搬入 agent 定义 |
 
@@ -317,51 +316,51 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapters.mcp`，不再
 
 ### 6.6 MCP 客户端、世界通知桥与工具桥（M4.B1/B2/B4 已实现）
 
-安装 `aurora-adapters[mcp]`，显式启用 `aurora_config` 与 `aurora_adapters.mcp`。入口属于 `aurora.plugins`，名称与 Plugin.name 一致；发现不创建网络资源。基础 adapters 包仅依赖 core，MCP extra 引入 config、SDK 2.3.0、httpx2 和 tomli-w，不依赖 world、agent 或 bot。
+安装 `aurora-adapter[mcp]`，显式启用 `aurora_config` 与 `aurora_adapter.mcp`。入口属于 `aurora.plugins`，名称与 Plugin.name 一致；发现不创建网络资源。基础 adapter 包仅依赖 core，MCP extra 引入 config、SDK 2.3.0、httpx2 和 tomli-w，不依赖 world、agent 或 bot。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.adapters:configs/mcp` | `config` | v2 servers 连接及工具选择声明；模板来自 aurora_adapters.mcp/config.toml |
-| `org.aurora.adapters:state/mcp/config` | `state_key` | 全局非持久配置；文件位于 org.aurora.adapters/config.toml |
-| `org.aurora.adapters:state/mcp/clients` | `state_key` | 非持久观察；location 为 owner 与 connection_id；error_location 仅含失败字段位置 |
-| `org.aurora.adapters:handlers/mcp/configure` | `hook_handler` | config 阶段复制并选择连接声明 |
-| `org.aurora.adapters:handlers/mcp/prepare` | `hook_handler` | 创建客户端并检查协议与所需能力 |
-| `org.aurora.adapters:handlers/mcp/stop` | `hook_handler` | 封闭借用，取消并等待剩余消费者 |
-| `org.aurora.adapters:handlers/mcp/clean` | `hook_handler` | 在依赖者清理后释放客户端、HTTP 资源及 stdio 进程树 |
+| `org.aurora.adapter:configs/mcp` | `config` | v2 servers 连接及工具选择声明；模板来自 aurora_adapter/config.tomls/mcp.toml |
+| `org.aurora.adapter:state/mcp/config` | `state_key` | 全局非持久配置；文件位于 org.aurora.adapter/mcp.toml |
+| `org.aurora.adapter:state/mcp/clients` | `state_key` | 非持久观察；location 为 owner 与 connection_id；error_location 仅含失败字段位置 |
+| `org.aurora.adapter:handlers/mcp/configure` | `hook_handler` | config 阶段复制并选择连接声明 |
+| `org.aurora.adapter:handlers/mcp/prepare` | `hook_handler` | 创建客户端并检查协议与所需能力 |
+| `org.aurora.adapter:handlers/mcp/stop` | `hook_handler` | 封闭借用，取消并等待剩余消费者 |
+| `org.aurora.adapter:handlers/mcp/clean` | `hook_handler` | 在依赖者清理后释放客户端、HTTP 资源及 stdio 进程树 |
 
-`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapters/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、error_location、accepting、type、configured_protocol、negotiated_protocol、negotiation_attempts 和已知能力名称，不保留服务端描述或凭证。凭证注入参数为 resolve_env，仅在创建资源时调用；local 还要求宿主显式提供 workspace_root，cwd 默认该目录，相对路径基于它解析。negotiated_protocol 替代旧 protocol_version，无兼容别名及业务快照迁移；最多四条协商摘要只包含方法、HTTP 状态和数值 RPC 错误码。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
+`MCPClients(ctx, hooks).component()` 默认组件身份为 `aurora_adapter/mcp`，依赖 `aurora_config`；消费者显式依赖该组件。`connection(connection_id)` 是适配层异步借用上下文，SDK 对象不进入 ctx。观察只包含 phase、error、error_location、accepting、type、configured_protocol、negotiated_protocol、negotiation_attempts 和已知能力名称，不保留服务端描述或凭证。凭证注入参数为 resolve_env，仅在创建资源时调用；local 还要求宿主显式提供 workspace_root，cwd 默认该目录，相对路径基于它解析。negotiated_protocol 替代旧 protocol_version，无兼容别名及业务快照迁移；最多四条协商摘要只包含方法、HTTP 状态和数值 RPC 错误码。ready 表示准备成功，不代表持续联网健康检查；请求失败明确返回固定错误码，无自动重连或请求重放。
 
 新增定义均非持久，无旧 ID/插件名替换，无快照迁移；不自动启用插件、改写用户文件或调整默认 bot 装配。工具桥定义随 B2 实现。
 
-B4 通过 `aurora-adapters[mcp-world]` extra 增加 world/config 依赖。插件 `aurora_adapters.mcp.world` 要求显式启用 `aurora_adapters.mcp` 和 `aurora_world.configuration` 及其依赖；仅加载 MCP 客户端不导入 world。
+B4 通过 `aurora-adapter[mcp-world]` extra 增加 world/config 依赖。插件 `aurora_adapter.mcp.world` 要求显式启用 `aurora_adapter.mcp` 和 `aurora_world.configuration` 及其依赖；仅加载 MCP 客户端不导入 world。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.adapters:sources/mcp/resources` | `source` | 资源通知来源，登记至 org.aurora.world:registries/sources |
-| `org.aurora.adapters:state/mcp/world` | `state_key` | 非持久桥接诊断；location 为 source_id |
+| `org.aurora.adapter:sources/mcp/resources` | `source` | 资源通知来源，登记至 org.aurora.world:registries/sources |
+| `org.aurora.adapter:state/mcp/world` | `state_key` | 非持久桥接诊断；location 为 source_id |
 
 来源配置使用既有 world 的 sources.config，不增加配置文件或第二个来源所有者。`mcp_world_component(ctx, hooks, clients, records)` 替代通用 configured_sources_component，注入共享客户端并依赖其 instance_id；来源工厂只接收固定身份的 emit，客户端借用与协议类型留在适配层。诊断包括 phase/error、close_error、tools_dirty、accepted/duplicates/discarded 和 identity_modes；world 的 sources 状态仍表示托管主循环的状态。
 
 资源 URI 精确匹配；notification/resource 模式用独立本地观察身份，event 模式读取严格 `{message_id, payload}` 单文本资源，以连接、URI、message_id 组合成世界消息身份。消息身份不是公共 ID；相同身份异文拒绝，去重覆盖 world 事件数据库历史。成功 emit 表示事件已提交数据库并更新 ctx 呈现，不表示已转交或执行。正常停止期间尚未接纳的缓冲或在途观察通过 discarded、固定错误码和日志明确报告，不伪装为已保存或自动重放。
 
-工具插件 `aurora_adapters.mcp.tools` 要求显式启用 `aurora_adapters.mcp` 和 `aurora_agent.tools` 及其依赖；`aurora-adapters[mcp-tools]` 安装工具桥依赖，不引入 world/bot/CLI/API。
+工具插件 `aurora_adapter.mcp.tools` 要求显式启用 `aurora_adapter.mcp` 和 `aurora_agent.tools` 及其依赖；`aurora-adapter[mcp-tools]` 安装工具桥依赖，不引入 world/bot/CLI/API。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.adapters:components/mcp/tool` | `component` | MCP 工具执行组件，所有实例使用注入的 input/output 状态绑定 |
-| `org.aurora.adapters:components/mcp/tool/execute` | `hook_handler` | 单次远程调用执行端口 |
-| `org.aurora.adapters:handlers/mcp/tools/prepare` | `hook_handler` | 在 PREPARE 分页发现并原子登记工具 |
-| `org.aurora.adapters:tools/mcp/<name>` | `tool` | 服务别名或 v2 自动名称派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
+| `org.aurora.adapter:components/mcp/tool` | `component` | MCP 工具执行组件，所有实例使用注入的 input/output 状态绑定 |
+| `org.aurora.adapter:components/mcp/tool/execute` | `hook_handler` | 单次远程调用执行端口 |
+| `org.aurora.adapter:handlers/mcp/tools/prepare` | `hook_handler` | 在 PREPARE 分页发现并原子登记工具 |
+| `org.aurora.adapter:tools/mcp/<name>` | `tool` | 服务别名或 v2 自动名称派生的稳定 ID，登记到 org.aurora.agent:registries/tools |
 
 工具选择位于 v2 servers.<服务名>.tools，include/exclude 选择远端名称，aliases 指定本地名称。默认通配发现全部工具，缺少别名时使用 v2 稳定自动名称；空 include 不登记工具。MCPTools.tool_ids 在准备完成后提供本宿主已登记身份，名称冲突在整批登记前拒绝。旧配置显式迁移保留原工具名称与公共 ID，没有旧工具的服务迁移为 include=[]，不扩大暴露范围、不覆盖已有 TOML。定义使用 ToolSpec，实例使用 ExecutionPlug，不把 SDK 类型引入 agent。消费者通过 `DefaultAssembly.components(depends_on=(bridge.instance_id,))` 或自身生命周期依赖保证发现先完成。工具集合只在新宿主 prepare 时生成；无旧 ID 或插件替换，无快照迁移。agent 的 ToolExecutionError 提供协议无关的安全失败码、消息和可选 JSON 内容。
 
-B5.4 已登记可选产品插件 `aurora_adapters.mcp.bot`，requires 为 `aurora_adapters.mcp.tools` 与 `aurora_bot.assembly`，依赖须显式启用。安装 `aurora-adapters[mcp-bot]`，不强制安装 CLI/API；宿主分别安装并选择。
+B5.4 已登记可选产品插件 `aurora_adapter.mcp.bot`，requires 为 `aurora_adapter.mcp.tools` 与 `aurora_bot.assembly`，依赖须显式启用。安装 `aurora-adapter[mcp-bot]`，不强制安装 CLI/API；宿主分别安装并选择。
 
 | ID | kind | 用途 |
 | --- | --- | --- |
-| `org.aurora.adapters:assemblies/mcp/default_bot` | `assembly` | 共享 MCPClients，完成工具发现后向 DefaultAssembly 提供增量；可选世界来源复用同一连接 |
+| `org.aurora.adapter:assemblies/mcp/default_bot` | `assembly` | 共享 MCPClients，完成工具发现后向 DefaultAssembly 提供增量；可选世界来源复用同一连接 |
 
-预设模块 `aurora_adapters.mcp.preset` 只补缺失模板，宿主选择冲突时输出独立候选和差异。运行期新增工具实例采用工具 ID 的 local_path，已有显式选择保留原实例身份；不改写配置或快照。来源实例工厂通过 world 的 source_factories 注入，不修改公共来源定义。CLI/API 装配工厂均接收 workspace_root（CLI --root 解析值），提供给 stdio 路径解析。
+预设模块 `aurora_adapter.mcp.preset` 只补缺失模板，宿主选择冲突时输出独立候选和差异。运行期新增工具实例采用工具 ID 的 local_path，已有显式选择保留原实例身份；不改写配置或快照。来源实例工厂通过 world 的 source_factories 注入，不修改公共来源定义。CLI/API 装配工厂均接收 workspace_root（CLI --root 解析值），提供给 stdio 路径解析。
 
 ## 7. aurora_api
 
@@ -484,8 +483,8 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | AgentRuntime | 宿主入口 | `get_agent`、`execute`、`is_executing`；不引用 DefaultAssembly |
 | control 组件 | 执行插槽 | 通过 ExecutionSlot 连接 ExecutionPlug，业务数据经 ctx 绑定交换 |
 | 提示词构建处理器 | `slot` | `org.aurora.agent:react/prepare` |
-| 模型调用处理器 | 注入服务 | `org.aurora.model_adapter:services/model_client` |
-| LiteLLM 适配器 | `register_to` | `org.aurora.model_adapter:registries/adapters` |
+| 模型调用处理器 | 注入服务 | `org.aurora.adapter:services/model/client` |
+| LiteLLM 适配器 | `register_to` | `org.aurora.adapter:registries/model/adapters` |
 | ctx 传输端点与 client | 共用动作身份和语义 | 第 3.2 节的 core ctx 操作 ID |
 | API 传输的事件 | 事件类型引用 | 原 bot/core 事件 ID |
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
@@ -507,7 +506,7 @@ slot: org.aurora.agent:react/prepare
 ```yaml
 id: dev.example.models:adapters/private_gateway
 kind: adapter
-register_to: org.aurora.model_adapter:registries/adapters
+register_to: org.aurora.adapter:registries/model/adapters
 ```
 
 示例只表达规划中的登记与连接关系，不是可直接运行的完整插件。按需补充提供者、加载入口和接口描述；schema 并非特殊连接的前置条件。接收方判断兼容，bot 在双方均提供 schema 且描述不同时于接收时告警。当前 priority 从小到大，同值保持连接顺序，before/after 未实现。内部 ctx 共享，所有状态修改仍经显式接口。

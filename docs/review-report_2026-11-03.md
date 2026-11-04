@@ -44,7 +44,7 @@
 | 连接由提供插槽的一方判断 | 良好 | `HookSlot.accept` 可选，schema 不同但接受时仅告警 |
 | 缺少接收方允许未连接 | 良好 | `inspect_admissions` 区分 accepted/unconnected/rejected 并告警 |
 | 统一 ctx 访问语义 | 良好 | Python/CLI/TS client 共用既有 ctx 操作 ID；API 无任意 operation 转发 |
-| 模型适配透明 | 良好 | 模型报文与 SDK 类型限制在 `aurora_model_adapter`；agent 只消费协议 |
+| 模型适配透明 | 良好 | 模型报文与 SDK 类型限制在 `aurora_adapter.model`；agent 只消费协议 |
 | 共享状态与显式变更 | 良好 | 深拷贝、set 整项替换、失败无部分变更、订阅不回放 |
 | 身份与实例分离 | 存在局部限制 | MCP 定义持有宿主绑定，限制同一定义对象的复用；不是进程级全局污染 |
 | 按连接与依赖逐步关闭 | 总体良好 | 依赖正序启动、反序关闭；最终 flush 后释放存储；配置失败解绑例外见 F11 |
@@ -115,8 +115,8 @@
 
 **判断：部分成立。类别：宿主复用边界，初稿影响范围夸大。**
 
-- [world.py](../packages/aurora_adapters/src/aurora_adapters/mcp/world.py) 将 ctx/clients 写入 SourceSpec 的工厂 binding，并拒绝第二次绑定；关闭不解除该绑定。同一份定义对象的重新装配确实受限。
-- [tools.py](../packages/aurora_adapters/src/aurora_adapters/mcp/tools.py) 的工厂持有宿主 MCPTools，定义仍会留在该 registry 中。但工具目录在初次审查基线就已先构建 entries，再调用 register_many 原子登记；“先构建临时目录、全部校验后原子登记”是现有行为。
+- [world.py](../packages/aurora_adapter/src/aurora_adapter/mcp/world.py) 将 ctx/clients 写入 SourceSpec 的工厂 binding，并拒绝第二次绑定；关闭不解除该绑定。同一份定义对象的重新装配确实受限。
+- [tools.py](../packages/aurora_adapter/src/aurora_adapter/mcp/tools.py) 的工厂持有宿主 MCPTools，定义仍会留在该 registry 中。但工具目录在初次审查基线就已先构建 entries，再调用 register_many 原子登记；“先构建临时目录、全部校验后原子登记”是现有行为。
 - [DefinitionRegistry](../packages/aurora_core/src/aurora_core/registry.py) 是实例对象，不是进程级单例；插件工厂每次创建新对象。因此同进程使用新 registry 和新插件对象重建宿主，并不必然遇到旧绑定。
 - Lifecycle 本身只允许启动一次。若要求失败后复用原 registry 或原插件对象，应先明确该支持范围，不能把重启宿主和复用已经关闭的宿主混为一谈。
 
@@ -228,7 +228,7 @@ API 明确以完整状态键作为白名单边界，同一键的全部 location 
 以下为初稿记载的历史执行结果，不是同日复核重新执行的全量验收：
 
 ```powershell
-uv run --locked pytest tests/unit tests/contract -q
+uv run --locked pytest packages tests/contract -q
 # 601 passed
 
 uv run --locked pytest -q
@@ -249,7 +249,7 @@ uv run --locked python scripts/generate_ctx_contract.py --check
 ### 5.2 同日复核
 
 ```powershell
-uv run --locked pytest tests/unit/test_lifecycle.py tests/unit/test_configuration.py tests/unit/test_agent_runtime.py tests/unit/test_world_sources.py tests/unit/test_world_retention.py tests/unit/test_mcp_tools.py tests/unit/test_mcp_world.py tests/e2e/test_default_assembly.py -q
+uv run --locked pytest packages/aurora_core/tests/unit/test_lifecycle.py packages/aurora_config/tests/unit/test_configuration.py packages/aurora_agent/tests/unit/test_agent_runtime.py packages/aurora_world/tests/unit/test_world_sources.py packages/aurora_world/tests/unit/test_world_retention.py packages/aurora_adapter/tests/unit/test_mcp_tools.py packages/aurora_adapter/tests/unit/test_mcp_world.py tests/e2e/test_default_assembly.py -q
 # 192 passed；1 条 Pydantic ReadOnly 提示
 
 pnpm exec vitest run packages/aurora_client/src/__tests__/client.test.ts apps/aurora_tui/tests/workbench.test.ts

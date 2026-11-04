@@ -33,7 +33,7 @@
 | 世界来源 | 精确资源 URI、资源更新通知及单事件正文 | 保留原边界，扩展通知或事件日志另行接入 |
 | 关闭 | 已有连接借用、停止接纳和依赖顺序 | 增加子进程与后代回收，扩展 B3 矩阵 |
 
-相关代码：[客户端](../packages/aurora_adapters/src/aurora_adapters/mcp/clients.py)、[配置](../packages/aurora_adapters/src/aurora_adapters/mcp/configuration.py)、[工具桥](../packages/aurora_adapters/src/aurora_adapters/mcp/tools.py)、[资源通知桥](../packages/aurora_adapters/src/aurora_adapters/mcp/world.py)。
+相关代码：[客户端](../packages/aurora_adapter/src/aurora_adapter/mcp/clients.py)、[配置](../packages/aurora_adapter/src/aurora_adapter/mcp/configuration.py)、[工具桥](../packages/aurora_adapter/src/aurora_adapter/mcp/tools.py)、[资源通知桥](../packages/aurora_adapter/src/aurora_adapter/mcp/world.py)。
 
 已核对的接入样本：
 
@@ -63,7 +63,7 @@ R1–R8 是通用接入的验收条件；不以“两个 SDK 示例能连通”�
 
 ### 4.1 文件与最小示例
 
-继续使用 `<data-dir>/config/org.aurora.adapters/config.toml`，由 aurora_config 声明和校验。文件已经代表 MCP 配置，因此不额外嵌套 `[mcp]`。采用 `schema_version = 2` 区分现有 connections/tools 布局，默认模板只提供空 servers 表。
+继续使用 `<data-dir>/config/org.aurora.adapter/mcp.toml`，由 aurora_config 声明和校验。文件已经代表 MCP 配置，因此不额外嵌套 `[mcp]`。采用 `schema_version = 2` 区分现有 connections/tools 布局，默认模板只提供空 servers 表。
 
 以下 v2 格式已经支持声明校验；示例的 HTTP legacy 已支持，local 运行路径待 B5.3。两个服务均显式选择协议；环境引用只在创建运行资源时展开：
 
@@ -202,7 +202,7 @@ include = ["qq_get_status"]
 
 v2 已实现算法：`mcp_<server_slug>_<tool_slug>_<digest>`。slug 将 ASCII 大写转小写、连续非字母数字字符合并为下划线、去除首尾下划线，空值用 x；分别截取到 16/24 字符并再次去除末尾下划线。digest 使用原始 `[server_name, remote_name]` 的紧凑 UTF-8 JSON（不转义非 ASCII）计算 SHA-256，取前 12 个十六进制字符。名称最长 58 字符，算法以 v2 固定，不受目录顺序或进程重启影响。
 
-哈希不被当成绝对无碰撞保证；自动名称、显式别名、本地工具和已登记 ID 统一检查冲突，发现即失败，不加序号临时避让。工具公共 ID 继续使用 `org.aurora.adapters:tools/mcp/<name>`。实例身份由 bot 分配，与服务名、远端工具名、调用 ID 和 execution_id 分开。
+哈希不被当成绝对无碰撞保证；自动名称、显式别名、本地工具和已登记 ID 统一检查冲突，发现即失败，不加序号临时避让。工具公共 ID 继续使用 `org.aurora.adapter:tools/mcp/<name>`。实例身份由 bot 分配，与服务名、远端工具名、调用 ID 和 execution_id 分开。
 
 重命名服务会改变自动名称。迁移时保留原服务身份并配置原别名即可保留 B2 工具 ID；不自动改写旧对话里的工具名称或业务快照。
 
@@ -214,13 +214,13 @@ v2 已实现算法：`mcp_<server_slug>_<tool_slug>_<digest>`。slug 将 ASCII �
 
 ## 8. 产品装配与包边界
 
-可选 `aurora_adapters.mcp.bot` 插件和 `aurora-adapters[mcp-bot]` extra 已实现，集中复用 MCPClients、MCPTools 和 DefaultAssembly。该插件显式 requires 既有 MCP 工具插件与 bot 默认装配，消费者仍须显式启用完整插件集合，不由 requires 偷偷加载依赖。
+可选 `aurora_adapter.mcp.bot` 插件和 `aurora-adapter[mcp-bot]` extra 已实现，集中复用 MCPClients、MCPTools 和 DefaultAssembly。该插件显式 requires 既有 MCP 工具插件与 bot 默认装配，消费者仍须显式启用完整插件集合，不由 requires 偷偷加载依赖。
 
-宿主装配 ID 为 `org.aurora.adapters:assemblies/mcp/default_bot`。CLI/API 共用宿主选择该装配；`python -m aurora_adapters.mcp.preset <data-dir> [--world] [--api]` 生成一次性预设，无需手写 Python。预设只生成缺失配置；已有 host.toml 选择不同时展示规范化差异、生成 host.mcp.toml 候选并返回 2，用户显式应用后生效。普通 DefaultAssembly 的默认依赖和行为不变。宿主工厂增加必需的 workspace_root 关键字，来自 CLI 在入口解析的 --root，stdio 相对路径据此解析；原有工厂须同步接收该参数，无兼容转发层。
+宿主装配 ID 为 `org.aurora.adapter:assemblies/mcp/default_bot`。CLI/API 共用宿主选择该装配；`python -m aurora_adapter.mcp.preset <data-dir> [--world] [--api]` 生成一次性预设，无需手写 Python。预设只生成缺失配置；已有 host.toml 选择不同时展示规范化差异、生成 host.mcp.toml 候选并返回 2，用户显式应用后生效。普通 DefaultAssembly 的默认依赖和行为不变。宿主工厂增加必需的 workspace_root 关键字，来自 CLI 在入口解析的 --root，stdio 相对路径据此解析；原有工厂须同步接收该参数，无兼容转发层。
 
 组合装配创建一个 MCPClients，prepare 先完成连接与目录，再进入模型和工具检查。DefaultAssembly 的 additional_tools 回调接收既有选择副本，返回增量；产品装配只补入尚未显式选择的 MCP 工具，保留既有实例身份，新实例采用工具 ID 的 local_path。不把运行期生成目录写回 ctx 配置或 TOML。最终选择统一经过原有 schema、名称和实例身份校验；用户显式重复选择仍失败。不修改私有 _specs、复制 prepare_bot 或绕过工具工厂。
 
-基础 adapters 继续仅依赖 core；mcp 提供客户端与两种传输；mcp-tools 可依赖 agent；mcp-world 可依赖 world；只有可选 mcp-bot 依赖 bot。agent/world/bot 均不反向依赖 adapters。预设与 CLI 复用 aurora_config.host.HOST_SCHEMA，产品 extra 无需 CLI/API，实际宿主另行安装。
+基础 adapter 继续仅依赖 core；mcp 提供客户端与两种传输；mcp-tools 可依赖 agent；mcp-world 可依赖 world；只有可选 mcp-bot 依赖 bot。world 不反向依赖 adapter；agent 仅使用 adapter 的模型协议，bot 使用模型配置与工厂，不依赖 MCP 桥。预设与 CLI 复用 aurora_config.host.HOST_SCHEMA，产品 extra 无需 CLI/API，实际宿主另行安装。
 
 世界来源若一起启用，组合装配复用同一个 MCPClients，并替换 DefaultAssembly 已有的来源装配注入点，保证每个 ctx 只有一个来源所有者；不并排启动通用 configured_sources_component 与 MCP 专用来源所有者。该路径已通过 B3 的 HTTP、stdio、混合连接共享关闭验收；工具独立宿主始终无需 world。
 
@@ -295,7 +295,7 @@ MCP 配置、客户端/工具组件和资源来源的现有公共定义原则上
 | B3 扩展验收（已完成） | 世界来源和工具共用客户端、跨传输关闭矩阵 | 资源独立、停止接纳、收尾、最后落盘、独立安装 |
 | 事件后续切片 | world-events 或事件日志的明确契约 | 另按交付保证排期，不以工具验收替代 |
 
-B5.1 迁移入口为 `python -m aurora_adapters.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。local 在 prepare 解析目录和环境后启动；工具桥已支持默认通配及缺少别名的自动命名，显式 include=[] 仍不暴露工具。迁移及运行示例见[启动指南](../examples/START.md#mcp-独立客户端验收)。
+B5.1 迁移入口为 `python -m aurora_adapter.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。local 在 prepare 解析目录和环境后启动；工具桥已支持默认通配及缺少别名的自动命名，显式 include=[] 仍不暴露工具。迁移及运行示例见[启动指南](../examples/START.md#mcp-独立客户端验收)。
 
 B5.1 的 startup/catalog/execution 分别提供操作预算；SDK 请求与 HTTP 空闲读取上限取三者最大值，避免执行超时提前截断目录或握手。shutdown 限制每服务每次 stop/clean 等待，超时保留清理任务供再次等待；迁移显式写出默认 10 秒。
 
@@ -314,7 +314,7 @@ B5.1 的 startup/catalog/execution 分别提供操作预算；SDK 请求与 HTTP
 | 状态 | 协商版本准确、固定错误码、配置引用可观察但解析凭证不可见；停止后快照无客户端/进程对象 |
 | 产品 | 正式 CLI/API 配置路径、缺失文件初始化、用户文件不覆盖、禁用服务、准备顺序、bot 原有工具保持、失败清理 |
 | 迁移 | 旧版无工具与有工具配置、旧别名/ID、world 来源身份、已有 bot 实例身份、旧文件保持与混合布局拒绝 |
-| 分发 | 基础 adapters/control 无 agent/模型；mcp 无 world/bot；mcp-tools 无 world/bot；mcp-world 无 agent/bot；mcp-bot 显式安装；wheel 包含模板 |
+| 分发 | 基础 adapter/control 无 agent/模型；mcp 无 world/bot；mcp-tools 无 world/bot；mcp-world 无 agent/bot；mcp-bot 显式安装；wheel 包含模板 |
 
 普通回归使用假模型、模拟 HTTP 与本机测试进程，不调用真实供应商。实现阶段运行针对性回归、完整检查与 wheel 安装验收；保留现有五条产品示例，专项验收放 tests/fixtures。
 

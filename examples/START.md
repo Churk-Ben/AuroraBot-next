@@ -22,7 +22,7 @@ pnpm exec uv run --locked aurora check
 | --- | --- | --- |
 | 持久化计数器 | [core_counter/main.py](core_counter/main.py) | core：声明、ctx、生命周期与落盘 |
 | 控制流 | [control_flow/main.py](control_flow/main.py) | control + core：顺序、分支、循环与并发 |
-| 独立 Agent | [react_agent/main.py](react_agent/main.py) | agent + control + model_adapter + core：运行调度、模型工具往返与引导 |
+| 独立 Agent | [react_agent/main.py](react_agent/main.py) | agent + control + adapter.model + core：运行调度、模型工具往返与引导 |
 | 默认 Bot | [default_bot/main.py](default_bot/main.py) | bot：TOML 配置、资源工厂和默认装配 |
 | 持续巡检宿主 | [live_workshop/main.py](live_workshop/main.py) | bot + CLI/API：持续运行、世界变化、远程观察和报告 |
 
@@ -199,7 +199,7 @@ uv run --locked aurora --connect http://127.0.0.1:10270 ctx set dev.example.work
 插件发现分组为 `aurora.plugins`，依赖插件必须显式列出；CLI 内置启用 aurora_config 并装配配置服务，程序化宿主需显式启用和装配。定义查询不创建模型客户端：
 
 ```powershell
-uv run --locked aurora --plugin aurora_control --plugin aurora_agent.model --plugin aurora_model_adapter id list
+uv run --locked aurora --plugin aurora_control --plugin aurora_agent.model --plugin aurora_adapter.model id list
 ```
 
 默认 bot 的宿主插件清单为：
@@ -207,7 +207,7 @@ uv run --locked aurora --plugin aurora_control --plugin aurora_agent.model --plu
 ```toml
 plugins = [
   "aurora_config",
-  "aurora_model_adapter",
+  "aurora_adapter.model",
   "aurora_agent.model",
   "aurora_agent.react",
   "aurora_agent.tools",
@@ -220,6 +220,8 @@ assembly = "org.aurora.bot:assemblies/default"
 只使用执行契约不要求启用控制插件；使用四种控制组合时额外启用 `aurora_control`。组件定义、执行端口和状态归属见[公共 ID 目录](../docs/aurorabot-id-catalog-v0.2.3.md)。
 
 ## 使用已有配置启动真实模型后端
+
+模型与 MCP 统一安装包为 `aurora-adapter`，模块分别为 `aurora_adapter.model` 和 `aurora_adapter.mcp`。独立模型配置插件安装 `[model]`，LiteLLM 安装 `[litellm]`；默认 bot 已依赖后者。模型配置位于 `<data-dir>/config/org.aurora.adapter/model/profiles.toml` 与 `model/bindings.toml`，MCP 配置位于同一命名空间下的 `mcp.toml`。旧包、插件名、配置路径和公共 ID 的迁移见[变更记录](../docs/CHAGELOG.md#2026-11-04)，宿主不自动迁移旧数据。
 
 已有 `data/config/` 配置时，使用正式 CLI 宿主启动。`data/config/host.toml` 的插件列表须包含默认 bot 所需插件及 `aurora_api`，并选择 `org.aurora.bot:assemblies/default`。模型由 `profiles.toml` 与 `bindings.toml` 决定；profile 的 `credential` 保存环境变量名，凭证由 uv 从根目录 `.env` 加载。
 
@@ -305,11 +307,11 @@ uv run --locked --env-file .env python scripts/serve_bot.py --world --cadence --
 
 `error=TransferUncertain` 表示须核对 pending 是否已经进入 agent；`CursorInvalid` 表示日志换代、缺失或裁剪缺口；`SelectionChanged` 表示来源范围不一致。暂停不阻断直接交流，也不会因重启自动解除。核对时先停止宿主并保留完整快照，对照 world、pending、receipts 与 agent 数据；不能仅凭文本相同认定已投递。首版没有自动核对或重置命令，须由宿主明确决定修复后的消费状态，不能直接删除游标来重放。
 
-完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重覆盖数据库历史，呈现窗口外的同身份重投仍返回原记录。离线回归为 `uv run --locked pytest tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 的正式替换及完整双路径矩阵留在 M4.W4。
+完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重覆盖数据库历史，呈现窗口外的同身份重投仍返回原记录。离线回归为 `uv run --locked pytest packages/aurora_bot/tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 的正式替换及完整双路径矩阵留在 M4.W4。
 
 ## MCP 独立客户端验收
 
-M4.B1 提供 `aurora-adapters[mcp]`；工作区开发依赖已包含该 extra，统一产品安装不自动启用 MCP。通过现有测试夹具启动并关闭一个本机 MCP 服务和独立宿主：
+M4.B1 提供 `aurora-adapter[mcp]`；工作区开发依赖已包含该 extra，统一产品安装不自动启用 MCP。通过现有测试夹具启动并关闭一个本机 MCP 服务和独立宿主：
 
 ```powershell
 uv run --locked python tests/fixtures/mcp_roundtrip.py build/mcp-acceptance
@@ -317,7 +319,7 @@ uv run --locked python tests/fixtures/mcp_roundtrip.py build/mcp-acceptance
 
 夹具只在指定验收目录创建测试配置，完成真实 Streamable HTTP 能力发现、测试工具往返、资源读取、断线诊断和最终落盘；不访问真实供应商或用户模型。它不是新增产品示例入口，不要将验收目录指向已有用户数据。
 
-自定义宿主显式启用 `aurora_config` 和 `aurora_adapters.mcp`，登记生命周期插槽，装配 `configuration_component` 与 `MCPClients(ctx, hooks).component()`。消费者依赖默认组件身份 `aurora_adapters/mcp`，在 prepare 完成后借用：
+自定义宿主显式启用 `aurora_config` 和 `aurora_adapter.mcp`，登记生命周期插槽，装配 `configuration_component` 与 `MCPClients(ctx, hooks).component()`。消费者依赖默认组件身份 `aurora_adapter/mcp`，在 prepare 完成后借用：
 
 ```python
 async with clients.connection("local") as client:
@@ -326,7 +328,7 @@ async with clients.connection("local") as client:
 
 SDK 对象仅在适配层使用，不存入 ctx 或传给 world/agent。借用期间不要跨任务退出或自行关闭客户端，退出后不要保留引用继续使用；长期消费者在自己的 stop 阶段收束。停止整个宿主会封闭借用入口并取消剩余借用，等待它们的 finally 完成后才释放连接。
 
-缺失配置文件会在 `<data-dir>/config/org.aurora.adapters/config.toml` 生成 `schema_version = 2` 与空 `[servers]` 模板。下面是一份可运行的连接声明；服务名 `local` 就是原 connection_id，名称不表示传输类型：
+缺失配置文件会在 `<data-dir>/config/org.aurora.adapter/mcp.toml` 生成 `schema_version = 2` 与空 `[servers]` 模板。下面是一份可运行的连接声明；服务名 `local` 就是原 connection_id，名称不表示传输类型：
 
 ```toml
 schema_version = 2
@@ -369,12 +371,12 @@ stdio 的 stdout 仅允许 JSON-RPC，每条消息上限 4 MiB，非法 JSON、�
 
 根级 `[timeout]` 提供公共超时，各服务逐字段覆盖；startup/catalog/execution/shutdown 默认分别为 10/30/30/10 秒，限制握手、完整目录发现、单次工具调用和每服务每次 stop/clean 等待。工具执行同时受 agent 外层超时约束。SDK 请求与 HTTP 空闲读取上限取前三者的最大值，各操作通过自己的外层预算提前结束。关闭等待超时不取消正在执行的 finally，可再次等待；真正的关闭异常需诊断后重建宿主。
 
-客户端状态使用 `org.aurora.adapters:state/mcp/clients`，location 为 `{"owner": "aurora_adapters/mcp", "connection_id": "local"}`；error_location 仅包含安全字段位置；configured_protocol 表示配置策略，negotiated_protocol 替代旧 protocol_version，negotiation_attempts 最多记录四次协商的方法、HTTP 状态和数值 RPC 错误码。状态非持久，无快照迁移；ready 表示启动准备完成，没有后台健康探测；失败不自动重连或重放请求。
+客户端状态使用 `org.aurora.adapter:state/mcp/clients`，location 为 `{"owner": "aurora_adapter/mcp", "connection_id": "local"}`；error_location 仅包含安全字段位置；configured_protocol 表示配置策略，negotiated_protocol 替代旧 protocol_version，negotiation_attempts 最多记录四次协商的方法、HTTP 状态和数值 RPC 错误码。状态非持久，无快照迁移；ready 表示启动准备完成，没有后台健康探测；失败不自动重连或重放请求。
 
 旧 connections/tools 布局及混合布局均拒绝加载。先生成独立候选及规范化差异，审阅后自行应用；命令不覆盖任何已有文件、不读取凭证、不连接服务：
 
 ```powershell
-uv run --locked python -m aurora_adapters.mcp.migrate data/config/org.aurora.adapters/config.toml --output build/mcp-v2-candidate.toml
+uv run --locked python -m aurora_adapter.mcp.migrate data/config/org.aurora.adapter/mcp.toml --output build/mcp-v2-candidate.toml
 ```
 
 迁移保留服务名、固定新版策略、工具名称与公共 ID；没有旧工具选择的连接转为 `include = []`。同一远端工具对应多个旧别名时停止转换。保留 bot 的显式工具选择及实例身份、world 的 connection_id 和业务快照，不合并多个 bot/工具实例；需核对 bot 的 tool_timeout。候选新增 shutdown=10 秒，关闭超时后仍须继续等待清理。差异忽略注释和排版，不回显原文件注释。
@@ -383,9 +385,9 @@ uv run --locked python -m aurora_adapters.mcp.migrate data/config/org.aurora.ada
 
 ### MCP 工具桥
 
-安装 `aurora-adapters[mcp-tools]`，显式启用 `aurora_config`、`aurora_adapters.mcp`、`aurora_agent.tools`、`aurora_adapters.mcp.tools`；使用默认 bot 时同时启用其原有插件。只使用工具桥不需要安装或启用 world、bot、CLI、API。
+安装 `aurora-adapter[mcp-tools]`，显式启用 `aurora_config`、`aurora_adapter.mcp`、`aurora_agent.tools`、`aurora_adapter.mcp.tools`；使用默认 bot 时同时启用其原有插件。只使用工具桥不需要安装或启用 world、bot、CLI、API。
 
-在 `<data-dir>/config/org.aurora.adapters/config.toml` 的相应服务下添加：
+在 `<data-dir>/config/org.aurora.adapter/mcp.toml` 的相应服务下添加：
 
 ```toml
 [servers.local.tools]
@@ -393,15 +395,15 @@ include = ["echo"]
 aliases = { echo = "local_echo" }
 ```
 
-include/exclude 使用精确远端名称，exclude 优先；aliases 将已选远端名称映射到本地模型名称。名称须为小写字母开头的小写字母、数字或单下划线分隔名称，最长 64 字符。例如 `local_echo` 对应公共 ID `org.aurora.adapters:tools/mcp/local_echo`。不同服务的同名工具可指定不同本地名称；名称重复、远程工具缺失或参数 schema 无效会使启动失败。
+include/exclude 使用精确远端名称，exclude 优先；aliases 将已选远端名称映射到本地模型名称。名称须为小写字母开头的小写字母、数字或单下划线分隔名称，最长 64 字符。例如 `local_echo` 对应公共 ID `org.aurora.adapter:tools/mcp/local_echo`。不同服务的同名工具可指定不同本地名称；名称重复、远程工具缺失或参数 schema 无效会使启动失败。
 
 工具桥默认 `include = ["*"]`，对声明 tools 能力的服务发现全部工具；无工具能力且没有显式选择要求的服务保留供其他消费者使用。未指定 aliases 的工具使用 `mcp_<server_slug>_<tool_slug>_<digest>`，digest 为原始服务名和远端工具名紧凑 UTF-8 JSON 的 SHA-256 前 12 位；slug 分别截取到 16/24 字符，名称最长 58 字符，算法以 v2 固定。自动名称、显式别名、既有本地工具名称与公共 ID 统一检查冲突，失败时不登记部分目录。`include = []`、空 exclude 表示不发现、不登记该服务的工具。修改配置或服务端目录后须重建宿主，不在运行中热改集合。
 
 宿主将工具发现列为消费者的前置依赖：
 
 ```python
-from aurora_adapters.mcp import MCPClients
-from aurora_adapters.mcp.tools import MCPTools
+from aurora_adapter.mcp import MCPClients
+from aurora_adapter.mcp.tools import MCPTools
 
 clients = MCPClients(ctx, hooks)
 tools = MCPTools(registry, ctx, hooks, clients)
@@ -417,7 +419,7 @@ components = [
 
 ```toml
 [[tools]]
-tool = "org.aurora.adapters:tools/mcp/local_echo"
+tool = "org.aurora.adapter:tools/mcp/local_echo"
 instance_id = "echo"
 ```
 
@@ -441,10 +443,10 @@ uv run --locked python tests/fixtures/mcp_tools_roundtrip.py build/mcp-auto-tool
 
 ### MCP 默认 bot 产品预设
 
-安装 `aurora-adapters[mcp-bot]` 和所需宿主 `aurora-cli`；API 另需 `aurora-api`。工作区开发环境已有这些包。执行一次预设，填写生成的模型 profiles/bindings 与 MCP servers，即可通过正式入口使用工具，不需要手写 Python 装配：
+安装 `aurora-adapter[mcp-bot]` 和所需宿主 `aurora-cli`；API 另需 `aurora-api`。工作区开发环境已有这些包。执行一次预设，填写生成的模型 profiles/bindings 与 MCP servers，即可通过正式入口使用工具，不需要手写 Python 装配：
 
 ```powershell
-uv run --locked python -m aurora_adapters.mcp.preset .aurora-mcp --api --world
+uv run --locked python -m aurora_adapter.mcp.preset .aurora-mcp --api --world
 # 填写 .aurora-mcp/config 下的模型和 MCP 配置后：
 uv run --locked aurora --root . -d .aurora-mcp org.aurora.bot:commands/run/submit "使用可用工具完成任务" --instance-id main
 uv run --locked aurora --root . -d .aurora-mcp serve --port 8765 --endpoints '["org.aurora.bot:endpoints/conversation"]'
@@ -452,17 +454,17 @@ uv run --locked aurora --root . -d .aurora-mcp serve --port 8765 --endpoints '["
 
 instance_id 应与 `org.aurora.bot/config.toml` 一致。`--world` 显式启用世界配置和 MCP 来源插件，来源列表仍需按下一节填写；`--api` 显式启用 API 插件。只需工具时可省略两项。预设不创建连接、子进程或模型，不覆盖已有文件。已有 host.toml 与预设不同时显示差异，写入 `host.mcp.toml` 并返回 2；审阅并显式应用候选后启动。候选已存在且不同则报错保留。
 
-预设选择 `org.aurora.adapters:assemblies/mcp/default_bot`，先发现工具，再与 bot 的本地工具选择合并。自动补入工具的实例身份使用工具 ID 的 local_path；已显式选择的 MCP 工具保留原实例身份，不重复添加。运行期目录不写回 TOML 或配置状态，名称/实例冲突仍拒绝启动。标准装配工厂新增 workspace_root 关键字，第三方工厂须同步接收；它来自 `--root`，与数据目录独立，stdio 默认 cwd 和相对路径均以此为准。
+预设选择 `org.aurora.adapter:assemblies/mcp/default_bot`，先发现工具，再与 bot 的本地工具选择合并。自动补入工具的实例身份使用工具 ID 的 local_path；已显式选择的 MCP 工具保留原实例身份，不重复添加。运行期目录不写回 TOML 或配置状态，名称/实例冲突仍拒绝启动。标准装配工厂新增 workspace_root 关键字，第三方工厂须同步接收；它来自 `--root`，与数据目录独立，stdio 默认 cwd 和相对路径均以此为准。
 
 ### MCP 世界通知桥
 
 世界来源目前使用 2026-07-28 的订阅契约；即使旧版连接声明 resources，来源也会明确报 unsupported_subscription_protocol，不尝试未实现的旧订阅。该连接仍可供工具使用。
 
-安装 `aurora-adapters[mcp-world]`，宿主显式启用 `aurora_config`、`aurora_adapters.mcp`、`aurora_world`、`aurora_world.configuration` 和 `aurora_adapters.mcp.world`。保留上述 MCP 连接配置，使用共享 MCPClients，并用 `mcp_world_component` 替代通用 configured_sources_component；不要在同一 ctx 重复装配两个 world 来源所有者：
+安装 `aurora-adapter[mcp-world]`，宿主显式启用 `aurora_config`、`aurora_adapter.mcp`、`aurora_world`、`aurora_world.configuration` 和 `aurora_adapter.mcp.world`。保留上述 MCP 连接配置，使用共享 MCPClients，并用 `mcp_world_component` 替代通用 configured_sources_component；不要在同一 ctx 重复装配两个 world 来源所有者：
 
 ```python
-from aurora_adapters.mcp import MCPClients
-from aurora_adapters.mcp.world import mcp_world_component
+from aurora_adapter.mcp import MCPClients
+from aurora_adapter.mcp.world import mcp_world_component
 from aurora_world import WorldRecords
 
 clients = MCPClients(ctx, hooks)
@@ -479,7 +481,7 @@ components = [
 
 ```toml
 [[sources]]
-source = "org.aurora.adapters:sources/mcp/resources"
+source = "org.aurora.adapter:sources/mcp/resources"
 source_id = "external/resources"
 [sources.config]
 connection_id = "local"
@@ -500,7 +502,7 @@ URI 精确匹配，不自动读取服务端报告的其他 URI 或子资源。mo
 
 订阅确认后才开始接纳，不在启动时自动读取资源或补发停机期间消息。MCP 资源变化是“可能需要重新读取”的提示，SDK 会合并尚未消费的同 URI 通知；读取时得到的是最新值，event 模式也不能据此保证完整业务事件历史。需要逐条可靠投递的上游必须另外提供可追读事件日志契约。
 
-桥接状态位于 `org.aurora.adapters:state/mcp/world`，location 为 `{"source_id":"external/resources"}`。identity_modes 明确是本地观察还是来源消息身份，accepted/duplicates 表示 world 数据库接纳及去重结果。watch_tools 只设置 tools_dirty，不把目录变化写成世界输入，也不热更新工具。缺失能力、订阅未确认全部选择、身份错误、读取失败、连接丢失及队列溢出均有固定错误码，并封闭对应来源；不自动重订阅或重放。修正后需正常重启宿主。
+桥接状态位于 `org.aurora.adapter:state/mcp/world`，location 为 `{"source_id":"external/resources"}`。identity_modes 明确是本地观察还是来源消息身份，accepted/duplicates 表示 world 数据库接纳及去重结果。watch_tools 只设置 tools_dirty，不把目录变化写成世界输入，也不热更新工具。缺失能力、订阅未确认全部选择、身份错误、读取失败、连接丢失及队列溢出均有固定错误码，并封闭对应来源；不自动重订阅或重放。修正后需正常重启宿主。
 
 buffer_size 限制适配器等待处理的通知数，不包括当前一项读取；max_content_bytes 限制读取后可接纳的序列化内容大小，不是 HTTP 响应下载上限。SDK 另有 1024 项不同待消费事件的上限，其丢流报告为 subscription_lost。HTTP 空闲读取上限取服务 startup/catalog/execution 超时的最大值，长时间无消息的服务应发送流心跳或配置相应超时。停止来源会等待订阅与在途读取收束，释放借用而不关闭共享客户端；已收到但尚未接纳的观察会记入 discarded，并报告 stopped_with_pending 或对应故障及日志。桥接诊断不持久化，重启不会恢复这些待处理通知；已接纳的 world 记录由宿主最终落盘。
 
@@ -514,13 +516,15 @@ uv run --locked python tests/fixtures/mcp_world_roundtrip.py build/mcp-world-acc
 
 ## 真实模型验收
 
-[scripts/accept_m2.py](../scripts/accept_m2.py) 创建独立 TOML profile 和 bot 配置，经 CLI 验证流式、完整响应、工具往返与恢复。该脚本会调用指定供应商，需要事先配置凭证；`--data-dir` 必须是尚不存在的目录。
+真实模型手工验收使用当前 CLI。先按上文在独立数据目录中配置宿主插件、默认装配、模型 profile、角色绑定及所需工具，并通过环境变量提供凭证。以下以已配置好的 `build/model-acceptance` 为例；执行会调用配置的供应商及模型选择的工具。
 
 ```powershell
-uv run --locked --env-file .env python scripts/accept_m2.py --data-dir build/model-acceptance --model deepseek/deepseek-flash --credential-env DEEPSEEK_API_KEY
+uv run --locked --env-file .env aurora --data-dir build/model-acceptance org.aurora.bot:commands/run/submit "请回复一条简短的验收消息" --instance-id main
 ```
 
-可用 `--base-url` 指定兼容网关，`--timeout` 设置每种模式的总时限。脚本生成验收报告，不将运行期凭证写入配置或快照。
+按需在 bot TOML 中切换 `streaming`，检查 CLI 的运行终态和模型输出；需要工具验收时，使用该目录中显式启用的工具。重复启动同一目录可检查历史恢复，恢复本身不自动激活 agent。配置与快照不保存运行期凭证。
+
+常规工具往返、流式/完整响应、收尾与重启回归由 [默认装配测试](../tests/e2e/test_default_assembly.py) 使用假模型或模拟传输验证，无需调用真实供应商。
 
 ## 数据目录
 

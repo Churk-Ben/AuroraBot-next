@@ -64,9 +64,9 @@ Controller 是公共基类定义，不是可独立运行的第五种控制流程
 
 ## 3. 模型协议与调用组件
 
-### 3.1 aurora_model_adapter
+### 3.1 aurora_adapter.model
 
-源码：[models.py](../packages/aurora_model_adapter/src/aurora_model_adapter/models.py)、[protocols.py](../packages/aurora_model_adapter/src/aurora_model_adapter/protocols.py)、[fake.py](../packages/aurora_model_adapter/src/aurora_model_adapter/fake.py)。
+源码：[models.py](../packages/aurora_adapter/src/aurora_adapter/model/models.py)、[protocols.py](../packages/aurora_adapter/src/aurora_adapter/model/protocols.py)、[fake.py](../packages/aurora_adapter/src/aurora_adapter/model/fake.py)。
 
 - Message、ToolDefinition、ToolCall、ModelRequest、ModelResponse 与 ModelChunk 用 TypedDict 表达普通 JSON 数据，不包含 SDK 对象。
 - ToolCall 包含完整 id、name、arguments；参数必须是完整 JSON 对象。供应商的参数片段由适配层组装，bot 不消费半截 JSON；文本仍逐段输出。
@@ -78,7 +78,7 @@ Controller 是公共基类定义，不是可独立运行的第五种控制流程
 - ModelError、UnsupportedCapability、ModelProtocolError 表达模型边界错误；取消和超时沿用标准异常，真实供应商错误映射待适配器实现。
 - FakeModel 通过 FakeReply 回调确定性生成输出，无网络和密钥依赖，可用于完整响应、流式、工具请求及故障测试。它没有单独的公共 adapter ID。
 
-插件入口为 aurora_model_adapter，登记 adapters、model_client、四个模型 schema 与两个模型配置状态。LiteLLM 与 `state/config`、`state/bindings` 已实现。
+插件入口为 aurora_adapter.model，登记模型适配器注册表、客户端服务、四个模型 schema 与两个模型配置状态。LiteLLM 与 `org.aurora.adapter:state/model/config`、`org.aurora.adapter:state/model/bindings` 已实现。
 
 ### 3.2 aurora_agent.model
 
@@ -130,7 +130,7 @@ M2 全部任务已完成，整体验收见 [变更记录](CHAGELOG.md) 的 M2.8 
 
 不默认写 ctx 就等于 send，不承诺事件可靠投递或重启透明续跑。规划中的 conversation 操作和端点不强制决定 TUI/Panel 的交互机制。
 
-依赖方向为 core ← control ← agent ← bot；model_adapter 只依赖 core 并被 agent 与 bot 使用。LiteLLM SDK 类型只停留在适配器内部。M3 的 HTTP/WS、client/TUI 和 M4 的多模型、agent、MCP 不在 M2 交付范围内。
+依赖方向为 core ← control ← agent ← bot；adapter 基础包仅依赖 core，模型配置通过 model extra 引入 config，供应商 SDK 通过 litellm extra 安装；模型协议被 agent 与 bot 使用。LiteLLM SDK 类型只停留在适配器内部。M3 的 HTTP/WS、client/TUI 和 M4 的多模型、agent、MCP 不在 M2 交付范围内。
 
 ## 6. 检查与证据
 
@@ -141,16 +141,16 @@ uv sync --all-packages
 pnpm install --frozen-lockfile
 uv run aurora check
 pnpm typecheck:python
-uv run pytest tests/contract/test_model_protocol.py tests/unit/test_component_identity.py tests/unit/test_bot_control.py tests/unit/test_model_call.py tests/e2e/test_control_flow_example.py tests/e2e/test_react_defaults_example.py -q
-uv run aurora --plugin aurora_control --plugin aurora_agent.model --plugin aurora_model_adapter id list
+uv run pytest packages/aurora_adapter/tests/contract/test_model_protocol.py packages/aurora_control/tests/unit/test_component_identity.py packages/aurora_control/tests/unit/test_control.py packages/aurora_agent/tests/unit/test_model_call.py tests/e2e/test_control_flow_example.py tests/e2e/test_react_defaults_example.py -q
+uv run aurora --plugin aurora_control --plugin aurora_agent.model --plugin aurora_adapter.model id list
 ```
 
 行为证据：
 
-- [组件身份](../tests/unit/test_component_identity.py)：定义层级、实例隔离与展示引用。
-- [模型协议](../tests/contract/test_model_protocol.py)：流关闭、能力拒绝、结束和工具请求。
-- [控制组件](../tests/unit/test_bot_control.py)、[模型组件](../tests/unit/test_model_call.py)：组合、失败、取消、临时状态清理与部分文本。
+- [组件身份](../packages/aurora_control/tests/unit/test_component_identity.py)：定义层级、实例隔离与展示引用。
+- [模型协议](../packages/aurora_adapter/tests/contract/test_model_protocol.py)：流关闭、能力拒绝、结束和工具请求。
+- [控制组件](../packages/aurora_control/tests/unit/test_control.py)、[模型组件](../packages/aurora_agent/tests/unit/test_model_call.py)：组合、失败、取消、临时状态清理与部分文本。
 - [控制示例](../tests/e2e/test_control_flow_example.py)、[独立 Agent 示例](../tests/e2e/test_react_defaults_example.py)：真实进程、退出码与最终快照。
-- [宿主关闭](../tests/e2e/test_m1_shutdown.py)、[CLI 进程](../tests/e2e/test_m1_cli_process.py)：在途写入、最终落盘和重启恢复。
+- [宿主关闭](../tests/e2e/test_lifecycle_persistence.py)、[CLI 进程](../tests/e2e/test_cli.py)：在途写入、最终落盘和重启恢复。
 
 检查范围与改动相称，真实模型冒烟与离线测试分别报告；没有实际连接时不宣称真实模型已验证。注释、docstring 和提交使用中文，提交以动词开头、小步交付；README.md、AGENTS.md 修改须先经用户确认，变更叙述集中在 docs/CHAGELOG.md。

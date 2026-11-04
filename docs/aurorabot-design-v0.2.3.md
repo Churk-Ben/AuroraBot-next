@@ -52,12 +52,11 @@ AuroraBot 面向个人单租户场景。一个唯一的 bot 后端提供共享�
 | `aurora_agent` | ReAct、模型调用、工具执行、默认阶段与运行调度 | 不依赖 bot、CLI 或 API；资源与地址由宿主提供 |
 | `aurora_bot` | 默认配置与 TOML 模板、产品装配、资源所有权、运行操作及命令 | 不硬依赖 CLI/API 实现，不直接依赖具体模型 SDK；不复制 agent 的执行机制 |
 | `aurora_api` | client 与后端 ctx 交互所需的 HTTP/WS 传输、端点、事件信封及实际需要的契约导出 | 不作为插件接入总线，不预设任意 operation 的远端分发器 |
-| `aurora_model_adapter` | ModelClient、能力声明、适配器发现、LiteLLM 与非标接口适配 | 不依赖 bot，不向上层暴露 SDK 类型 |
 | `aurora_logging` | 宿主与库共用的日志级别、控制台输出、回溯与文件落盘配置 | 不依赖业务包，不参与 ctx 或插件登记 |
 | `aurora_world` | 世界记录、来源去重、位置读取及进程内来源装配已交付；TOML/内置来源按 M4-W 扩展 | 基于 core，配置复用 config；不依赖 bot/agent，不负责唤醒或选择目标 |
-| `aurora_adapters` | 可选 MCP 配置、独立客户端、世界通知桥与工具桥已交付 | SDK 类型留在适配层，桥分别接入 world 与 agent |
+| `aurora_adapter` | model 提供 ModelClient、能力声明、模型配置与 LiteLLM；mcp 提供外部连接、世界和工具桥 | 基础包仅依赖 core；SDK 与桥按 extra 安装，插件分别显式启用 |
 
-代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`model_adapter` 只依赖 core 并被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、model_adapter、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
+代码依赖方向为 `core ← config` 与 `core ← control ← agent ← bot`；`adapter` 基础包仅依赖 core，模型配置通过 model extra 引入 config，供应商 SDK 通过 litellm extra 安装；模型协议被 agent 与 bot 使用。`aurora_harness` 是后续独立项目，目标集合为 core、config、adapter.model、control 与 agent；bot 的配置、默认装配、运行操作和命令不进入 harness 的必需依赖。当前拆包边界与验收记录见 [拆包评估](aurora_agent_extraction_assessment.md)。
 
 ### 3.2 TypeScript 侧与静态应用
 
@@ -104,10 +103,9 @@ ID 不自动映射为文件路径、导入路径、HTTP URL、执行顺序或组
 | `aurora_agent` | `org.aurora.agent` | Python 运行时 |
 | `aurora_bot` | `org.aurora.bot` | Python 运行时 |
 | `aurora_api` | `org.aurora.api` | Python 运行时 |
-| `aurora_model_adapter` | `org.aurora.model_adapter` | Python 运行时 |
 | `aurora_logging` | `org.aurora.logging` | Python 运行时；当前未登记公共定义 |
 | `aurora_world` | `org.aurora.world` | Python 运行时；已登记世界记录、来源注册表及生命周期处理器 |
-| `aurora_adapters` | `org.aurora.adapters` | Python 运行时；已登记可选 MCP 配置、观察状态及生命周期处理器 |
+| `aurora_adapter` | `org.aurora.adapter` | Python 运行时；模型协议、配置、工厂及可选 MCP 插件 |
 | `aurora_client` | `org.aurora.client` | TS 客户端 |
 | `aurora_tui` | `org.aurora.tui` | TUI 本地 |
 | `aurora_panel` | `org.aurora.panel` | WebUI 本地 |
@@ -184,7 +182,7 @@ list 返回已赋值的精确地址并排序；缺失 get 抛 KeyError，已登�
 
 需要恢复的数据在运行期间异步自动落盘。正常退出前完成待写入数据及停止过程中最后变更的落盘，再释放相关内存。
 
-当前持久化保存 persistent 状态，并要求严格 JSON 数据；Context.set 本身只执行已配置的状态校验，不保证值一定能落盘。运行时服务对象、连接、函数与任务由装配持有，不进入 ctx。凭证通过运行期参数注入。模型配置与角色绑定使用 `aurora_config` 的非持久配置状态与 `org.aurora.model_adapter:state/config`、`state/bindings`，启动时重建客户端；不建立独立的运行时对象管理器或完整状态分类系统。
+当前持久化保存 persistent 状态，并要求严格 JSON 数据；Context.set 本身只执行已配置的状态校验，不保证值一定能落盘。运行时服务对象、连接、函数与任务由装配持有，不进入 ctx。凭证通过运行期参数注入。模型配置与角色绑定使用 `aurora_config` 的非持久配置状态与 `org.aurora.adapter:state/model/config`、`state/model/bindings`，启动时重建客户端；不建立独立的运行时对象管理器或完整状态分类系统。
 
 ContextPersistence 默认每 0.5 秒合并写入，临时文件写完后替换正式快照；宿主先恢复，再执行 config 阶段，之后 configure 与 prepare/start。异步写入不承诺崩溃零丢失，正常退出由宿主保证最终 flush。业务保留策略由应用决定；controller 清理终态调用，示例清理中间值及历史结果，core 不裁剪完整快照。
 
@@ -340,7 +338,7 @@ aurora_agent 提供 ReActAgent 和 prepare、infer、act、observe、finish、er
 
 ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正整数；控制组合只负责外层调用结构。AgentRuntime 管理提交、激活、等待和取消，通过宿主提供的 agent 获取、执行和占用查询接入；运行句柄仅存在于进程内。默认装配在启动后绑定 runtime；恢复出的中断运行标记为 failed，不自动续跑。
 
-引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具执行由 agent 提供，多模型选择与聚合、agent 通信由 bot 扩展装配；MCP 通过独立 adapters 包接入世界来源与 agent 工具接口，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
+引导采用实例级 inbox、progress 和 runtime 地址，宿主通过 StateBinding 与 InstanceStateBinding 提供。默认过程在推理前接纳引导，在结束前检查待处理输入。工具执行由 agent 提供，多模型选择与聚合、agent 通信由 bot 扩展装配；MCP 通过adapter 包的 mcp 模块接入世界来源与 agent 工具接口，模型执行使用注入的 ModelClient；core 不增加对应业务机制。
 
 ### 7.7 直接交流与世界输入
 
@@ -421,15 +419,15 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 - 环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。W2.3 的 `aurora_world.environment` 可选插件提供 time/weather 两个来源，`aurora-world[environment]` extra 引入 config/httpx，基础 world 保持仅依赖 core。时间按宿主本地时区采样；天气使用配置中的地点标签、经纬度和请求超时，经 [Open-Meteo](https://open-meteo.com/en/docs) 读取当前天气模型数据，记录提供方、有效时间、摄氏温度、WMO 天气代码与描述、km/h 风速。默认时间间隔 60 秒，天气 900 秒；相对等待从本次观察完成后开始，不追赶错过的周期。
 - 每次采样使用启动会话和计数作为 message_id，表示新的观察，不将轮询当成外部事件修订；重启不补发离线周期，也不将同一有效时间的天气误判为完整事件历史。天气超时、网络/HTTP 错误或无效数据形成不可用观察，不影响时间来源；当前请求不重试，下个周期重新采样。关闭取消在途请求并等待主循环退出，之后关闭 HTTP 客户端。来源参数不保存凭证，天气载荷保留来源归属。
 - 默认 bot 增加 world/config 的包依赖，但仍须显式启用 world 插件。登记 world 配置定义时，DefaultAssembly 连接一个来源所有者；配置选择先于所有 prepare，bot 及可选 cadence 就绪后开放环境输入，关闭时先收束来源再关闭转发、bot/模型。没有 world 配置定义时保持原装配行为；只有显式启用 cadence 并选择来源才自动形成引导。正式启动脚本用 `--world` 开放世界记录和来源状态，用 `--cadence` 开放消费状态和暂停诊断，复用 TUI 状态页观察。
-- 可运行的程序及 TOML 装配恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，后者使用 `--configured`；[environment_roundtrip.py](../tests/fixtures/environment_roundtrip.py) 验证环境来源独立安装与恢复，默认使用模拟天气传输，`--live-weather` 显式访问真实服务。模拟来源、自研环境周期和 MCP 来源共用已有入口，不增加另一套来源事件总线。
-- M4.B1 已提供可选 `aurora-adapters[mcp]` 与 `aurora_adapters.mcp` 插件。`MCPClients` 在 config 阶段选择声明，prepare 阶段创建连接；每个 SDK 上下文由同一后台任务进入与退出，消费者通过异步借用上下文使用。stop 封闭入口、取消并等待剩余借用，clean 在依赖者清理后关闭客户端，最后由宿主落盘。关闭等待超时或取消可再次等待，不重复取消正在收尾的任务；真正的关闭失败阻止宿主假报关闭成功。基础 adapters 仅依赖 core，MCP extra 引入 config/SDK/httpx2/tomli-w，无 world/agent/bot 依赖。
-- MCP B5.1 使用 schema_version=2、默认空 servers 映射，服务名直接作为 connection_id；模板只补缺失文件。声明支持 local/remote、协议策略、所需能力、四类超时和 headers/environment 环境引用；B5.2–B5.3 已支持 remote/local 的 legacy/auto/固定新版协商；local 在 prepare 解析显式 workspace_root 下的 cwd 和环境，按参数数组启动自有进程。stdio 单帧限制 4 MiB，stderr 丢弃，关闭回收所属 Job/进程组。旧 connections/tools 布局须通过 python -m aurora_adapters.mcp.migrate 生成候选并显式应用，保留旧身份、工具别名与暴露范围，不覆盖用户文件。凭证在连接创建时单独解析，不进入 TOML、ctx 或快照。URL 不接受 userinfo、查询串或片段；服务端任意元数据不写入观察状态。配置与状态均非持久，固定错误码区分启动超时、协议/能力拒绝、传输和关闭失败。ready 不是持续健康探测，断线在请求时诊断，不自动重放请求或重连。
+- 可运行的程序及 TOML 装配恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，后者使用 `--configured`；环境来源的行为和宿主恢复分别由 [包级环境测试](../packages/aurora_world/tests/unit/test_world_environment.py) 与 [默认环境集成测试](../tests/e2e/test_default_environment.py) 验证，使用模拟天气传输。模拟来源、自研环境周期和 MCP 来源共用已有入口，不增加另一套来源事件总线。
+- M4.B1 已提供可选 `aurora-adapter[mcp]` 与 `aurora_adapter.mcp` 插件。`MCPClients` 在 config 阶段选择声明，prepare 阶段创建连接；每个 SDK 上下文由同一后台任务进入与退出，消费者通过异步借用上下文使用。stop 封闭入口、取消并等待剩余借用，clean 在依赖者清理后关闭客户端，最后由宿主落盘。关闭等待超时或取消可再次等待，不重复取消正在收尾的任务；真正的关闭失败阻止宿主假报关闭成功。基础 adapter 仅依赖 core，MCP extra 引入 config/SDK/httpx2/tomli-w，无 world/agent/bot 依赖。
+- MCP B5.1 使用 schema_version=2、默认空 servers 映射，服务名直接作为 connection_id；模板只补缺失文件。声明支持 local/remote、协议策略、所需能力、四类超时和 headers/environment 环境引用；B5.2–B5.3 已支持 remote/local 的 legacy/auto/固定新版协商；local 在 prepare 解析显式 workspace_root 下的 cwd 和环境，按参数数组启动自有进程。stdio 单帧限制 4 MiB，stderr 丢弃，关闭回收所属 Job/进程组。旧 connections/tools 布局须通过 python -m aurora_adapter.mcp.migrate 生成候选并显式应用，保留旧身份、工具别名与暴露范围，不覆盖用户文件。凭证在连接创建时单独解析，不进入 TOML、ctx 或快照。URL 不接受 userinfo、查询串或片段；服务端任意元数据不写入观察状态。配置与状态均非持久，固定错误码区分启动超时、协议/能力拒绝、传输和关闭失败。ready 不是持续健康探测，断线在请求时诊断，不自动重放请求或重连。
 - SDK 锁定 2.3.0，legacy/auto 复用公共 Client 协商入口，固定新版仍显式请求 server/discover 后 adopt；只接纳 2025-11-25 与 2026-07-28。HTTP 鉴权失败、5xx、重定向和损坏 JSON 明确拒绝，协商共用 startup 总预算；未知必需能力在配置阶段拒绝，服务端额外能力不冒充已支持能力。未提供采样、roots 或 elicitation 回调，多轮输入结果不自动续发。客户端不自动读取工具/资源、监听通知或激活模型；MCP 产品装配通过可选插件显式选择。独立本机验收与宿主用法见[启动指南](../examples/START.md#mcp-独立客户端验收)。
-- M4.B4 已通过 `aurora_adapters.mcp.world` 插件与 `aurora-adapters[mcp-world]` extra 提供资源通知来源。mcp_world_component 复用 world 的声明配置与唯一来源所有者，并依赖注入的 MCPClients；来源 start 等待 subscriptions/listen 确认全部选择，后台任务同时接收通知与处理有界队列，停止只释放自身订阅和借用。世界消息通过固定 source_id 的 emit 接纳，world 不反向导入 SDK 或 agent，MCP 产品装配通过可选插件显式选择。
+- M4.B4 已通过 `aurora_adapter.mcp.world` 插件与 `aurora-adapter[mcp-world]` extra 提供资源通知来源。mcp_world_component 复用 world 的声明配置与唯一来源所有者，并依赖注入的 MCPClients；来源 start 等待 subscriptions/listen 确认全部选择，后台任务同时接收通知与处理有界队列，停止只释放自身订阅和借用。世界消息通过固定 source_id 的 emit 接纳，world 不反向导入 SDK 或 agent，MCP 产品装配通过可选插件显式选择。
 - 每个资源按精确 URI 配置 notification/resource/event 模式。前两种分别只存变化提示或读取内容，都使用本地观察身份；event 读取单个文本资源中的严格 JSON `{message_id, payload}`，连接、URI 与稳定 message_id 共同限定去重身份，不将采样时间混入事件载荷。身份缺失、同身份异文、未选 URI、读取失败、超限内容或缓冲溢出均使对应来源失败，其他来源和客户端仍可用。工具目录通知只设置 tools_dirty，不进入 world、不热改工具集合；协议控制通知不作为业务输入。
 - SDK 2.3.0 的通知流会合并尚未消费的同 URI 提示，且有自身的 1024 项不同事件积压上限；SDK 流丢失统一报 subscription_lost。适配器另有默认 64 项的有界队列，溢出明确报 buffer_overflow。两者均不承诺完整事件日志或历史补发；资源读取反映读取时当前值，不保证保留通知时的版本。正常停止也会报告已收到但尚未接纳的观察数量，状态非持久，固定诊断同步进入宿主日志；它们不会被伪报为已落盘或在重启后重放。[SDK 订阅说明](https://py.sdk.modelcontextprotocol.io/client/subscriptions/)。
 - 来源有稳定事件 ID 或修订号时用于构造 message_id；只有资源 URI、最新内容或通知到达时间时不承诺跨重连去重与完整历史。缓冲须有界，溢出或来源失败必须有明确状态；断线后不静默补发未知业务，不自动重试结果不明的工具动作。
-- M4.B2 已通过 `aurora-adapters[mcp-tools]` 和 `aurora_adapters.mcp.tools` 插件接入 agent。v2 服务内 tools.include/exclude 选择远端名称，aliases 映射本地名称；默认通配自动发现并生成 v2 稳定名称，可用显式别名保留身份；无 tools 能力且没有显式选择要求的服务不登记工具。MCPTools 在 prepare 分页发现并原子登记 ToolSpec，名称/schema 冲突或选项缺失阻止启动。DefaultAssembly.components(depends_on=...) 保证发现先于模型与工具检查；实例 ExecutionPlug 接入 ToolExecutor，保留 before_call/after_call、参数校验、超时与取消。结果保留 MCP 内容块和 structuredContent；ToolExecutionError 使业务失败仍保留 JSON 内容，协议错误、超时、无效结果和结果未知使用不同错误码。调用使用 SDK session 的单次请求，不因 HEADER_MISMATCH、断线或额外交互重发。工具目录变化须重建宿主，不热改集合；外部真实服务兼容性验证尚未进行。
+- M4.B2 已通过 `aurora-adapter[mcp-tools]` 和 `aurora_adapter.mcp.tools` 插件接入 agent。v2 服务内 tools.include/exclude 选择远端名称，aliases 映射本地名称；默认通配自动发现并生成 v2 稳定名称，可用显式别名保留身份；无 tools 能力且没有显式选择要求的服务不登记工具。MCPTools 在 prepare 分页发现并原子登记 ToolSpec，名称/schema 冲突或选项缺失阻止启动。DefaultAssembly.components(depends_on=...) 保证发现先于模型与工具检查；实例 ExecutionPlug 接入 ToolExecutor，保留 before_call/after_call、参数校验、超时与取消。结果保留 MCP 内容块和 structuredContent；ToolExecutionError 使业务失败仍保留 JSON 内容，协议错误、超时、无效结果和结果未知使用不同错误码。调用使用 SDK session 的单次请求，不因 HEADER_MISMATCH、断线或额外交互重发。工具目录变化须重建宿主，不热改集合；外部真实服务兼容性验证尚未进行。
 - MCP 客户端由独立生命周期组件持有，世界与工具桥只持有使用引用。配置完成后创建资源，消费者就绪后开放输入；停止接纳后结束来源与运行任务，待依赖者清理完再关闭客户端，最后由宿主落盘。单个来源停止不能关闭在途工具仍使用的客户端。
 
 通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1–B5.3 的 v2 配置、运行期引用、显式迁移与 HTTP/stdio 传输已交付；内部按声明、凭证、传输、协商、错误与所有权分工，stdio 管道与进程管理单独成模块，工具目录与执行已分模块并支持自动名称，可选产品装配及一次性预设已完成，业务事件扩展与可靠投递单独设计。
@@ -438,7 +436,7 @@ B3 已完成 HTTP、stdio、混合连接的共享关闭与失败回收验收，W
 
 ## 8. 模型适配与绑定
 
-`aurora_model_adapter` 提供 ModelClient/ModelFactory 协议、JSON 请求/响应/流式片段、能力声明、ResponseBuffer 与确定性 FakeModel。插件登记 adapters 注册表、model_client 服务与四个模型 schema。LiteLLM 适配器已实现并按需启用；FakeModel 无需网络或密钥，没有独立 adapter ID。
+`aurora_adapter.model` 提供 ModelClient/ModelFactory 协议、JSON 请求/响应/流式片段、能力声明、ResponseBuffer 与确定性 FakeModel。插件登记 adapters 注册表、model_client 服务与四个模型 schema。LiteLLM 适配器已实现并按需启用；FakeModel 无需网络或密钥，没有独立 adapter ID。
 
 装配选择适配器、连接配置和逻辑模型角色，创建服务实例并注入组件。同一服务定义可以绑定多个实例，不通过修改公共服务 ID 区分具体模型。模型 profiles、角色 bindings 与默认 bot 配置使用包内 TOML 模板；用户文件位于 `<data-dir>/config/<命名空间>/`，只复制缺失文件并保留用户内容。凭证只保存环境变量名称，运行期解析且不写入 ctx。
 
@@ -512,15 +510,14 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 | --- | --- | --- |
 | `aurora_core` | 通用基础依赖 | 不依赖业务包；维护当前后端总表 |
 | `aurora_config` | core | 提供配置声明、校验、模板与 config 阶段服务 |
-| `aurora_model_adapter` | core | 提供适配器和 ModelClient 定义 |
 | `aurora_control` | core | 提供执行契约、控制组合与控制状态 |
-| `aurora_agent` | core、control、model_adapter | 提供 ReAct、模型调用、工具执行与运行调度 |
-| `aurora_bot` | core、control、agent、model_adapter | 可声明面向 CLI/API 的入口，不硬依赖其实现 |
+| `aurora_agent` | core、control、adapter.model | 提供 ReAct、模型调用、工具执行与运行调度 |
+| `aurora_bot` | core、control、agent、adapter.model | 可声明面向 CLI/API 的入口，不硬依赖其实现 |
 | `aurora_cli` | core、api | 接收已启用的命令声明，不导入 bot 插件实现 |
 | `aurora_api` | core；按实际需要复用 CLI 公开适配描述 | 提供 client 传输；不强制经过 CLI，不导入 bot 插件实现 |
 | `aurora_logging` | core；按实际需要 | 当前提供日志配置 |
 | `aurora_world` | core；config/environment extras 提供配置与环境依赖 | 世界记录已实现，不依赖 agent/bot；cadence 通过其公开记录与 ctx 订阅接入 |
-| `aurora_adapters` | core；mcp extra 引入 config、mcp、httpx2；mcp-world 加入 world/config，mcp-tools 加入 agent | 客户端、世界通知桥与工具桥已实现；world/agent/bot 不反向依赖 adapters |
+| `aurora_adapter` | core；model extra 引入 config，litellm 引入供应商 SDK；mcp 引入 config/SDK/传输依赖，mcp-world 加入 world，mcp-tools 加入 agent，mcp-bot 加入 bot | 客户端、世界通知桥与工具桥已实现；world 不反向依赖 adapter；agent/bot 使用模型模块，不依赖 MCP 桥 |
 | `aurora_client` | TS 传输与所需生成类型 | 实现统一 ctx 接口和既有 ctx ID 入口 |
 | `aurora_tui`、`aurora_panel` | client | 使用 ctx interface，不参与后端插件装配 |
 | `docsite`、`landing` | 各自构建依赖 | 独立解析页面和资源 |
@@ -533,18 +530,17 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 | `packages/aurora_config/` | 配置声明、校验与 TOML 加载 |
 | `packages/aurora_control/` | 执行契约与控制组合 |
 | `packages/aurora_agent/` | ReAct、模型调用、工具执行与运行调度 |
-| `packages/aurora_model_adapter/` | 模型适配 |
 | `packages/aurora_bot/` | 默认装配、配置与产品入口 |
 | `packages/aurora_cli/` | CLI |
 | `packages/aurora_api/` | 后端传输 |
 | `packages/aurora_logging/` | 日志配置 |
 | `packages/aurora_world/` | 世界记录、来源身份与位置读取、来源装配、可选声明配置、后台托管与时间/天气环境来源 |
-| `packages/aurora_adapters/` | 可选外部协议适配；MCP 声明配置、客户端生命周期、世界资源通知桥与 agent 工具桥 |
+| `packages/aurora_adapter/` | model 模型协议、配置与供应商适配；mcp 声明配置、客户端生命周期、世界与工具桥；统一 config.tomls 资源 |
 | `packages/aurora_client/` | TS 共享 ctx 访问与连接 |
 | `apps/aurora_tui/`、`apps/aurora_panel/` | 终端与 Web 界面 |
 | `apps/docsite/`、`apps/landing/` | 静态应用 |
 | `scripts/` | 开发与按需生成脚本 |
-| `tests/unit/`、`tests/contract/`、`tests/e2e/` | 按实际行为与边界组织验证 |
+| `packages/<包>/tests/`、`tests/contract/`、`tests/e2e/` | 包内维护单元和协议测试，根目录维护跨包契约、工作区和端到端验证 |
 
 ## 12. 初期非目标
 
@@ -575,7 +571,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 1. **直接交流工作台。** 复用 M3.6 已实现的回执、重复请求、状态查询、取消和契约，交付 OpenTUI 交互，不把接纳或模型输出解释为业务完成。
 2. **client 连接（D08、D09）。** 本机 ctx 与订阅重连已交付；按浏览器和远程接入需要补齐认证、来源与数据范围，复用已有关闭和刷新语义。
-3. **独立 harness。** 复用 core、model_adapter、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
+3. **独立 harness。** 复用 core、adapter.model、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
 4. **世界与 cadence（D11、M4-W）。** world 的记录与来源独立于执行；bot 的可选 cadence 插件先原样转发，统一通过既有 AgentRuntime 提交。细化记录保留、重复识别、消费位置、转交结果不确定及恢复行为，验证两条输入路径并存；唤醒工具与子代理另行实施。
 5. **公共接口维护。** 从实际边界提炼必要的 schema、兼容与迁移规则，不预设通用证明系统，不以规划 ID 证明接口已经冻结。
 
@@ -588,7 +584,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 - AgentRuntime 通过宿主提供的 agent 获取、执行与占用查询连接，不再访问 `DefaultAssembly` 私有成员；运行句柄仍只存在于进程内。
 - 文档基线对齐时补充 M2 已完成状态：LiteLLM 适配、TOML 模型 profiles 与角色绑定、基本工具往返、CLI `run submit/activate/cancel`、取消与重启恢复均已验收；当时 M3 与 D10 尚未开始。当前进度见第 13 节，后续变更见[变更记录](CHAGELOG.md)。
 - 配置声明、结构校验、TOML 模板与 config 阶段服务归属 `aurora_config`；core 保留通用状态、持久化与生命周期机制。
-- 明确独立 harness 的目标集合为 core、model_adapter、control 与 agent，并记录拆包边界、测试与后续工作。
+- 明确独立 harness 的目标集合为 core、adapter.model、control 与 agent，并记录拆包边界、测试与后续工作。
 - 同步包职责、命名空间、依赖方向、目录与里程碑；补充 `aurora_logging`、`aurora_world` 的当前边界。
 
 ### 15.2 v0.2.2

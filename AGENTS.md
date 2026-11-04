@@ -19,7 +19,7 @@
 │   ├── aurora_config/         # 配置声明、校验、TOML 模板与加载服务
 │   ├── aurora_control/        # 执行契约与控制组合
 │   ├── aurora_agent/          # ReAct、模型调用、工具执行与运行调度
-│   ├── aurora_model_adapter/  # 模型协议与适配
+│   ├── aurora_adapter/        # 模型协议、模型供应商与 MCP 适配
 │   ├── aurora_bot/            # 默认装配、配置与产品入口
 │   ├── aurora_cli/            # 命令行交互
 │   ├── aurora_api/            # HTTP / WS 传输
@@ -36,7 +36,6 @@
 ├── scripts/                  # 开发与按需生成脚本
 ├── tooling/                  # TS、lint 与样式工具共享配置
 └── tests/
-    ├── unit/
     ├── contract/
     └── e2e/
 ```
@@ -48,20 +47,21 @@
 | `aurora_core` | 提供 ID、登记、ctx、订阅、连接、调用、生命周期和持久化机制；不承担 TOML 加载、配置 schema 策略、模型或业务流程控制 |
 | `aurora_config` | 基于 core 提供配置声明、结构及关联校验、模板文件处理和 config 阶段服务；core 不反向依赖配置包 |
 | `aurora_control` | 提供执行身份、状态绑定、插头插槽及 Serial、Branch、While、Parallel；仅依赖 core，不依赖 agent 或模型 |
-| `aurora_model_adapter` | 提供模型协议、能力声明、适配器与模型配置；供应商 SDK 类型和行为留在适配层 |
+| `aurora_adapter` | `model` 提供模型协议、能力声明、供应商适配与模型配置，`mcp` 提供外部协议及工具/世界桥；SDK 和桥依赖按 extra 安装，基础包仅依赖 core |
 | `aurora_agent` | 提供 ReAct、模型调用、工具执行、默认阶段和 AgentRuntime；不依赖 bot、CLI 或 API |
 | `aurora_bot` | 提供默认配置、产品装配、资源所有权、运行操作与命令；使用 agent，不复制 agent 的执行机制 |
 | `aurora_cli` / `aurora_api` | 提供宿主、命令交互与 HTTP/WS 传输；不重复实现 agent 业务语义 |
 | `aurora_logging` / `aurora_world` | 分别提供日志配置与世界输入插件；world 当前为骨架，完整世界来源与调度示例位于 live_workshop |
 | `aurora_client` / `apps/*` | 客户端复用后端 ctx 语义，界面与静态站点不承担 Python 插件装配 |
 
-执行依赖方向为 `bot → agent → control → core`；agent 和 bot 也可直接使用 core 与 model_adapter。配置能力通过 aurora_config 接入。独立 `aurora_harness` 是后续目标，不提前引入尚无实际消费者的框架抽象。
+执行依赖方向为 `bot → agent → control → core`；agent 和 bot 也可直接使用 core 与 aurora_adapter.model。agent 仅依赖 adapter 基础包；bot 使用 litellm extra；MCP 的工具、世界和产品桥通过独立 extra 与插件显式启用。配置能力通过 aurora_config 接入。独立 `aurora_harness` 是后续目标，不提前引入尚无实际消费者的框架抽象。
 
 ## 公共 ID 与插件
 
 - ID 格式为 `<namespace>:<domain>/<local_path>`。公开定义按所属包命名：`org.aurora.core`、`org.aurora.config`、`org.aurora.control`、`org.aurora.agent`、`org.aurora.bot` 等。
 - control 和 agent 的定义不能放在 bot 命名空间。bot 装配分配的配置、消息、引导、运行及工作状态地址仍归 bot，由状态绑定注入 agent。
 - 插件发现分组为 `aurora.plugins`；entry point 名称与 `Plugin.name` 一致。控制入口为 `aurora_control`，agent 入口为 `aurora_agent.model`、`aurora_agent.react`、`aurora_agent.tools`、`aurora_agent.react_defaults`。
+- 适配包名使用单数 `aurora_adapter`，模型入口为 `aurora_adapter.model`，MCP 入口为 `aurora_adapter.mcp` 及其桥插件；公共定义统一归属 `org.aurora.adapter`，local_path 按 model/mcp 区分。
 - 安装包与启用插件分开；`requires` 只校验依赖插件已显式启用，不隐式加载依赖。只使用执行契约不要求启用四种控制组件。
 - 定义身份、实例身份、run_id 与 execution_id 分开管理。调用等待决定执行结束，不能用残留状态推断调用完成。
 - ID 或插件名变更须说明配置和快照的影响，不自动改写或删除用户数据；不要为通过恢复测试而静默忽略未登记的状态。
@@ -87,16 +87,16 @@ uv sync --locked --all-packages
 # 完整检查：格式、lint、Python/TypeScript 类型与测试
 uv run --locked aurora check
 # 按影响范围先运行针对性测试
-uv run --locked pytest tests/unit/test_agent_runtime.py tests/e2e/test_package_boundaries.py -q
+uv run --locked pytest packages/aurora_agent/tests/unit/test_agent_runtime.py tests/e2e/test_package_boundaries.py -q
 # 验证分发包与资源
 uv build --all-packages --wheel --out-dir build/wheels
 ```
 
 - 根据改动选择有意义的验证。纯文档修改检查链接与差异，不为此运行无关测试；涉及跨包契约、生命周期或配置行为时完成相关回归和完整检查。
 - 拆包、依赖或分发内容变更还需验证 wheel；在干净环境中确认 control 无需 agent/模型包，agent 无需 bot/CLI/API。工作区可导入不能代替安装验收。
-- 单元测试位于 `tests/unit`，协议测试位于 `tests/contract`，真实进程及跨包集成位于 `tests/e2e`。不通过删除有效断言或扩大容错来掩盖失败。
+- 包级单元测试和协议测试分别位于 `packages/<包>/tests/unit`、`packages/<包>/tests/contract`；跨包契约测试位于根目录 `tests/contract`，工作区、真实进程及跨包集成测试位于根目录 `tests/e2e`。不通过删除有效断言或扩大容错来掩盖失败。
 - 示例保留 `core_counter`、`control_flow`、`react_agent`、`default_bot`、`live_workshop` 五条职责清晰的路径。示例和配套测试、启动指南同步维护，移除重复或过时入口。
-- 真实模型验收使用 `scripts/accept_m2.py`，会调用所选供应商；普通回归使用假模型或模拟传输，不因检查代码而自行调用真实服务。
+- 真实模型验收使用当前 CLI 和独立数据目录中的宿主、模型及工具配置，须由用户明确要求调用供应商；普通回归使用假模型或模拟传输，不因检查代码而自行调用真实服务。
 
 ## 参考入口
 

@@ -6,9 +6,9 @@
 
 `aurora_control` 与 `aurora_agent` 是与 `aurora_bot` 平级的独立包。control 承载执行契约和基础控制组合，agent 承载模型、工具、ReAct 和运行管理。独立 harness 的产品装配与仓库独立化建立在这两个包之上。
 
-当前实现已经具备拆分基础：ReAct、模型调用和工具执行通过 ctx、状态绑定与显式连接协作，主要依赖 `aurora_core` 和 `aurora_model_adapter`。需要重点处理的边界是运行调度、默认装配、资源所有权和恢复语义。
+当前实现已经具备拆分基础：ReAct、模型调用和工具执行通过 ctx、状态绑定与显式连接协作，主要依赖 `aurora_core` 和 `aurora_adapter.model`。需要重点处理的边界是运行调度、默认装配、资源所有权和恢复语义。
 
-本评估将 `aurora_harness` 理解为能够独立装配、运行、观察和管理 agent 的项目，允许继续依赖 `aurora_core` 与 `aurora_model_adapter`。如果目标还包括脱离 Aurora 微内核，则需要另行评估 ctx、注册表、连接和生命周期接口的替换成本。
+本评估将 `aurora_harness` 理解为能够独立装配、运行、观察和管理 agent 的项目，允许继续依赖 `aurora_core` 与 `aurora_adapter.model`。如果目标还包括脱离 Aurora 微内核，则需要另行评估 ctx、注册表、连接和生命周期接口的替换成本。
 
 拆分完成的核心标准是：在未安装 `aurora_bot` 的环境中，使用 `aurora_agent` 及其声明依赖完成模型与工具往返、运行中引导、取消、状态恢复和资源关闭。
 
@@ -50,12 +50,12 @@ control 的职责独立于模型与 ReAct。第三方插件可以只依赖 contr
 
 ```text
 aurora_bot ────────┐
-                  ├──→ aurora_agent ──→ aurora_model_adapter ──→ aurora_core
+                  ├──→ aurora_agent ──→ aurora_adapter.model ──→ aurora_core
 aurora_harness ───┘            └──→ aurora_control ────────────→ aurora_core
 
 第三方流程插件 ───────────────────→ aurora_control
 
-bot / harness 可直接使用 core 和 model_adapter 的宿主、配置及工厂设施。
+bot / harness 可直接使用 core 和 adapter.model 的宿主、配置及工厂设施。
 ```
 
 `aurora_agent` 不得依赖 `aurora_bot`，也不应要求安装 CLI、API 或界面包才能执行。harness 的独立性应由依赖清单和安装验收保证。
