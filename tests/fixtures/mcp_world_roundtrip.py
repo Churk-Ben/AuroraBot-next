@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import cast
 
 import uvicorn
-from aurora_adapters.mcp import CLIENT_STATUS, MCPClients
-from aurora_adapters.mcp.world import WORLD_SOURCE, WORLD_STATUS, mcp_world_component
+from aurora_adapter.mcp import CLIENT_STATUS, MCPClients
+from aurora_adapter.mcp.world import WORLD_SOURCE, WORLD_STATUS, mcp_world_component
 from aurora_config import configuration_component
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
@@ -102,14 +102,14 @@ async def run(root: Path) -> dict:
                         "aurora_config",
                         "aurora_world",
                         "aurora_world.configuration",
-                        "aurora_adapters.mcp",
-                        "aurora_adapters.mcp.world",
+                        "aurora_adapter.mcp",
+                        "aurora_adapter.mcp.world",
                     ]
                 ),
             )
             ctx, hooks, storage = Context(registry), HookConnections(registry), StorageService(root)
             directory = storage.configuration_directory()
-            connection_path = directory / "org.aurora.adapters" / "config.toml"
+            connection_path = directory / "org.aurora.adapter" / "mcp.toml"
             source_path = directory / "org.aurora.world" / "config.toml"
             connection_path.parent.mkdir(parents=True, exist_ok=True)
             source_path.parent.mkdir(parents=True, exist_ok=True)

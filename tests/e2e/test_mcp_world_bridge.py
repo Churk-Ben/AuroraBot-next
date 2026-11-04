@@ -12,15 +12,15 @@ def test_mcp_world_roundtrip_without_agent_or_product_packages(tmp_path):
 import importlib.abc
 import runpy
 import sys
-blocked = {'aurora_agent', 'aurora_bot', 'aurora_control', 'aurora_model_adapter', 'aurora_cli', 'aurora_api'}
+blocked = {'aurora_agent', 'aurora_bot', 'aurora_control', 'aurora_adapter.model', 'aurora_cli', 'aurora_api'}
 class AbsentPackages(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in blocked:
+        if any(fullname == item or fullname.startswith(item + '.') for item in blocked):
             raise ModuleNotFoundError('MCP 世界来源环境不提供：' + fullname)
 sys.meta_path.insert(0, AbsentPackages())
 source = sys.argv.pop(1)
 runpy.run_path(source, run_name='__main__')
-assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
+assert not any(name == item or name.startswith(item + '.') for name in sys.modules for item in blocked)
 """
     fixture = Path(__file__).resolve().parents[1] / "fixtures" / "mcp_world_roundtrip.py"
     identities = []

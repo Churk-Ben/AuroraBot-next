@@ -3,11 +3,13 @@
 import asyncio
 import json
 import logging
+import os
 import subprocess
 import sys
 import tomllib
 from importlib.metadata import version
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from aurora_cli.commander import run_cli
@@ -218,3 +220,50 @@ def test_run_applies_config_before_prepare_and_flushes_stop(tmp_path):
         assert json.loads(output.getvalue()) == {}
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fault", ["", "stop", "flush"])
+def test_real_cli_interrupt_and_shutdown_status(tmp_path, fault):
+    metadata = tmp_path / "cli_shutdown_fixture-0.0.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text("Metadata-Version: 2.1\nName: cli-shutdown-fixture\nVersion: 0.0.0\n")
+    (metadata / "entry_points.txt").write_text("[aurora.plugins]\ncli_shutdown_fixture = cli_shutdown_plugin:plugin\n")
+    env = dict(os.environ)
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    env["PYTHONPATH"] = os.pathsep.join([str(tmp_path), str(fixtures)])
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["AURORA_CLI_SHUTDOWN_FAULT"] = fault
+    data = tmp_path / "data"
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, "-m", "aurora_cli", "--plugin", "cli_shutdown_fixture", "--data-dir", str(data), *args],
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            timeout=15,
+        )
+
+    initial = run("ctx/set", "dev.cli_shutdown:state/value", '"baseline"')
+    assert initial.returncode == 0, initial.stderr
+    snapshot = data / "framework" / "ctx.json"
+    before = snapshot.read_bytes()
+    result = run(
+        "--assembly", "dev.cli_shutdown:assemblies/watch", "ctx/watch", "--key", "dev.cli_shutdown:state/value"
+    )
+    assert result.returncode == (1 if fault else 130), result.stderr
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    assert [event["value"] for event in events] == ["first", "second"]
+    assert events[1]["revision"] == events[0]["revision"] + 1
+    if fault:
+        assert "故障" in result.stderr
+    if fault == "flush":
+        assert snapshot.read_bytes() == before
+    if not fault:
+        trace = (data / "namespaces" / "ns-dev.cli_shutdown" / "events.txt").read_text(encoding="utf-8").splitlines()
+        assert trace == ["first", "second", "gate:closed", "stopped", "source:closed"]
+        restored = run("ctx/get", "dev.cli_shutdown:state/value")
+        assert restored.returncode == 0, restored.stderr
+        assert json.loads(restored.stdout) == "stopped"

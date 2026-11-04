@@ -17,7 +17,7 @@ import importlib.abc
 import runpy
 import sys
 
-blocked = {'aurora_agent', 'aurora_bot', 'aurora_model_adapter', 'aurora_cli', 'aurora_api'}
+blocked = {'aurora_agent', 'aurora_bot', 'aurora_adapter', 'aurora_cli', 'aurora_api'}
 
 class AbsentPackages(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
@@ -132,6 +132,86 @@ def test_bot_does_not_export_execution_components(module):
 
 
 def test_workspace_plugins_use_the_aurora_discovery_group():
-    for name in ("aurora-agent", "aurora-control", "aurora-bot", "aurora-model-adapter", "aurora-world"):
+    for name in ("aurora-agent", "aurora-control", "aurora-bot", "aurora-adapter", "aurora-world"):
         points = metadata.distribution(name).entry_points
         assert points and all(point.group == "aurora.plugins" for point in points)
+
+
+def test_model_protocol_and_plugin_discovery_do_not_import_sdks():
+    launcher = """
+import importlib.abc
+import sys
+blocked = {'litellm', 'mcp', 'httpx2', 'aurora_agent', 'aurora_bot', 'aurora_world'}
+class AbsentPackages(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in blocked:
+            raise ModuleNotFoundError('模型发现环境不提供：' + fullname)
+sys.meta_path.insert(0, AbsentPackages())
+from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_core.discovery import load_plugins
+plugins = load_plugins(enabled=['aurora_config', 'aurora_adapter.model'])
+plugin = next(item for item in plugins if item.name == 'aurora_adapter.model')
+assert len(plugin.entries) == 11
+assert all(entry.id.namespace == 'org.aurora.adapter' for entry in plugin.entries)
+assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
+"""
+    result = subprocess.run([sys.executable, "-c", launcher], capture_output=True, text=True, timeout=15, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_adapter_templates_share_one_package_without_path_collisions(tmp_path):
+    from aurora_config.files import configuration_files
+    from aurora_core.bootstrap import bootstrap
+    from aurora_core.discovery import register_plugins
+
+    registry = bootstrap()
+    register_plugins(registry, load_plugins(enabled=["aurora_config", "aurora_adapter.model", "aurora_adapter.mcp"]))
+    files = configuration_files(registry, tmp_path)
+    assert {item.path.relative_to(tmp_path).as_posix() for item in files} == {
+        "org.aurora.adapter/model/profiles.toml",
+        "org.aurora.adapter/model/bindings.toml",
+        "org.aurora.adapter/mcp.toml",
+    }
+    assert all(item.spec.template.package == "aurora_adapter" for item in files)
+    assert all(item.spec.template.source().read_bytes() for item in files)
+
+
+@pytest.mark.parametrize("name", ["aurora_model_adapter", "aurora_adapters", "aurora_adapters.mcp"])
+def test_replaced_adapter_names_are_not_exposed(name):
+    with pytest.raises(ModuleNotFoundError):
+        import_module(name)
+    with pytest.raises(ValueError, match="匹配数：0"):
+        load_plugins(enabled=[name])
+
+
+def test_default_bot_runs_when_cli_and_api_imports_are_unavailable(tmp_path):
+    launcher = """
+import importlib.abc
+import runpy
+import sys
+
+class AbsentHosts(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'aurora_cli', 'aurora_api'}:
+            raise ModuleNotFoundError('验收环境未安装可选宿主：' + fullname)
+
+sys.meta_path.insert(0, AbsentHosts())
+source = sys.argv.pop(1)
+from pathlib import Path
+sys.path.insert(0, str(Path(source).parent))
+runpy.run_path(source, run_name='__main__')
+assert not any(name.split('.')[0] in {'aurora_cli', 'aurora_api'} for name in sys.modules)
+"""
+    example = Path(__file__).resolve().parents[2] / "examples" / "default_bot" / "main.py"
+    result = subprocess.run(
+        [sys.executable, "-c", launcher, str(example), "--data-dir", str(tmp_path), "--text", "隔离验收"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "内部输出: 模型一:回显:隔离验收" in result.stdout
+    assert (tmp_path / "framework" / "ctx.json").is_file()

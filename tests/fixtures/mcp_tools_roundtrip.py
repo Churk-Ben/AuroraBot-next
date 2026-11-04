@@ -10,9 +10,9 @@ from typing import cast
 
 import tomli_w
 import uvicorn
-from aurora_adapters.mcp import CLIENT_STATUS, PROTOCOL_VERSION, MCPClients
-from aurora_adapters.mcp.catalog import automatic_name
-from aurora_adapters.mcp.tools import MCPTools
+from aurora_adapter.mcp import CLIENT_STATUS, PROTOCOL_VERSION, MCPClients
+from aurora_adapter.mcp.catalog import automatic_name
+from aurora_adapter.mcp.tools import MCPTools
 from aurora_agent.tools import ToolExecutor, ToolSpec
 from aurora_config import configuration_component
 from aurora_control import ExecutionRequest, StateBinding
@@ -55,7 +55,7 @@ async def run(
 ) -> dict:
     """通过真实本机 HTTP 或 stdio 完成工具及假模型默认装配验收。"""
     tool_name = automatic_name("local", "echo") if automatic else "local_echo"
-    tool_id = Id(f"org.aurora.adapters:tools/mcp/{tool_name}")
+    tool_id = Id(f"org.aurora.adapter:tools/mcp/{tool_name}")
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     calls = []
@@ -94,10 +94,10 @@ async def run(
                     await asyncio.sleep(0.01)
         registry = bootstrap()
         install_lifecycle_slots(registry)
-        enabled = ["aurora_config", "aurora_adapters.mcp", "aurora_agent.tools", "aurora_adapters.mcp.tools"]
+        enabled = ["aurora_config", "aurora_adapter.mcp", "aurora_agent.tools", "aurora_adapter.mcp.tools"]
         if with_bot:
             enabled += [
-                "aurora_model_adapter",
+                "aurora_adapter.model",
                 "aurora_agent.model",
                 "aurora_agent.react",
                 "aurora_agent.react_defaults",
@@ -113,7 +113,7 @@ async def run(
             path.write_text(tomli_w.dumps(value), encoding="utf-8")
 
         config_file(
-            "org.aurora.adapters/config.toml",
+            "org.aurora.adapter/mcp.toml",
             {
                 "schema_version": 2,
                 "servers": {
@@ -132,9 +132,9 @@ async def run(
         components = [bridge.component(), clients.component(), configuration_component(registry, ctx, hooks, storage)]
         assembly = None
         if with_bot:
+            from aurora_adapter.model.configuration import ADAPTERS
+            from aurora_adapter.model.fake import FakeModel, FakeReply
             from aurora_bot.assembly import DefaultAssembly
-            from aurora_model_adapter.configuration import ADAPTERS
-            from aurora_model_adapter.fake import FakeModel, FakeReply
 
             async def model_factory(config, *, api_key=None):
                 assert bridge.prepared and registry.get(tool_id)
@@ -151,8 +151,8 @@ async def run(
 
             adapter = Id("dev.mcp:adapters/fake")
             registry.register(RegistryEntry(adapter, "adapter", model_factory, "test", register_to=ADAPTERS))
-            config_file("org.aurora.model_adapter/profiles.toml", {"test": {"adapter": str(adapter), "model": "fake"}})
-            config_file("org.aurora.model_adapter/bindings.toml", {"reasoning": "test"})
+            config_file("org.aurora.adapter/model/profiles.toml", {"test": {"adapter": str(adapter), "model": "fake"}})
+            config_file("org.aurora.adapter/model/bindings.toml", {"reasoning": "test"})
             config_file(
                 "org.aurora.bot/config.toml",
                 {

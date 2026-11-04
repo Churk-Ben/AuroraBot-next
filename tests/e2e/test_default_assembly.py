@@ -10,6 +10,11 @@ import httpx
 import pytest
 import tomli_w
 from aiohttp import ClientSession
+from aurora_adapter.model import JsonValue, ModelCapabilities, ToolDefinition, UnsupportedCapability
+from aurora_adapter.model.configuration import ADAPTERS, BINDINGS
+from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.plugin import plugin as adapter_plugin
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import AgentBusyError
 from aurora_agent.react import plugin as react_plugin
@@ -39,11 +44,6 @@ from aurora_core.lifecycle import Lifecycle, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter import JsonValue, ModelCapabilities, ToolDefinition, UnsupportedCapability
-from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
-from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
-from aurora_model_adapter.fake import FakeModel, FakeReply
-from aurora_model_adapter.plugin import plugin as adapter_plugin
 from jsonschema import Draft202012Validator
 
 ADAPTER = Id("dev.assembly:adapters/fake")
@@ -118,7 +118,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
         def configure():
             ctx.set(CONFIG, {**settings(), "streaming": streaming})
             profile: dict[str, object] = {
-                "adapter": "org.aurora.model_adapter:adapters/litellm",
+                "adapter": "org.aurora.adapter:adapters/model/litellm",
                 "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
                 "credential": "MODEL_TEST_KEY",
             }
@@ -279,8 +279,8 @@ def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"
                     configure()
                     for key, relative in (
                         (CONFIG, "org.aurora.bot/config.toml"),
-                        (MODEL_CONFIG, "org.aurora.model_adapter/profiles.toml"),
-                        (BINDINGS, "org.aurora.model_adapter/bindings.toml"),
+                        (MODEL_CONFIG, "org.aurora.adapter/model/profiles.toml"),
+                        (BINDINGS, "org.aurora.adapter/model/bindings.toml"),
                     ):
                         path = root / "config" / relative
                         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1090,7 +1090,7 @@ def test_bot_cli_submit_tool_loop_and_activate_restore(tmp_path):
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_bot_cli_streams_before_completion_and_reports_failure(tmp_path, monkeypatch, failure):
-    from aurora_model_adapter import ModelError
+    from aurora_adapter.model import ModelError
 
     async def scenario():
         plugins, argv, clients, _, _ = await cli_setup(tmp_path)
@@ -1272,7 +1272,7 @@ import runpy
 import signal
 import sys
 from pathlib import Path
-from aurora_model_adapter.fake import FakeModel
+from aurora_adapter.model.fake import FakeModel
 
 source = runpy.run_path(sys.argv[1])
 entry = importlib.import_module("aurora_cli.main")

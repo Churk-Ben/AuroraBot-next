@@ -14,13 +14,15 @@ from typing import cast
 
 import pytest
 import tomli_w
-from aurora_adapters.mcp import CLIENT_STATUS, MCPClients
-from aurora_adapters.mcp.bot import assemble
-from aurora_adapters.mcp.catalog import automatic_name
-from aurora_adapters.mcp.errors import MCPClientError
-from aurora_adapters.mcp.preset import initialize
-from aurora_adapters.mcp.tool_execution import MCPTool
-from aurora_adapters.mcp.world import WORLD_SOURCE, WORLD_STATUS, MCPWorldError, _ResourceSource
+from aurora_adapter.mcp import CLIENT_STATUS, MCPClients
+from aurora_adapter.mcp.bot import assemble
+from aurora_adapter.mcp.catalog import automatic_name
+from aurora_adapter.mcp.errors import MCPClientError
+from aurora_adapter.mcp.preset import initialize
+from aurora_adapter.mcp.tool_execution import MCPTool
+from aurora_adapter.mcp.world import WORLD_SOURCE, WORLD_STATUS, MCPWorldError, _ResourceSource
+from aurora_adapter.model.configuration import ADAPTERS
+from aurora_adapter.model.fake import FakeModel, FakeReply
 from aurora_bot.operations import RUN_CONTROL, RunOperations
 from aurora_config import configuration_component
 from aurora_core import Id
@@ -32,8 +34,6 @@ from aurora_core.lifecycle import STOP, Lifecycle, install_lifecycle_slots
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter.configuration import ADAPTERS
-from aurora_model_adapter.fake import FakeModel, FakeReply
 from aurora_world import ENVIRONMENT, RECORDS, SOURCE_STATUS
 from aurora_world.environment import TIME
 from test_mcp_stdio import alive
@@ -128,9 +128,9 @@ def setup(root, declarations, mode, monkeypatch, events):
     if mode == "source_failure":
         declarations["server0"]["protocol"] = "legacy"
     values = {
-        "org.aurora.adapters/config.toml": {"schema_version": 2, "servers": declarations},
-        "org.aurora.model_adapter/profiles.toml": {"test": {"adapter": str(ADAPTER), "model": "fake"}},
-        "org.aurora.model_adapter/bindings.toml": {"reasoning": "test"},
+        "org.aurora.adapter/mcp.toml": {"schema_version": 2, "servers": declarations},
+        "org.aurora.adapter/model/profiles.toml": {"test": {"adapter": str(ADAPTER), "model": "fake"}},
+        "org.aurora.adapter/model/bindings.toml": {"reasoning": "test"},
         "org.aurora.bot/config.toml": {"instance_id": "main", "model_role": "reasoning", "streaming": False},
         "org.aurora.world/config.toml": {
             "sources": [
@@ -228,7 +228,7 @@ def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, m
                         await hooks.invoke(connection)
                     assert cast(
                         dict,
-                        ctx.get(CLIENT_STATUS, location={"owner": "aurora_adapters/mcp", "connection_id": "server0"}),
+                        ctx.get(CLIENT_STATUS, location={"owner": "aurora_adapter/mcp", "connection_id": "server0"}),
                     )["accepting"]
                     assert not (directory / "finished").exists()
                     (directory / "release").touch()
@@ -275,7 +275,7 @@ def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, m
                         assert cast(
                             dict,
                             ctx.get(
-                                CLIENT_STATUS, location={"owner": "aurora_adapters/mcp", "connection_id": "server1"}
+                                CLIENT_STATUS, location={"owner": "aurora_adapter/mcp", "connection_id": "server1"}
                             ),
                         )["accepting"]
                 if mode != "disconnect":
@@ -287,7 +287,7 @@ def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, m
             if mode != "disconnect" or transport == "mixed":
                 assert all(process.returncode is None for process in processes)
             assert operations.instances == () and all(model.closed for model in models)
-            assert all(record.address.key.namespace != "org.aurora.adapters" for record in store.load())
+            assert all(record.address.key.namespace != "org.aurora.adapter" for record in store.load())
             assert any(record.address.key == RECORDS for record in store.load())
             assert all(path.read_bytes() == content for path, content in before.items())
             assert (tmp_path / "server0/calls").read_text(encoding="utf-8").splitlines() == ["probe"]

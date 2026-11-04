@@ -89,7 +89,7 @@ import importlib.abc
 import runpy
 import sys
 
-blocked = {'aurora_agent', 'aurora_bot', 'aurora_control', 'aurora_model_adapter',
+blocked = {'aurora_agent', 'aurora_bot', 'aurora_control', 'aurora_adapter',
            'aurora_cli', 'aurora_api', 'aurora_config'}
 
 class AbsentPackages(importlib.abc.MetaPathFinder):

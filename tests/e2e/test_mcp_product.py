@@ -13,14 +13,14 @@ import httpx
 import pytest
 import tomli_w
 import uvicorn
-from aurora_adapters.mcp.catalog import automatic_name
-from aurora_adapters.mcp.preset import initialize
+from aurora_adapter.mcp.catalog import automatic_name
+from aurora_adapter.mcp.preset import initialize
+from aurora_adapter.model.configuration import ADAPTERS
+from aurora_adapter.model.fake import FakeModel, FakeReply
 from aurora_cli.commander import run_cli
 from aurora_core import Id
 from aurora_core.discovery import Plugin
 from aurora_core.registry import RegistryEntry
-from aurora_model_adapter.configuration import ADAPTERS
-from aurora_model_adapter.fake import FakeModel, FakeReply
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "mcp_tools_roundtrip.py"
 ADAPTER = Id("dev.product:adapters/fake")
@@ -60,16 +60,14 @@ def seed(root, server, *, explicit=False):
     assert initialize(root, api=True, output=StringIO()) == 0
     name = automatic_name("sample", "echo")
     values = {
-        "org.aurora.adapters/config.toml": {"schema_version": 2, "servers": {"sample": {**server, "protocol": "auto"}}},
-        "org.aurora.model_adapter/profiles.toml": {"test": {"adapter": str(ADAPTER), "model": "fake"}},
-        "org.aurora.model_adapter/bindings.toml": {"reasoning": "test"},
+        "org.aurora.adapter/mcp.toml": {"schema_version": 2, "servers": {"sample": {**server, "protocol": "auto"}}},
+        "org.aurora.adapter/model/profiles.toml": {"test": {"adapter": str(ADAPTER), "model": "fake"}},
+        "org.aurora.adapter/model/bindings.toml": {"reasoning": "test"},
         "org.aurora.bot/config.toml": {
             "instance_id": "main",
             "model_role": "reasoning",
             "streaming": False,
-            "tools": [{"tool": f"org.aurora.adapters:tools/mcp/{name}", "instance_id": "preserved"}]
-            if explicit
-            else [],
+            "tools": [{"tool": f"org.aurora.adapter:tools/mcp/{name}", "instance_id": "preserved"}] if explicit else [],
         },
     }
     for relative, value in values.items():
