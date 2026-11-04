@@ -10,6 +10,10 @@ from functools import partial
 from typing import cast
 from uuid import uuid4
 
+from aurora_adapter.model.configuration import ADAPTERS, BINDINGS
+from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.plugin import plugin as adapter_plugin
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import plugin as react_plugin
 from aurora_agent.react_defaults import ReActContext
@@ -28,10 +32,6 @@ from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
 from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import RegistryEntry
-from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
-from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
-from aurora_model_adapter.fake import FakeModel, FakeReply
-from aurora_model_adapter.plugin import plugin as adapter_plugin
 from aurora_world.plugin import plugin as world_plugin
 from pipeline import INSPECT, PIPELINE, STEPS, create_inspector, declared
 
@@ -406,7 +406,7 @@ def plugins():
         world_plugin(),
         example,
     )
-    resources = {CONFIG: "bot.toml", MODEL_CONFIG: "profiles.toml", BINDINGS: "bindings.toml"}
+    resources = {CONFIG: "bot.toml", MODEL_CONFIG: "model/profiles.toml", BINDINGS: "model/bindings.toml"}
     return tuple(
         replace(
             item,

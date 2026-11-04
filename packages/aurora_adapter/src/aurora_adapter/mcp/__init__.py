@@ -1,4 +1,4 @@
-"""可选 MCP 客户端插件；安装 aurora-adapters[mcp] 后由宿主显式启用。"""
+"""可选 MCP 客户端插件；安装 aurora-adapter[mcp] 后由宿主显式启用。"""
 
 from aurora_config import ConfigSpec, ConfigTemplate, config_entries
 from aurora_core import entry_from
@@ -29,18 +29,25 @@ def _validate_status(value: object) -> None:
 def plugin() -> Plugin:
     """只登记非持久配置、观察状态和生命周期声明，不解析凭证或访问网络。"""
     return Plugin(
-        "aurora_adapters.mcp",
+        "aurora_adapter.mcp",
         (
             *config_entries(
                 CONFIGURATION,
-                ConfigSpec(CONFIG_STATE, ConfigTemplate("aurora_adapters.mcp"), MCP_CONFIG),
-                provider="aurora_adapters.mcp",
+                ConfigSpec(
+                    CONFIG_STATE,
+                    ConfigTemplate("aurora_adapter", "config.tomls/mcp.toml"),
+                    MCP_CONFIG,
+                ),
+                provider="aurora_adapter.mcp",
             ),
             RegistryEntry(
-                CLIENT_STATUS, "state_key", StateKey(_validate_status, persistent=False), "aurora_adapters.mcp"
+                CLIENT_STATUS,
+                "state_key",
+                StateKey(_validate_status, persistent=False),
+                "aurora_adapter.mcp",
             ),
             *(
-                entry_from(method, provider="aurora_adapters.mcp")
+                entry_from(method, provider="aurora_adapter.mcp")
                 for method in (
                     MCPClients.configure,
                     MCPClients.prepare,

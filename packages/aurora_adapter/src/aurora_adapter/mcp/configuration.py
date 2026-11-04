@@ -8,9 +8,9 @@ from aurora_core import Id
 
 from .credentials import check_environment, check_headers
 
-CONFIGURATION = Id("org.aurora.adapters:configs/mcp")
-CONFIG_STATE = Id("org.aurora.adapters:state/mcp/config")
-CLIENT_STATUS = Id("org.aurora.adapters:state/mcp/clients")
+CONFIGURATION = Id("org.aurora.adapter:configs/mcp")
+CONFIG_STATE = Id("org.aurora.adapter:state/mcp/config")
+CLIENT_STATUS = Id("org.aurora.adapter:state/mcp/clients")
 PROTOCOL_VERSION = "2026-07-28"
 CAPABILITIES = ("tools", "resources", "prompts", "completions")
 SERVER_NAME = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}(?![\s\S])"
@@ -89,7 +89,7 @@ def _timeout_schema() -> dict:
 class _MCPConfigSchema(ConfigSchema):
     def parse(self, value: object) -> object:
         if isinstance(value, dict) and ("connections" in value or "tools" in value):
-            raise ValueError("MCP 旧版或混合配置须显式迁移：python -m aurora_adapters.mcp.migrate")
+            raise ValueError("MCP 旧版或混合配置须显式迁移：python -m aurora_adapter.mcp.migrate")
         return super().parse(value)
 
 

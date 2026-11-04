@@ -14,49 +14,49 @@ from .protocols import ModelClient
 
 def plugin() -> Plugin:
     definitions = (
-        ("registries/adapters", "registry", KindReceiver(frozenset({"adapter"})), "registries"),
-        ("services/model_client", "service", ModelClient, "services"),
-        ("schemas/model_request", "schema", ModelRequest, "schemas"),
-        ("schemas/model_response", "schema", ModelResponse, "schemas"),
-        ("schemas/model_chunk", "schema", ModelChunk, "schemas"),
-        ("schemas/model_capabilities", "schema", ModelCapabilities, "schemas"),
+        ("registries/model/adapters", "registry", KindReceiver(frozenset({"adapter"})), "registries"),
+        ("services/model/client", "service", ModelClient, "services"),
+        ("schemas/model/request", "schema", ModelRequest, "schemas"),
+        ("schemas/model/response", "schema", ModelResponse, "schemas"),
+        ("schemas/model/chunk", "schema", ModelChunk, "schemas"),
+        ("schemas/model/capabilities", "schema", ModelCapabilities, "schemas"),
     )
     return Plugin(
-        "aurora_model_adapter",
+        "aurora_adapter.model",
         tuple(
             RegistryEntry(
-                Id(f"org.aurora.model_adapter:{path}"),
+                Id(f"org.aurora.adapter:{path}"),
                 kind,
                 target,
-                "aurora_model_adapter",
+                "aurora_adapter.model",
                 register_to=Id(f"org.aurora.core:registries/{receiver}"),
             )
             for path, kind, target, receiver in definitions
         )
         + (
             *config_entries(
-                Id("org.aurora.model_adapter:configs/profiles"),
+                Id("org.aurora.adapter:configs/model/profiles"),
                 ConfigSpec(
-                    CONFIG, ConfigTemplate("aurora_model_adapter", "config.tomls/profiles.toml"), PROFILE_SCHEMA
+                    CONFIG, ConfigTemplate("aurora_adapter", "config.tomls/model/profiles.toml"), PROFILE_SCHEMA
                 ),
-                provider="aurora_model_adapter",
+                provider="aurora_adapter.model",
             ),
             *config_entries(
-                Id("org.aurora.model_adapter:configs/bindings"),
+                Id("org.aurora.adapter:configs/model/bindings"),
                 ConfigSpec(
                     BINDINGS,
-                    ConfigTemplate("aurora_model_adapter", "config.tomls/bindings.toml"),
+                    ConfigTemplate("aurora_adapter", "config.tomls/model/bindings.toml"),
                     BINDINGS_SCHEMA,
                     check=check_bindings,
                 ),
-                provider="aurora_model_adapter",
+                provider="aurora_adapter.model",
             ),
             RegistryEntry(
-                Id("org.aurora.model_adapter:adapters/litellm"),
+                Id("org.aurora.adapter:adapters/model/litellm"),
                 "adapter",
                 create_litellm,
-                "aurora_model_adapter",
-                register_to=Id("org.aurora.model_adapter:registries/adapters"),
+                "aurora_adapter.model",
+                register_to=Id("org.aurora.adapter:registries/model/adapters"),
             ),
         ),
         requires=("aurora_config",),

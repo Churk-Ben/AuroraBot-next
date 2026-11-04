@@ -8,9 +8,10 @@ from aurora_agent.tools import ToolExecutionError
 from aurora_control import ExecutionRequest, StateBinding
 from aurora_core.ctx import Context
 from aurora_core.json_data import encode_json
-from aurora_model_adapter import JsonValue, ToolCall
 from mcp.shared.exceptions import MCPError
 from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, CallToolResult
+
+from aurora_adapter.model import JsonValue, ToolCall
 
 from .clients import MCPClients
 from .errors import MCPClientError

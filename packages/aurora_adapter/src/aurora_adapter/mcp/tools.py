@@ -11,14 +11,15 @@ from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import PREPARE, LifecycleComponent
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter import JsonValue
+
+from aurora_adapter.model import JsonValue
 
 from .catalog import discover_tools, select_tools
 from .clients import MCPClients
 from .errors import MCPClientError
 from .tool_execution import MCPTool
 
-COMPONENT = Id("org.aurora.adapters:components/mcp/tool")
+COMPONENT = Id("org.aurora.adapter:components/mcp/tool")
 
 
 class _Factory:
@@ -65,7 +66,7 @@ class MCPTools:
         hooks: HookConnections,
         clients: MCPClients,
         *,
-        instance_id: str = "aurora_adapters/mcp/tools",
+        instance_id: str = "aurora_adapter/mcp/tools",
     ) -> None:
         if not instance_id or not instance_id.strip():
             raise ValueError("MCP 工具桥实例身份不能为空")
@@ -79,7 +80,7 @@ class MCPTools:
         """声明客户端依赖，不访问网络；bot components 的 depends_on 应引用本组件。"""
         if self._connected or self.prepared:
             raise RuntimeError("MCP 工具桥已连接或完成准备")
-        entry = entry_from(self.prepare, provider="aurora_adapters.mcp.tools")
+        entry = entry_from(self.prepare, provider="aurora_adapter.mcp.tools")
         self.hooks.connect(
             PREPARE, entry.id, slot_instance=self.instance_id, handler_instance=self.instance_id, target=self.prepare
         )
@@ -95,7 +96,7 @@ class MCPTools:
             raise RuntimeError("MCP 工具尚未完成发现")
         return self._tool_ids
 
-    @hook_handler("org.aurora.adapters:handlers/mcp/tools/prepare", slot=PREPARE)
+    @hook_handler("org.aurora.adapter:handlers/mcp/tools/prepare", slot=PREPARE)
     async def prepare(self) -> None:
         if self.prepared:
             raise RuntimeError("MCP 工具已登记；工具集合变化须重建宿主")
@@ -123,10 +124,10 @@ class MCPTools:
                 )
                 entries.append(
                     RegistryEntry(
-                        Id(f"org.aurora.adapters:tools/mcp/{name}"),
+                        Id(f"org.aurora.adapter:tools/mcp/{name}"),
                         "tool",
                         spec,
-                        "aurora_adapters.mcp.tools",
+                        "aurora_adapter.mcp.tools",
                         register_to=TOOLS,
                     )
                 )
@@ -138,10 +139,10 @@ class MCPTools:
 def plugin() -> Plugin:
     """声明工具执行组件和发现入口；启用插件本身不创建连接或发现工具。"""
     return Plugin(
-        "aurora_adapters.mcp.tools",
+        "aurora_adapter.mcp.tools",
         (
-            *component_entries(COMPONENT, MCPTool, MCPTool.execute, provider="aurora_adapters.mcp.tools"),
-            entry_from(MCPTools.prepare, provider="aurora_adapters.mcp.tools"),
+            *component_entries(COMPONENT, MCPTool, MCPTool.execute, provider="aurora_adapter.mcp.tools"),
+            entry_from(MCPTools.prepare, provider="aurora_adapter.mcp.tools"),
         ),
-        requires=("aurora_adapters.mcp", "aurora_agent.tools"),
+        requires=("aurora_adapter.mcp", "aurora_agent.tools"),
     )

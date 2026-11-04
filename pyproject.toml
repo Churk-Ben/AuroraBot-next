@@ -18,11 +18,17 @@ build-backend = "setuptools.build_meta"
 packages = []
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.9", "tomli-w>=1.2,<2", "aurora-adapters[mcp-world,mcp-tools]>=0.1.0"]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=6",
+    "ruff>=0.9",
+    "tomli-w>=1.2,<2",
+    "aurora-adapter[mcp-world,mcp-tools]>=0.1.0",
+]
 
 [tool.coverage.run]
 source = [
-    "aurora_adapters",
+    "aurora_adapter",
     "aurora_config",
     "aurora_core",
     "aurora_control",
@@ -30,7 +36,6 @@ source = [
     "aurora_cli",
     "aurora_bot",
     "aurora_api",
-    "aurora_model_adapter",
     "aurora_logging",
     "aurora_world",
 ]
@@ -40,22 +45,27 @@ fail_under = 20
 skip_covered = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["packages/*/tests", "tests"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
-include = ["packages/*/src", "tests", "examples"]
+include = [
+    "packages/*/src",
+    "packages/*/tests",
+    "tests",
+    "conftest.py",
+    "examples",
+]
 exclude = ["**/__pycache__", "**/node_modules", ".venv", "build", "dist"]
 extraPaths = [
-    "packages/aurora_adapters/src",
+    "packages/aurora_adapter/src",
     "packages/aurora_config/src",
     "packages/aurora_core/src",
     "packages/aurora_control/src",
     "packages/aurora_agent/src",
-    "packages/aurora_model_adapter/src",
     "packages/aurora_bot/src",
     "packages/aurora_cli/src",
     "packages/aurora_api/src",
@@ -65,12 +75,11 @@ extraPaths = [
 
 [tool.uv.workspace]
 members = [
-    "packages/aurora_adapters",
+    "packages/aurora_adapter",
     "packages/aurora_config",
     "packages/aurora_core",
     "packages/aurora_control",
     "packages/aurora_agent",
-    "packages/aurora_model_adapter",
     "packages/aurora_bot",
     "packages/aurora_cli",
     "packages/aurora_api",
@@ -79,12 +88,11 @@ members = [
 ]
 
 [tool.uv.sources]
-aurora-adapters = { workspace = true }
+aurora-adapter = { workspace = true }
 aurora-config = { workspace = true }
 aurora-core = { workspace = true }
 aurora-control = { workspace = true }
 aurora-agent = { workspace = true }
-aurora-model-adapter = { workspace = true }
 aurora-bot = { workspace = true }
 aurora-cli = { workspace = true }
 aurora-api = { workspace = true }

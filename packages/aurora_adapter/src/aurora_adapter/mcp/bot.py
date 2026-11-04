@@ -18,7 +18,7 @@ from .clients import MCPClients
 from .tools import MCPTools
 from .world import WORLD_SOURCE, mcp_world_component
 
-ASSEMBLY = Id("org.aurora.adapters:assemblies/mcp/default_bot")
+ASSEMBLY = Id("org.aurora.adapter:assemblies/mcp/default_bot")
 
 
 def assemble(
@@ -55,15 +55,15 @@ def assemble(
 def plugin() -> Plugin:
     """安装 extra 与启用插件分开；不隐式启用依赖或创建运行资源。"""
     return Plugin(
-        "aurora_adapters.mcp.bot",
+        "aurora_adapter.mcp.bot",
         (
             RegistryEntry(
                 ASSEMBLY,
                 "assembly",
                 assemble,
-                "aurora_adapters.mcp.bot",
+                "aurora_adapter.mcp.bot",
                 register_to=Id("org.aurora.core:registries/resources"),
             ),
         ),
-        requires=("aurora_adapters.mcp.tools", "aurora_bot.assembly"),
+        requires=("aurora_adapter.mcp.tools", "aurora_bot.assembly"),
     )

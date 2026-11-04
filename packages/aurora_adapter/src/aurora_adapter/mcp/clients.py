@@ -59,7 +59,7 @@ class MCPClients:
         ctx: Context,
         hooks: HookConnections,
         *,
-        instance_id: str = "aurora_adapters/mcp",
+        instance_id: str = "aurora_adapter/mcp",
         resolve_env: Callable[[str], str | None] = os.environ.get,
         workspace_root: Path | None = None,
     ) -> None:
@@ -119,7 +119,7 @@ class MCPClients:
                 (STOP, self.stop),
                 (CLEAN, self.clean),
             ):
-                entry = entry_from(method, provider="aurora_adapters.mcp")
+                entry = entry_from(method, provider="aurora_adapter.mcp")
                 links.append(
                     self._hooks.connect(
                         phase,
@@ -140,7 +140,7 @@ class MCPClients:
             stop_accepting=self.stop_accepting,
         )
 
-    @hook_handler("org.aurora.adapters:handlers/mcp/configure", slot=CONFIG)
+    @hook_handler("org.aurora.adapter:handlers/mcp/configure", slot=CONFIG)
     def configure(self) -> None:
         if self._configured or self._closing:
             raise RuntimeError("MCP 配置只允许装配一次")
@@ -189,7 +189,7 @@ class MCPClients:
             self._publish(binding)
             binding.ready.set()
 
-    @hook_handler("org.aurora.adapters:handlers/mcp/prepare", slot=PREPARE)
+    @hook_handler("org.aurora.adapter:handlers/mcp/prepare", slot=PREPARE)
     async def prepare(self) -> None:
         if not self._configured or self._loop is not None or self._closing:
             raise RuntimeError("MCP 客户端尚未配置或已开始准备")
@@ -240,7 +240,7 @@ class MCPClients:
         for binding in self._connections.values():
             self._publish(binding)
 
-    @hook_handler("org.aurora.adapters:handlers/mcp/stop", slot=STOP)
+    @hook_handler("org.aurora.adapter:handlers/mcp/stop", slot=STOP)
     async def stop(self) -> None:
         self.stop_accepting()
         for binding in self._connections.values():
@@ -259,7 +259,7 @@ class MCPClients:
             binding.cancel_requested = True
             binding.task.cancel()
 
-    @hook_handler("org.aurora.adapters:handlers/mcp/clean", slot=CLEAN)
+    @hook_handler("org.aurora.adapter:handlers/mcp/clean", slot=CLEAN)
     async def clean(self) -> None:
         self.stop_accepting()
         for binding in reversed(tuple(self._connections.values())):

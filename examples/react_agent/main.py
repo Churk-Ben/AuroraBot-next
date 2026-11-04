@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 from typing import cast
 
+from aurora_adapter.model import ModelRequest
+from aurora_adapter.model.fake import FakeModel, FakeReply
 from aurora_agent.model import ModelCall
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import ReActAgent
@@ -26,8 +28,6 @@ from aurora_core.lifecycle import CLEAN, STOP, Lifecycle, LifecycleComponent, in
 from aurora_core.persistence import ContextPersistence
 from aurora_core.registry import RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter import ModelRequest
-from aurora_model_adapter.fake import FakeModel, FakeReply
 
 STATE = Id("dev.example.react:state/data")
 ADD = Id("dev.example.react:handlers/add")

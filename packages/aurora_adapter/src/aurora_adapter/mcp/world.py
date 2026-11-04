@@ -31,8 +31,8 @@ from .clients import MCPClients
 from .configuration import PROTOCOL_VERSION
 from .world_config import WORLD_CONFIG
 
-WORLD_SOURCE = Id("org.aurora.adapters:sources/mcp/resources")
-WORLD_STATUS = Id("org.aurora.adapters:state/mcp/world")
+WORLD_SOURCE = Id("org.aurora.adapter:sources/mcp/resources")
+WORLD_STATUS = Id("org.aurora.adapter:state/mcp/world")
 logger = logging.getLogger(__name__)
 
 
@@ -314,14 +314,14 @@ def _validate_status(value: object) -> None:
 def plugin() -> Plugin:
     """只声明来源和非持久诊断，发现不连接客户端或订阅服务。"""
     return Plugin(
-        "aurora_adapters.mcp.world",
+        "aurora_adapter.mcp.world",
         (
             RegistryEntry(
-                WORLD_SOURCE, "source", SourceSpec(_unbound_factory), "aurora_adapters.mcp.world", register_to=SOURCES
+                WORLD_SOURCE, "source", SourceSpec(_unbound_factory), "aurora_adapter.mcp.world", register_to=SOURCES
             ),
             RegistryEntry(
-                WORLD_STATUS, "state_key", StateKey(_validate_status, persistent=False), "aurora_adapters.mcp.world"
+                WORLD_STATUS, "state_key", StateKey(_validate_status, persistent=False), "aurora_adapter.mcp.world"
             ),
         ),
-        requires=("aurora_adapters.mcp", "aurora_world.configuration"),
+        requires=("aurora_adapter.mcp", "aurora_world.configuration"),
     )

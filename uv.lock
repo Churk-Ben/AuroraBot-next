@@ -8,7 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "aurora-adapters",
+    "aurora-adapter",
     "aurora-agent",
     "aurora-api",
     "aurora-bot",
@@ -17,7 +17,6 @@ members = [
     "aurora-control",
     "aurora-core",
     "aurora-logging",
-    "aurora-model-adapter",
     "aurora-world",
     "aurorabot-ai",
 ]
@@ -218,14 +217,18 @@ wheels = [
 ]
 
 [[package]]
-name = "aurora-adapters"
+name = "aurora-adapter"
 version = "0.1.0"
-source = { editable = "packages/aurora_adapters" }
+source = { editable = "packages/aurora_adapter" }
 dependencies = [
     { name = "aurora-core" },
 ]
 
 [package.optional-dependencies]
+litellm = [
+    { name = "aurora-config" },
+    { name = "litellm", extra = ["mcp"] },
+]
 mcp = [
     { name = "anyio" },
     { name = "aurora-config" },
@@ -259,41 +262,47 @@ mcp-world = [
     { name = "mcp" },
     { name = "tomli-w" },
 ]
+model = [
+    { name = "aurora-config" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "anyio", marker = "extra == 'mcp'", specifier = ">=4.15,<5" },
-    { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapters" },
-    { name = "aurora-adapters", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapters" },
-    { name = "aurora-adapters", extras = ["mcp-tools", "mcp-world"], marker = "extra == 'mcp-bot'", editable = "packages/aurora_adapters" },
+    { name = "aurora-adapter", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapter" },
+    { name = "aurora-adapter", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapter" },
+    { name = "aurora-adapter", extras = ["mcp-tools", "mcp-world"], marker = "extra == 'mcp-bot'", editable = "packages/aurora_adapter" },
+    { name = "aurora-adapter", extras = ["model"], marker = "extra == 'litellm'", editable = "packages/aurora_adapter" },
     { name = "aurora-agent", marker = "extra == 'mcp-tools'", editable = "packages/aurora_agent" },
     { name = "aurora-bot", marker = "extra == 'mcp-bot'", editable = "packages/aurora_bot" },
     { name = "aurora-config", marker = "extra == 'mcp'", editable = "packages/aurora_config" },
+    { name = "aurora-config", marker = "extra == 'model'", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-world", extras = ["config"], marker = "extra == 'mcp-world'", editable = "packages/aurora_world" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.16,<3" },
+    { name = "litellm", extras = ["mcp"], marker = "extra == 'litellm'", specifier = ">=1.106.6,<1.107" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
     { name = "tomli-w", marker = "extra == 'mcp'", specifier = ">=1.2,<2" },
 ]
-provides-extras = ["mcp", "mcp-world", "mcp-tools", "mcp-bot"]
+provides-extras = ["model", "litellm", "mcp", "mcp-world", "mcp-tools", "mcp-bot"]
 
 [[package]]
 name = "aurora-agent"
 version = "0.1.0"
 source = { editable = "packages/aurora_agent" }
 dependencies = [
+    { name = "aurora-adapter" },
     { name = "aurora-control" },
     { name = "aurora-core" },
-    { name = "aurora-model-adapter" },
     { name = "jsonschema" },
     { name = "referencing" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-adapter", editable = "packages/aurora_adapter" },
     { name = "aurora-control", editable = "packages/aurora_control" },
     { name = "aurora-core", editable = "packages/aurora_core" },
-    { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "referencing", specifier = ">=0.37.0" },
 ]
@@ -318,21 +327,21 @@ name = "aurora-bot"
 version = "0.1.0"
 source = { editable = "packages/aurora_bot" }
 dependencies = [
+    { name = "aurora-adapter", extra = ["litellm"] },
     { name = "aurora-agent" },
     { name = "aurora-config" },
     { name = "aurora-control" },
     { name = "aurora-core" },
-    { name = "aurora-model-adapter" },
     { name = "aurora-world", extra = ["config"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-adapter", extras = ["litellm"], editable = "packages/aurora_adapter" },
     { name = "aurora-agent", editable = "packages/aurora_agent" },
     { name = "aurora-config", editable = "packages/aurora_config" },
     { name = "aurora-control", editable = "packages/aurora_control" },
     { name = "aurora-core", editable = "packages/aurora_core" },
-    { name = "aurora-model-adapter", editable = "packages/aurora_model_adapter" },
     { name = "aurora-world", extras = ["config"], editable = "packages/aurora_world" },
 ]
 
@@ -404,23 +413,6 @@ dependencies = [
 requires-dist = [{ name = "rich", specifier = ">=14,<15" }]
 
 [[package]]
-name = "aurora-model-adapter"
-version = "0.1.0"
-source = { editable = "packages/aurora_model_adapter" }
-dependencies = [
-    { name = "aurora-config" },
-    { name = "aurora-core" },
-    { name = "litellm", extra = ["mcp"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aurora-config", editable = "packages/aurora_config" },
-    { name = "aurora-core", editable = "packages/aurora_core" },
-    { name = "litellm", extras = ["mcp"], specifier = ">=1.106.6,<1.107" },
-]
-
-[[package]]
 name = "aurora-world"
 version = "0.1.0"
 source = { editable = "packages/aurora_world" }
@@ -459,7 +451,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aurora-adapters", extra = ["mcp-tools", "mcp-world"] },
+    { name = "aurora-adapter", extra = ["mcp-tools", "mcp-world"] },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -476,7 +468,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aurora-adapters", extras = ["mcp-world", "mcp-tools"], editable = "packages/aurora_adapters" },
+    { name = "aurora-adapter", extras = ["mcp-world", "mcp-tools"], editable = "packages/aurora_adapter" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.9" },

@@ -11,9 +11,9 @@ from aurora_core.registry import DefinitionRegistry
 from .models import ModelCapabilities, ModelConfig
 from .protocols import ModelFactory
 
-ADAPTERS = Id("org.aurora.model_adapter:registries/adapters")
-CONFIG = Id("org.aurora.model_adapter:state/config")
-BINDINGS = Id("org.aurora.model_adapter:state/bindings")
+ADAPTERS = Id("org.aurora.adapter:registries/model/adapters")
+CONFIG = Id("org.aurora.adapter:state/model/config")
+BINDINGS = Id("org.aurora.adapter:state/model/bindings")
 
 
 class ModelProfile(TypedDict):

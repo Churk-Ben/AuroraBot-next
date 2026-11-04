@@ -19,15 +19,15 @@ from .bot import ASSEMBLY
 
 PLUGINS = (
     "aurora_config",
-    "aurora_model_adapter",
+    "aurora_adapter.model",
     "aurora_agent.model",
     "aurora_agent.react",
     "aurora_agent.tools",
     "aurora_agent.react_defaults",
     "aurora_bot.assembly",
-    "aurora_adapters.mcp",
-    "aurora_adapters.mcp.tools",
-    "aurora_adapters.mcp.bot",
+    "aurora_adapter.mcp",
+    "aurora_adapter.mcp.tools",
+    "aurora_adapter.mcp.bot",
 )
 
 
@@ -38,7 +38,7 @@ def initialize(root: Path, *, world: bool = False, api: bool = False, output: Te
     existing = cast(dict, HOST_SCHEMA.parse(read_toml(host))) if host.exists() else {"plugins": []}
     plugins = list(PLUGINS)
     if world:
-        plugins += ["aurora_world", "aurora_world.configuration", "aurora_adapters.mcp.world"]
+        plugins += ["aurora_world", "aurora_world.configuration", "aurora_adapter.mcp.world"]
     if api:
         plugins += ["aurora_api"]
     candidate = {

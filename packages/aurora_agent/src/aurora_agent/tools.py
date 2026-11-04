@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Literal, NotRequired, Protocol, TypedDict, cast
 from uuid import uuid4
 
+from aurora_adapter.model import JsonValue, ToolCall, ToolDefinition
 from aurora_control import (
     ExecutionLink,
     ExecutionPlug,
@@ -26,7 +27,6 @@ from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter import JsonValue, ToolCall, ToolDefinition
 from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry
 

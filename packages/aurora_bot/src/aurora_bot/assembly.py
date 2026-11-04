@@ -6,6 +6,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import cast
 
+from aurora_adapter.model import ModelClient, require_capabilities
+from aurora_adapter.model.configuration import BINDINGS, resolve_model
+from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
 from aurora_agent.model import ModelCall
 from aurora_agent.react import AgentBusyError, ReActAgent
 from aurora_agent.react_defaults import ReActContext, ReActDefaults
@@ -21,9 +24,6 @@ from aurora_core.ids import Id
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import DefinitionRegistry, RegistryEntry
 from aurora_core.storage import StorageService
-from aurora_model_adapter import ModelClient, require_capabilities
-from aurora_model_adapter.configuration import BINDINGS, resolve_model
-from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
 from aurora_world import WorldRecords
 from aurora_world.configuration import CONFIGURATION as WORLD_CONFIGURATION
 from aurora_world.configuration import configured_sources_component
@@ -445,7 +445,7 @@ def plugin() -> Plugin:
         ),
         requires=(
             "aurora_config",
-            "aurora_model_adapter",
+            "aurora_adapter.model",
             "aurora_agent.model",
             "aurora_agent.react",
             "aurora_agent.tools",

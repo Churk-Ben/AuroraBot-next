@@ -2,12 +2,12 @@
 
 from typing import TypedDict, cast
 
+from aurora_adapter.model import Message, ModelProtocolError, ToolCall
 from aurora_control import ExecutionLink, ExecutionPlug, ExecutionRequest, InstanceStateBinding, component_entries
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
-from aurora_model_adapter import Message, ModelProtocolError, ToolCall
 
 from .model import ModelCall, ModelCallState
 from .react import Guidance, ReActAgent

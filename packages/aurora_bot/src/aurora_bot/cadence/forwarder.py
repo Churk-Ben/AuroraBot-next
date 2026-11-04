@@ -5,13 +5,13 @@ import logging
 from dataclasses import asdict
 from typing import cast
 
+from aurora_adapter.model import JsonValue
 from aurora_agent.react import AgentBusyError
 from aurora_agent.runtime import AgentRuntime
 from aurora_core import entry_from, hook_handler
 from aurora_core.ctx import Context, StateChange
 from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
-from aurora_model_adapter import JsonValue
 from aurora_world import RECORDS, CursorError, WorldRecords
 
 from ..assembly_config import CONFIG as BOT_CONFIG

@@ -6,8 +6,8 @@ from aurora_config import ConfigSpec, ConfigTemplate
 
 _RESOURCES = {
     "org.aurora.bot:state/config": "bot.toml",
-    "org.aurora.model_adapter:state/config": "profiles.toml",
-    "org.aurora.model_adapter:state/bindings": "bindings.toml",
+    "org.aurora.adapter:state/model/config": "model/profiles.toml",
+    "org.aurora.adapter:state/model/bindings": "model/bindings.toml",
 }
 
 
