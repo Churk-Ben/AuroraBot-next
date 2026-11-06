@@ -1468,3 +1468,33 @@ def test_typescript_direct_conversation_uses_real_bot_runtime(tmp_path):
             await host.stop()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+def test_compaction_failure_preserves_execution_failure_and_releases_ownership(tmp_path, monkeypatch, outcome):
+    async def scenario():
+        host, assembly, ctx, *_ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        original = asyncio.CancelledError() if outcome == "cancelled" else ValueError("执行失败")
+        cleanup = RuntimeError("清理失败")
+
+        async def execute(request):
+            if outcome != "completed":
+                raise original
+
+        def compact():
+            raise cleanup
+
+        with monkeypatch.context() as patch:
+            patch.setattr(assembly.agent, "execute", execute)
+            patch.setattr(assembly, "_compact", compact)
+            expected = cleanup if outcome == "completed" else original
+            with pytest.raises(type(expected)) as raised:
+                await assembly.activate(ExecutionRequest("cleanup-test"))
+            assert raised.value is expected
+            if outcome != "completed":
+                assert raised.value.__cause__ is cleanup
+            assert not assembly._executing
+        await host.stop()
+
+    asyncio.run(scenario())

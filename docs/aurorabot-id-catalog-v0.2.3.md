@@ -312,7 +312,7 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapter.mcp`，不再�
 | `org.aurora.bot:handlers/cadence/start` | hook_handler | 先订阅再读取，向既有 Runtime 逐条原样提交 |
 | `org.aurora.bot:handlers/cadence/stop` | hook_handler | 取消订阅并等待转发任务结束，不取消独立运行句柄 |
 
-来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，宿主须避免同一输入经两条路径重复提交。所有 ID 和插件为新增，不替换旧定义、不改写已有 TOML 或快照；含 cadence 消费状态的快照须显式启用其插件才能恢复，缺失定义不被忽略。未知投递、裁剪缺口及来源选择变化的暂停规则见[设计第 7.7 节](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。M4.W4 将 live_workshop 改为正式 world/cadence 的消费者，替换其示例自有调度。
+来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，宿主须避免同一输入经两条路径重复提交。所有 ID 和插件为新增，不替换旧定义、不改写已有 TOML 或快照；含 cadence 消费状态的快照须显式启用其插件才能恢复，缺失定义不被忽略。未知投递、裁剪缺口及来源选择变化的暂停规则见[设计第 7.7 节](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。M4.W4 已将 live_workshop 改为正式 world/cadence 的消费者，直接交流共用 AgentRuntime。示例新增来源定义 dev.example.workshop:sources/workshop，移除 state/request 与自有调度处理器；旧示例快照需使用原版本或换新目录，不自动迁移。
 
 ### 6.6 MCP 客户端、世界通知桥与工具桥（M4.B1/B2/B4 已实现）
 
@@ -490,7 +490,7 @@ client 实现 ctx get/set/delete/list/subscribe/unsubscribe 等访问入口，�
 | TUI/Panel 的 ctx 交互 | 共享客户端入口 | `org.aurora.client:services/api_client` |
 | TUI/Panel 的订阅 | 连接与订阅支持 | `org.aurora.client:services/event_stream` |
 
-M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，W3 已实现最小 cadence，W4 示例替换与双路径整体验收待实施。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧 v1/v2 世界日志需要显式迁移；环境保留配置需移至 world 的 [view]。含世界状态的快照恢复须显式启用 aurora_world，缺失定义不会被静默忽略。
+M3.6 的直接交流绑定已实现和验收；M4.W1 已登记世界记录状态，W2.1–W2.3 已提供来源登记、声明配置、后台托管及时间/天气来源，W3 已实现最小 cadence，W4 示例替换与双路径整体验收已完成。新记录状态不自动开放给 API；ID 引用不等于代码导入、已连接或默认对外暴露。旧 v1/v2 世界日志需要显式迁移；环境保留配置需移至 world 的 [view]。含世界状态的快照恢复须显式启用 aurora_world，缺失定义不会被静默忽略。
 
 ## 14. 第三方声明示例
 

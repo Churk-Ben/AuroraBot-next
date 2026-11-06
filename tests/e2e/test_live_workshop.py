@@ -7,8 +7,11 @@ import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
-from aurora_api.client import CtxClient
+import pytest
+from aiohttp import ClientSession
+from aurora_api.client import CtxClient, RemoteError
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "live_workshop" / "main.py"
 PREFIX = "dev.example.workshop:state/"
@@ -44,10 +47,11 @@ raise SystemExit(source['main']())
 
 
 @asynccontextmanager
-async def workshop(root, initial=None):
+async def workshop(root, initial=None, *, direct_only=False):
     stop = root / "interrupt"
     stop.unlink(missing_ok=True)
     options = [] if initial is None else ["--config", json.dumps(initial)]
+    options += ["--direct-only"] if direct_only else []
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-c",
@@ -129,6 +133,27 @@ async def cli_set(client, key, value):
     assert json.loads(output) is None
 
 
+async def conversation(client, action, data):
+    async with ClientSession() as session, session.post(client.url + "/conversation/" + action, json=data) as response:
+        body = await response.json()
+        assert response.status == 200, body
+        return body["result"]
+
+
+async def submit(client, value):
+    info = await conversation(client, "info", {})
+    return await conversation(
+        client,
+        "submit",
+        {
+            "session_id": info["session_id"],
+            "instance_id": "workshop",
+            "request_id": uuid4().hex,
+            "text": value if isinstance(value, str) else json.dumps(value),
+        },
+    )
+
+
 def test_automatic_cycles_controls_pause_and_persistent_reports(tmp_path):
     async def scenario():
         async with workshop(tmp_path, {"interval": 0.5, "delay": 0}) as (client, process, _):
@@ -166,7 +191,7 @@ def test_automatic_cycles_controls_pause_and_persistent_reports(tmp_path):
         async with workshop(tmp_path) as (client, _, _):
             assert (await state(client, PREFIX + "reports"))["total"] == total
             assert (await state(client, PREFIX + "settings"))["automatic"] is False
-            await cli_set(client, PREFIX + "request", {"text": "重启后的手动任务", "steps": 4})
+            await submit(client, {"text": "重启后的手动任务", "steps": 4})
             reports = await until(client, PREFIX + "reports", lambda value: value["total"] == total + 1)
             assert reports["recent"][-1]["result"]["value"]["parity"] == "even"
             await until(client, PREFIX + "status", lambda value: value["status"] == "completed")
@@ -181,7 +206,7 @@ def test_automatic_cycles_controls_pause_and_persistent_reports(tmp_path):
 def test_guidance_during_activation_and_tool_failure_keep_host_running(tmp_path):
     async def scenario():
         async with workshop(tmp_path, {"automatic": False, "delay": 0.2}) as (client, process, _):
-            await cli_set(client, PREFIX + "request", {"text": "第一次任务", "steps": 10})
+            await submit(client, {"text": "第一次任务", "steps": 10})
             await until(
                 client,
                 "org.aurora.bot:state/run",
@@ -189,16 +214,16 @@ def test_guidance_during_activation_and_tool_failure_keep_host_running(tmp_path)
                 location={"instance_id": "workshop"},
             )
             original = await state(client, PREFIX + "status")
-            await cli_set(client, PREFIX + "request", {"text": "运行中追加", "steps": 2})
+            await submit(client, {"text": "运行中追加", "steps": 2})
             reports = await until(client, PREFIX + "reports", lambda value: value["total"] == 2)
             status = await until(client, PREFIX + "status", lambda value: value["status"] == "completed")
             assert status["run_id"] == original["run_id"] and status["activations"] == 1
             assert {item["text"] for item in reports["recent"]} == {"第一次任务", "运行中追加"}
-            await cli_set(client, PREFIX + "request", {"text": "故障演示", "fail": True})
+            await submit(client, {"text": "故障演示", "fail": True})
             reports = await until(client, PREFIX + "reports", lambda value: value["total"] == 3)
             assert reports["recent"][-1]["result"]["error"]["code"] == "tool_failed"
             await until(client, PREFIX + "status", lambda value: value["status"] == "completed")
-            await cli_set(client, PREFIX + "request", {"text": "故障后的任务", "steps": 1})
+            await submit(client, {"text": "故障后的任务", "steps": 1})
             await until(client, PREFIX + "reports", lambda value: value["total"] == 4)
             assert process.returncode is None
 
@@ -208,7 +233,7 @@ def test_guidance_during_activation_and_tool_failure_keep_host_running(tmp_path)
 def test_interrupt_cancels_active_tool_and_restores_pending_observation(tmp_path):
     async def scenario():
         async with workshop(tmp_path, {"automatic": False, "delay": 1}) as (client, _, _):
-            await cli_set(client, PREFIX + "request", {"text": "中断任务", "steps": 20})
+            await submit(client, {"text": "中断任务", "steps": 20})
             await until(
                 client,
                 "org.aurora.bot:state/run",
@@ -222,8 +247,88 @@ def test_interrupt_cancels_active_tool_and_restores_pending_observation(tmp_path
         assert not any(item["id"] in (PREFIX + "pipeline", "org.aurora.control:state/control") for item in entries)
         async with workshop(tmp_path) as (client, _, _):
             await cli_set(client, PREFIX + "settings", {"automatic": False, "delay": 0})
-            await cli_set(client, PREFIX + "request", {"text": "恢复后的任务", "steps": 1})
+            await submit(client, {"text": "恢复后的任务", "steps": 1})
             reports = await until(client, PREFIX + "reports", lambda value: value["total"] == 2)
             assert [item["result"]["status"] for item in reports["recent"]] == ["cancelled", "completed"]
+
+    asyncio.run(scenario())
+
+
+def test_world_and_direct_input_share_run_and_restore_without_replay(tmp_path):
+    async def scenario():
+        location = {"instance_id": "workshop"}
+        async with workshop(tmp_path, {"interval": 60, "steps": 10, "delay": 0.2}) as (client, _, _):
+            active = await until(
+                client, "org.aurora.bot:state/run", lambda value: value.get("phase") == "act", location=location
+            )
+            await client.request("set", key=PREFIX + "settings", value={"automatic": False, "delay": 0})
+            receipt = await submit(client, "世界巡检期间的直接交流")
+            assert receipt["run_id"] == active["run_id"]
+            checkpoint = await state(client, "org.aurora.bot:state/cadence", location=location)
+            assert len(checkpoint["receipts"]) == 1
+            assert checkpoint["receipts"][0]["run_id"] == receipt["run_id"]
+            reports = await until(client, PREFIX + "reports", lambda value: value["total"] == 2)
+            assert {item["text"] for item in reports["recent"]} == {"自动巡检 #1", "世界巡检期间的直接交流"}
+            await until(client, PREFIX + "status", lambda value: value["status"] == "completed")
+            query = await conversation(
+                client, "query", {key: receipt[key] for key in ("session_id", "instance_id", "request_id")}
+            )
+            assert query["run_status"] == "completed"
+            context = await state(client, "org.aurora.bot:state/messages", location=location)
+            calls = {call["id"] for message in context["messages"] for call in message.get("tool_calls", [])}
+            assert all(message["tool_call_id"] in calls for message in context["messages"] if message["role"] == "tool")
+            for key in ("org.aurora.world:state/records", "org.aurora.bot:state/cadence"):
+                for action in ("set", "delete"):
+                    with pytest.raises(RemoteError, match="forbidden"):
+                        await client.request(
+                            action,
+                            key=key,
+                            location=location if "cadence" in key else {},
+                            **({"value": {}} if action == "set" else {}),
+                        )
+        async with workshop(tmp_path) as (client, _, _):
+            world = await state(client, PREFIX + "world")
+            await client.request(
+                "set", key=PREFIX + "settings", value={"automatic": False, "interval": 0.5, "delay": 0}
+            )
+            await until(client, PREFIX + "world", lambda value: value["tick"] > world["tick"])
+            assert (await state(client, PREFIX + "reports"))["total"] == 2
+            assert await state(client, "org.aurora.bot:state/cadence", location=location) == checkpoint
+            await submit(client, "重启后的新交流")
+            await until(client, PREFIX + "reports", lambda value: value["total"] == 3)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("direct_only", [False, True])
+def test_direct_conversation_cancel_and_recovery_with_optional_world(tmp_path, direct_only):
+    async def scenario():
+        async with workshop(tmp_path, {"automatic": False, "delay": 0.2}, direct_only=direct_only) as (client, _, _):
+            receipt = await submit(client, {"text": "显式取消", "steps": 20})
+            await until(
+                client,
+                "org.aurora.bot:state/run",
+                lambda value: value.get("phase") == "act",
+                location={"instance_id": "workshop"},
+            )
+            result = await conversation(
+                client, "cancel", {key: receipt[key] for key in ("session_id", "instance_id", "run_id")}
+            )
+            assert result["cancelled"] is True
+            await submit(client, {"text": "取消后的直接交流", "steps": 1, "delay": 0})
+            reports = await until(client, PREFIX + "reports", lambda value: value["total"] == 2)
+            assert [item["result"]["status"] for item in reports["recent"]] == ["cancelled", "completed"]
+            await until(client, PREFIX + "status", lambda value: value["status"] == "completed")
+        snapshot = json.loads((tmp_path / "data/framework/ctx.json").read_text())
+        if direct_only:
+            assert not any(
+                item["id"].startswith("org.aurora.world:") or item["id"] == "org.aurora.bot:state/cadence"
+                for item in snapshot["entries"]
+            )
+            assert not (tmp_path / "data/namespaces/ns-org.aurora.world/events.sqlite3").exists()
+        async with workshop(tmp_path, direct_only=direct_only) as (client, _, _):
+            assert (await state(client, PREFIX + "reports"))["total"] == 2
+            await submit(client, "重启后的直接交流")
+            await until(client, PREFIX + "reports", lambda value: value["total"] == 3)
 
     asyncio.run(scenario())
