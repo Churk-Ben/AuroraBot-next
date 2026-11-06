@@ -291,7 +291,10 @@ class ToolExecutor:
                 self.ctx.delete(output.key, location=dict(output.location))
                 link.plug.states["input"].set(self.ctx, request, call)
                 if self.recorder is not None:
-                    self.recorder.start(request, deepcopy(call))
+                    try:
+                        self.recorder.start(request, deepcopy(call))
+                    except Exception as error:
+                        raise RuntimeError("工具执行记录失败，未调用工具") from error
                 try:
                     await self.slot.invoke(link, request.child())
                 except ToolExecutionError as error:

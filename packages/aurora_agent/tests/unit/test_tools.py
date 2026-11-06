@@ -277,7 +277,7 @@ def test_recorder_failure_stops_side_effects_and_preserves_original_results(runt
     executor.recorder = Recorder()
     request = submit(executor, ctx, [call("one"), call("two")])
     if failure_at:
-        with pytest.raises(OSError):
+        with pytest.raises(RuntimeError if failure_at == "start" else OSError):
             asyncio.run(executor.execute(request))
         assert len(calls) == (1 if failure_at == "finish" else 0)
     else:
@@ -315,3 +315,26 @@ def test_recorder_captures_cancellation_and_reserves_unexecuted_calls(runtime):
         assert len(calls) == 1 and cleanups == ["one"]
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("error", [TimeoutError(), ToolRejected("记录器拒绝")])
+def test_recorder_start_errors_are_not_tool_timeout_or_rejection(runtime, error):
+    _, ctx, _ = runtime
+    executor, calls, _, _ = assemble(runtime)
+
+    class Recorder:
+        def begin(self, request, batch):
+            pass
+
+        def start(self, request, call):
+            raise error
+
+        def finish(self, request, result):
+            raise AssertionError("记录器失败不得转成工具结果")
+
+    executor.recorder = Recorder()
+    request = submit(executor, ctx, [call("one"), call("two")])
+    with pytest.raises(RuntimeError, match="记录失败") as failure:
+        asyncio.run(executor.execute(request))
+    assert failure.value.__cause__ is error and calls == []
+    assert state(executor, ctx, request)["results"] == []
