@@ -6,3 +6,10 @@ tool_timeout = 30.0
 streaming = true
 system_prompt = ""
 tools = []
+
+# 每轮观察已启用的 world，预算只限制临时视图，不裁剪历史或归档。
+[context_view]
+enabled = true
+events = true
+environment = true
+max_chars = 12000
