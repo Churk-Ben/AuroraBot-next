@@ -250,3 +250,68 @@ def test_schema_uses_local_references_and_never_downloads_unknown_refs():
     )
     with pytest.raises(Exception, match="Unresolvable"):
         external.validate({})
+
+
+@pytest.mark.parametrize("failure_at", ["begin", "start", "finish", None])
+def test_recorder_failure_stops_side_effects_and_preserves_original_results(runtime, failure_at):
+    _, ctx, _ = runtime
+    executor, calls, _, _ = assemble(runtime)
+    events = []
+
+    class Recorder:
+        def record(self, name, value):
+            events.append(name)
+            if name == failure_at:
+                raise OSError("证据写入失败")
+            value.clear()
+
+        def begin(self, request, batch):
+            self.record("begin", batch)
+
+        def start(self, request, call):
+            self.record("start", call)
+
+        def finish(self, request, result):
+            self.record("finish", result)
+
+    executor.recorder = Recorder()
+    request = submit(executor, ctx, [call("one"), call("two")])
+    if failure_at:
+        with pytest.raises(OSError):
+            asyncio.run(executor.execute(request))
+        assert len(calls) == (1 if failure_at == "finish" else 0)
+    else:
+        asyncio.run(executor.execute(request))
+        assert len(calls) == 2
+        assert [item["value"] for item in state(executor, ctx, request)["results"]] == [5, 5]
+        assert events == ["begin", "start", "finish", "start", "finish"]
+    assert not executor._active
+
+
+def test_recorder_captures_cancellation_and_reserves_unexecuted_calls(runtime):
+    async def scenario():
+        _, ctx, _ = runtime
+        executor, calls, cleanups, entered = assemble(runtime, behavior="wait")
+        events = []
+
+        class Recorder:
+            def begin(self, request, batch):
+                events.append(("begin", [item["id"] for item in batch["calls"]]))
+
+            def start(self, request, call):
+                events.append(("start", call["id"]))
+
+            def finish(self, request, result):
+                events.append(("finish", result["status"]))
+
+        executor.recorder = Recorder()
+        request = submit(executor, ctx, [call("one"), call("two")])
+        task = asyncio.create_task(executor.execute(request))
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert events == [("begin", ["one", "two"]), ("start", "one"), ("finish", "cancelled")]
+        assert len(calls) == 1 and cleanups == ["one"]
+
+    asyncio.run(scenario())

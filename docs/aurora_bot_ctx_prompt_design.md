@@ -128,21 +128,21 @@ flowchart LR
 
 ## 已有能力与缺口
 
-当前实现提供了世界视图、显式工作笔记和事件归档读取工具，完整行动证据视图仍待实现：
+当前实现提供了世界视图、显式工作笔记、事件归档读取和按调用引用查询的行动证据：
 
 - [ReActDefaults](../packages/aurora_agent/src/aurora_agent/react_defaults.py) 将字符串引导直接作为 user 内容，其他 JSON 编码后仍作为 user 内容；system 来自静态 system_prompt。装配可注入同步 context_view 回调，每轮生成独立的临时 user 消息，排列为 system、当前观察、原有历史。视图不写入持久消息；历史接纳、重试去重和未收束工具轮次沿用原机制。
 - [AgentRuntime](../packages/aurora_agent/src/aurora_agent/runtime.py) 已负责单一调度、运行中接纳、取消与关闭；[ReActAgent](../packages/aurora_agent/src/aurora_agent/react.py) 在每次推理前调用 prepare，可作为视图刷新的接入边界。
 - [cadence](../packages/aurora_bot/src/aurora_bot/cadence/forwarder.py) 仍逐条提交世界记录的原始 payload，来源与转交关联保存在消费状态中，尚未自动作为模型输入语义提供。
 - [world 记录服务](../packages/aurora_world/src/aurora_world/records.py) 已提供事件数据库、近期事件视图与独立环境状态。ctx 中的近期窗口不能代替完整事件归档，也不是每个 bot 的待办清单。
-- [默认装配](../packages/aurora_bot/src/aurora_bot/assembly.py) 已保留消息上下文并清理部分运行临时状态，按配置接入笔记工具和视图；完整行动证据视图仍待实现。现有中间状态不能直接视为完整的长期工作记录。
+- [默认装配](../packages/aurora_bot/src/aurora_bot/assembly.py) 已保留消息上下文并清理部分运行临时状态，按配置接入笔记、归档和行动证据。执行证据独立事务保存，运行中间状态不充当长期记录。
 
 ### 已实现的世界视图边界
 
 [BusinessContextView](../packages/aurora_bot/src/aurora_bot/context_view.py) 在已装配 WorldRecords 时读取近期事件和环境观察，每次 prepare 先刷新 world 窗口。单条保留来源、消息、记录、数据库身份及接收时间；环境正文以 JSON 文本呈现，和事件归档分区。直接交流仍在原消息历史中，cadence 仍原样提交 payload；视图不提供引导与来源的新增映射，也不把所有 user 消息解释为人的请求。
 
-bot TOML 的 `[context_view]` 默认 enabled/events/environment/notes 均为 true，max_chars 为 12000、最小 1024。预算包括整个视图 JSON 的说明、正文及元数据；各类非空材料平分预算，各自优先保留最新条目。正文截短标记 abridged，保留完整引用；身份本身放不下时省略整条，以 omitted 计数。omitted 只统计当前候选材料中因本次预算被省略的条目，不是归档数量。视图预算不限制历史消息、system 或工具定义，也不删除归档。
+bot TOML 的 `[context_view]` 默认 enabled/events/environment/notes/actions 均为 true，max_chars 为 12000、最小 1024。预算包括整个视图 JSON 的说明、正文及元数据；各类非空材料平分预算，各自优先保留最新条目。正文截短标记 abridged，保留完整引用；身份本身放不下时省略整条，以 omitted 计数。omitted 只统计当前候选材料中因本次预算被省略的条目，不是归档数量。视图预算不限制历史消息、system 或工具定义，也不删除归档。
 
-可见范围固定为 world 的两类业务状态和本实例已启用的工作笔记，通过 events/environment/notes 分别控制；不递归读取 ctx，不读取凭证、配置、模型请求或调度状态。没有 world 时不创建世界资源，仍可观察已启用的笔记；enabled=false 不生成视图，但不禁用笔记工具。配置由 aurora_config 加载，修改后重启生效；旧配置缺少该段时使用默认值，模板不覆盖现有文件。
+可见范围固定为 world 的两类业务状态、本实例已启用的工作笔记和近期行动证据，通过 events/environment/notes/actions 分别控制；不递归读取 ctx，不读取凭证、配置、模型请求或调度状态。没有 world 时不创建世界资源，仍可观察已启用的笔记；enabled=false 不生成视图，但不禁用笔记工具。配置由 aurora_config 加载，修改后重启生效；旧配置缺少该段时使用默认值，模板不覆盖现有文件。
 
 模型请求开始后到达的观察在下一推理边界生效。临时视图仍可作为当轮 model_input 被观察，正常收尾由默认装配清理；即使中断快照含有旧 model_input，恢复后的 prepare 也重新构建请求，不将其作为历史。已有快照项结构和插件名不变；新增状态及工具定义见公共 ID 目录。完整模型输入预算仍留给后续切片。
 
@@ -171,6 +171,22 @@ bot 的 `[archive] enabled=true` 启用 world_read_event，默认 false。工具
 没有新插件、依赖或持久状态，原数据库和快照格式不变，无自动迁移。离线集成验证事件过期后按笔记引用分页还原、错误反馈、完整 assistant/tool 关联、正常重启及显式再次读取；使用假模型不代表真实模型已能自主规划和核对证据。
 
 架构与已交付语义以[架构设计](aurorabot-design-v0.2.3.md)、[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)和[里程碑计划](plan.md)为准；主动 bot 的原始方向见[设计讨论](aurora_bot_react_design.md)。
+
+### 已实现的行动证据
+
+bot 的 `[actions] enabled=true` 启用行动记录和 actions_read，默认 false，不依赖 world 或笔记。`max_chars` 默认 8000、范围 1024–32000，约束查询单页 value 的完整 JSON。`[context_view] actions=false` 仅隐藏近期摘要，关闭整个视图也不关闭记录或查询。默认视图呈现最近 16 次已接纳工具调用的摘要，与其他非空材料平分预算；omitted 不表示数据库总量。
+
+执行器接受可选同步 ToolRecorder，agent 不依赖 bot 或数据库。begin 在整个批次执行前原子保留调用引用，start 在参数校验和 before_call 通过后、实际工具调用前提交 unknown；finish 在结果进入批次及 after_call 之前保存原始 ToolResult。begin/start 失败阻止调用，finish 失败停止本批次余下动作并保留 unknown；after_call 失败不会覆盖已经保存的结果。取消前未执行的调用保留 not_executed，无自动补执行。
+
+记录包含 instance_id、run_id、call_id、批次 execution_id、turn_id、模型工具名称、时间、outcome 和原始结果，不复制调用参数、配置或运行期凭证。completed 表示工具返回成功；failed 表示收到工具错误，二者均不证明外部业务最终状态。取消、超时、无有效回执、普通工具异常及 MCP 结果未知保留 unknown；未进入工具的拒绝为 not_executed。扩展工具须通过安全的结构化错误表达自身契约，错误内容不能包含凭证。
+
+记录保存于 `namespaces/ns-org.aurora.bot/actions.sqlite3`，按 bot instance_id 和 run_id/call_id 唯一定位。每个边界独立事务提交，不依赖 ctx 异步快照；SQLite 与外部副作用不构成共同事务，不承诺恰好一次。进程在动作完成后、结果保存前终止时仍为 unknown。恢复仅打开原记录，不将 unknown 推断为成功或自动重试。相同实例复用 run_id/call_id 时拒绝整个新批次，既有证据不覆盖；模型后续调用须使用新的 call_id。
+
+查询参数仅为 run_id、call_id 和 offset，实例由装配固定，不能指定其他实例或数据库。按 next_offset 读取至 null、拼接 text 后得到完整证据 JSON；offset 按 Unicode 字符计数，整数值浮点数在工具边界归一化。数据库分段读取原始 JSON，不在 Python 中先加载完整结果；正在执行的记录可能变化，跨调用分页不承诺原子快照。缺失返回 action_not_found，不证明动作未发生；越界、不可用、身份过长和无法推进的预算分别明确失败。读取工具自身也属于执行证据，不改变被查询调用，不消费或重放它。
+
+新增工具及组件定义，不新增插件、依赖或 ctx 持久状态，不迁移旧快照。关闭功能保留数据库；仅备份 ctx 快照不包含行动证据，完整备份须包含数据库并在宿主停止后进行。当前记录永久保留，没有自动裁剪、归档搜索、人工修改结论或跨实例共享。发现插件不打开数据库，prepare 后由默认装配持有并在工具关闭后释放连接。
+
+离线回归覆盖流式及非流式工具调用、笔记引用、正常重启后的分页读取、取消、未执行、结果持久化失败、实例隔离、重复引用及四类视图的最小预算。笔记即使写“已完成”，也不改变原始 unknown 证据。完整模型输入预算和真实模型行为验收仍为后续工作。
 
 ## 建议的最小验证范围
 

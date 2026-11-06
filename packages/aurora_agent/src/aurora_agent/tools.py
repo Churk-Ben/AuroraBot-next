@@ -60,6 +60,20 @@ class ToolBatchState(TypedDict):
     results: list[ToolResult]
 
 
+class ToolRecorder(Protocol):
+    """同步记录执行边界；失败阻止继续调用，持久化与查询策略由宿主负责。
+
+    begin 原子接纳整个批次；start 在调用前执行，finish 在结果接纳前执行。
+    记录器不得修改传入的请求或结果，不得将记录失败解释为可重试动作。
+    """
+
+    def begin(self, request: ExecutionRequest, batch: ToolBatchRequest) -> None: ...
+
+    def start(self, request: ExecutionRequest, call: ToolCall) -> None: ...
+
+    def finish(self, request: ExecutionRequest, result: ToolResult) -> None: ...
+
+
 class ToolExecutionError(Exception):
     """工具主动提供的安全失败观察；value 可保留业务错误的 JSON 内容。
 
@@ -206,6 +220,7 @@ class ToolExecutor:
         current_state: StateBinding,
         timeout: float,
         instance_id: str | None = None,
+        recorder: ToolRecorder | None = None,
     ) -> None:
         if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("工具超时必须为正有限数")
@@ -213,6 +228,7 @@ class ToolExecutor:
         self.instance_id = uuid4().hex if instance_id is None else instance_id
         self.request_state, self.output_state, self.current_state = request_state, output_state, current_state
         self.timeout = timeout
+        self.recorder = recorder
         self.states = {"input": request_state, "output": output_state, "current": current_state}
         probe = ExecutionRequest("binding-check")
         if len({binding.address(probe) for binding in self.states.values()}) != 3:
@@ -274,6 +290,8 @@ class ToolExecutor:
                 output = link.plug.states["output"].address(request)
                 self.ctx.delete(output.key, location=dict(output.location))
                 link.plug.states["input"].set(self.ctx, request, call)
+                if self.recorder is not None:
+                    self.recorder.start(request, deepcopy(call))
                 try:
                     await self.slot.invoke(link, request.child())
                 except ToolExecutionError as error:
@@ -323,14 +341,21 @@ class ToolExecutor:
             self.output_state.set(self.ctx, request, state)
 
         try:
+            if self.recorder is not None:
+                self.recorder.begin(request, deepcopy(batch))
             write("running")
             for call in batch["calls"]:
                 self.current_state.set(self.ctx, request, {"call": call, "result": None})
                 try:
                     result = await self._call(call, request)
                 except asyncio.CancelledError:
-                    results.append(failure(call, "cancelled", "工具调用已取消，动作结果需核实", cancelled=True))
+                    result = failure(call, "cancelled", "工具调用已取消，动作结果需核实", cancelled=True)
+                    if self.recorder is not None:
+                        self.recorder.finish(request, deepcopy(result))
+                    results.append(result)
                     raise
+                if self.recorder is not None:
+                    self.recorder.finish(request, deepcopy(result))
                 results.append(result)
                 write("running")
                 self.current_state.set(self.ctx, request, {"call": call, "result": result})
