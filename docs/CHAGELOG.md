@@ -2,6 +2,13 @@
 
 ## 2026-11-06
 
+### 将按引用读取事件归档接入默认 bot
+
+- 新增 components/world/read_event、其 execute 入口及 tools/world/read_event，模型名称 world_read_event。bot 的 `[archive]` 默认关闭，启用后绑定宿主持有的 WorldRecords；缺少 world 或手工覆盖数据库配置明确拒绝，不新增插件、资源所有者、依赖或持久状态。
+- 按 journal_id/record_id/offset 读取原始事件 JSON，保留身份、来源、时间及 next_offset。max_chars 默认 8000、范围 1024–32000，约束整个 value 的 JSON 长度，包含转义及元数据、不含 ToolResult 外层信封；长内容分页，不能容纳身份或正文时明确失败。错库、缺失、越界和服务不可用分别反馈，不自动换库或重试。
+- 读取不修改笔记、不消费或重放事件；只支持已知事件引用，不提供环境观察、工具调用查询或归档搜索。启用后每轮业务视图提示读取方法，工具与视图开关独立；现有数据库及快照无需迁移。
+- 54 项工具、配置和分页单元测试及 5 项默认装配集成测试通过：覆盖 Unicode/转义预算、退出近期窗口后按笔记引用还原、错误反馈、完整工具关联、正常重启及显式再次读取；禁用时不宣告工具，无 world 时不创建数据库。同步模板、启动指南、公共 ID、架构与接续计划。
+
 ### 提供核对数据库身份的事件原文分页接口
 
 - world 新增 `WorldRecords.read_content` 和不可变 `WorldContentPage`，按 journal_id/record_id 读取数据库中原始 JSON 的字符片段，保留来源、消息、接收时间及位置。分页直接查询 SQLite，不先反序列化完整载荷，不刷新 ctx、消费或重放事件。

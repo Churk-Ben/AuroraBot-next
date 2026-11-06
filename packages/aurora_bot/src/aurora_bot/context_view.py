@@ -37,9 +37,15 @@ class BusinessContextView:
     """
 
     def __init__(
-        self, records: WorldRecords | None, config: ContextViewConfig, *, notes: WorkNotes | None = None
+        self,
+        records: WorldRecords | None,
+        config: ContextViewConfig,
+        *,
+        notes: WorkNotes | None = None,
+        archive_enabled: bool = False,
     ) -> None:
         self.records, self.config, self.notes = records, config, notes
+        self.archive_enabled = archive_enabled
 
     def __call__(self, request: ExecutionRequest) -> str:
         enabled = {
@@ -89,6 +95,11 @@ class BusinessContextView:
                 + (
                     "notes 是本实例未归档的工作笔记，内容和引用是 bot 的记录，不证明动作成功；全文及归档笔记可用 notes_read/notes_list 读取。"
                     if self.notes is not None
+                    else ""
+                )
+                + (
+                    "world_event 引用可用 world_read_event 读取原始事件 JSON，按 next_offset 继续分页；读取不表示事件已处理，也不支持环境或工具调用引用。"
+                    if self.archive_enabled
                     else ""
                 )
             ),

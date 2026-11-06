@@ -28,6 +28,11 @@ class ContextViewConfig(TypedDict):
     max_chars: int
 
 
+class ArchiveConfig(TypedDict):
+    enabled: bool
+    max_chars: int
+
+
 class BotConfig(TypedDict):
     instance_id: str
     model_role: str
@@ -38,6 +43,7 @@ class BotConfig(TypedDict):
     system_prompt: str
     context_view: ContextViewConfig
     notes: dict[str, bool]
+    archive: ArchiveConfig
 
 
 def validate_json(value: object) -> None:
@@ -81,6 +87,15 @@ BOT_SCHEMA = ConfigSchema(
                 "additionalProperties": False,
                 "default": {},
                 "properties": {"enabled": {"type": "boolean", "default": False}},
+            },
+            "archive": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    "enabled": {"type": "boolean", "default": False},
+                    "max_chars": {"type": "integer", "minimum": 1024, "maximum": 32000, "default": 8000},
+                },
             },
             "tools": {
                 "type": "array",

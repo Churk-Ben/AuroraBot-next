@@ -254,6 +254,9 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | `org.aurora.bot:tools/notes/read` | `tool` | `aurora_bot.assembly` |
 | `org.aurora.bot:tools/notes/write` | `tool` | `aurora_bot.assembly` |
 | `org.aurora.bot:tools/notes/list` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:components/world/read_event` | `component` | `aurora_bot.assembly` |
+| `org.aurora.bot:components/world/read_event/execute` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/world/read_event` | `tool` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/clean_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_bot` | `hook_handler` | `aurora_bot.assembly` |
@@ -268,6 +271,8 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 notes_write 以 expected_revision=0 创建，后续更新必须携带当前 revision；冲突返回 note_conflict 而不覆盖。每实例最多 128 条，每条正文最多 16000 字符、引用最多 16 项。世界事件引用含 kind=world_event、journal_id、record_id，工具调用引用含 kind=tool_call、run_id、call_id；只校验引用结构，不核验目标存在或动作成功。notes_list 按 note_id 分页提供摘要，notes_read 读取完整正文及归档笔记。serve_bot 将 notes 作为只读观察键开放，set/delete 被拒绝。
 
 上述为新增定义，无旧 ID 或插件替换；旧快照无需迁移，包含笔记的新快照须由登记这些定义的版本恢复。关闭 notes.enabled 不删除已有笔记；不支持这些定义的旧版本不能静默忽略新状态。工具成功表示 ctx 已更新，崩溃恢复窗口仍由宿主落盘策略决定，不承诺每次工具结果均已 fsync。
+
+`tools/world/read_event` 的模型名称为 world_read_event，由 `[archive] enabled=true` 显式接入，默认关闭，不在 tools 列表手工声明。默认装配向工厂注入其持有的 WorldRecords，参数只接受 journal_id、record_id、offset，不允许数据库覆盖。返回带身份及来源的原始 JSON 片段和 next_offset；max_chars 限制每次 value 的 JSON 长度，默认 8000。定义发现不打开资源，无新插件、持久状态、数据库迁移或旧 ID 替换；详情见[主动上下文设计](aurora_bot_ctx_prompt_design.md#已实现的事件归档读取)。
 
 运行操作和命令均使用 `run/submit`、`run/activate`、`run/cancel`，要求显式 instance_id。运行管理服务按实例绑定 AgentRuntime；CLI 命令通过公共操作分发，不要求 bot 导入 CLI 实现。默认装配的资源在 prepare 创建，stop 收束运行，clean 关闭工具与模型并解绑实例。
 

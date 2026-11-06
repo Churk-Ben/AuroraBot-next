@@ -18,3 +18,8 @@ max_chars = 12000
 # 显式启用实例隔离的笔记工具；笔记由宿主快照保存，不自动执行其中的计划。
 [notes]
 enabled = false
+
+# 显式启用当前 world 的只读事件归档工具；预算覆盖单次返回值的完整 JSON。
+[archive]
+enabled = false
+max_chars = 8000

@@ -215,7 +215,19 @@ notes_write 创建示例参数：
 
 更新时携带最近读取到的 revision，并完整提供正文、状态和引用。冲突返回 note_conflict，原文保持不变。active 笔记在下一轮视图中可见且不会随时间过期；status=archived 将其移出当前视图，仍可通过 notes_read 或 notes_list 的 status=all 读取。notes_list 返回 200 字符预览和 next_after，每页最多 50 条；notes_read 返回全文。每实例最多 128 条，单条正文最多 16000 字符，达到容量后仍可更新已有笔记，归档不释放容量。
 
-笔记由宿主快照保存，正常关闭后恢复；关闭 `[notes]` 不删除已有内容，恢复也不自动执行计划。笔记和引用本身不证明工具动作成功。`scripts/serve_bot.py` 将笔记作为只读状态开放，可用 ctx get 读取 `org.aurora.bot:state/notes`、location 为目标 instance_id；`[context_view] notes=false` 只关闭视图展示，工具仍可使用。事件归档读取工具尚未提供，具体数据边界见[主动上下文设计](../docs/aurora_bot_ctx_prompt_design.md#已实现的持久工作笔记)。离线巡检示例不模拟模型自主写笔记，工具往返、取消与恢复由 `tests/e2e/test_work_notes_integration.py` 验证。
+笔记由宿主快照保存，正常关闭后恢复；关闭 `[notes]` 不删除已有内容，恢复也不自动执行计划。笔记和引用本身不证明工具动作成功。`scripts/serve_bot.py` 将笔记作为只读状态开放，可用 ctx get 读取 `org.aurora.bot:state/notes`、location 为目标 instance_id；`[context_view] notes=false` 只关闭视图展示，工具仍可使用。具体数据边界见[主动上下文设计](../docs/aurora_bot_ctx_prompt_design.md#已实现的持久工作笔记)。离线巡检示例不模拟模型自主写笔记，工具往返、取消与恢复由 `tests/e2e/test_work_notes_integration.py` 验证。
+
+需要按视图或笔记中的 world_event 引用读取事件原文时，在同一个 bot 配置文件中启用：
+
+```toml
+[archive]
+enabled = true
+max_chars = 8000
+```
+
+该工具要求宿主已经装配 world 记录服务；live_workshop 的持续模式满足此条件，`--direct-only` 不支持此配置。不要将内置工具手工加入 tools 列表。模型调用 world_read_event 的参数为 `{"journal_id":"引用中的数据库 ID","record_id":"引用中的记录 ID","offset":0}`；返回 text 为原始 JSON 片段，按 next_offset 继续，直到 null 表示结束。各页 text 拼接后才构成完整 JSON；字符串载荷也保留 JSON 引号和转义，不能把第一页当作完整事件。
+
+max_chars 限制每页 value 的完整 JSON 长度，含元数据及转义、不含工具结果外层信封，范围 1024–32000；不限制累计消息历史或整次模型输入。错库、缺失记录、越界分别返回 archive_wrong_journal、archive_not_found、archive_invalid_offset；服务不可用或元数据过长也明确失败，不自动换库或重试。工具只读取已知事件引用，不检索环境观察或 tool_call，不消费、重放事件或将事项标为完成。事件过期及重启后的引用读取由 `tests/e2e/test_event_archive_integration.py` 验证。
 
 在另一个终端观察报告及控制状态：
 
