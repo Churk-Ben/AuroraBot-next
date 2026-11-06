@@ -9,6 +9,7 @@
 - 直接交流与 cadence 原始 payload 转交保持既有契约，观察视图不充当待办或完成回执。未启用 world 或关闭视图时直接交流保持原有输入。live_workshop 的离线模型识别观察块，仅对引导生成巡检动作；同步配置用法、设计、公共扩展契约与接续计划。按用户决定暂缓社区工程化。
 - 无公共 ID、插件或快照结构变更；旧 bot 配置缺少该段时采用默认值，已有配置文件不被模板覆盖，修改后重启生效。临时视图不进入持久对话，正常收尾清理 model_input；恢复后的 prepare 重新构建观察，保留完整工具请求及结果关联。
 - 定向验证通过：来源与内容隔离、严格字符预算和转义文本、过期刷新、归档与去重保留、无 world/显式关闭视图、streaming/非 streaming 工具更新与下一轮刷新、直接交流及关闭恢复。11 个 wheel 构建完成；干净环境确认 control 无 agent/模型包、agent 无 bot/CLI/API/world/模型 SDK，agent 12 项默认阶段测试及产品 wheel 的 11 项视图测试通过，包内配置模板可读取。未调用真实供应商或 QQ 服务。
+- 完整 `uv run --locked aurora check` 通过：1065 项 Python 通过、1 项 Windows 平台用例跳过，97 项 TS、5 项终端测试及格式、lint、Python/TS 类型检查全部通过，仅保留既有 Pydantic ReadOnly 提示。91 处本地文档链接与 `git diff --check` 通过；README.md、AGENTS.md 及用户数据未修改。
 
 ### 为每轮推理接入临时上下文视图
 
