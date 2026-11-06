@@ -91,7 +91,7 @@ async def create_model(config, *, api_key=None, ctx=None):
                     data = {"text": message["content"]}
                 if not isinstance(data, dict):
                     data = {"text": message["content"]}
-                if data.get("kind") == "business_context":
+                if data.get("kind") in ("business_context", "input_budget"):
                     continue
                 current = settings(ctx.get(SETTINGS)) if ctx is not None else settings({})
                 waiting.append(
