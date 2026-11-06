@@ -2,6 +2,13 @@
 
 ## 2026-11-06
 
+### 提供完整模型请求字符预算
+
+- agent 新增 ModelInputBudget 和明确的 ModelInputBudgetExceeded。ReActDefaults 在每轮 prepare 生成统一请求后约束完整 JSON 字符数，覆盖 system、当前视图、历史及工具定义；不是供应商 token 或 HTTP 字节上限。
+- 超限时按完整交流段从旧到新选择最少省略范围，保留最新交流及其全部引导、工具请求和结果，临时省略提示同样计入预算。必要内容仍放不下时清除旧 model_input 并阻止模型调用；持久历史及已完成工具结果不删除，显式重试不重复接纳或执行。
+- bot 新增可选 `[input_budget] enabled=false`，max_chars 默认 128000、最小 1024；由默认装配注入策略，不新增公共 ID、插件、依赖或快照字段，已有配置默认保持行为，模板不覆盖用户文件。
+- 23 项新增单元与默认装配回归通过，覆盖完整 JSON/Unicode 计数、固定材料超限、最少完整交流省略、流式/非流式工具关系、重启历史保留和超限后显式重试。同步启动指南、架构及接续计划，未修改 README.md、AGENTS.md 或用户数据，未调用真实模型或 QQ 服务。
+
 ### 提供可持久查询的工具执行证据
 
 - agent 的 ToolExecutor 接受可选 ToolRecorder，覆盖批次接纳、实际调用前和结果接纳前边界；记录失败阻止继续执行，取消后未调用项保留未执行。agent 不依赖 bot、world 或数据库，原 before_call/after_call 和结果接纳契约保留。

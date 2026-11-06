@@ -10,6 +10,7 @@ from typing import cast
 from aurora_adapter.model import ModelClient, require_capabilities
 from aurora_adapter.model.configuration import BINDINGS, resolve_model
 from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_agent.input_budget import ModelInputBudget
 from aurora_agent.model import ModelCall
 from aurora_agent.react import AgentBusyError, ReActAgent
 from aurora_agent.react_defaults import ReActContext, ReActDefaults
@@ -319,6 +320,11 @@ class DefaultAssembly:
             tools,
             context_state=self._fixed(MESSAGES),
             system_prompt=self.config["system_prompt"],
+            input_budget=(
+                ModelInputBudget(self.config["input_budget"]["max_chars"])
+                if self.config["input_budget"]["enabled"]
+                else None
+            ),
             context_view=(
                 BusinessContextView(
                     self.world_records,

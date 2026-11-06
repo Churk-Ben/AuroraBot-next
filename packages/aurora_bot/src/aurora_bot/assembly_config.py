@@ -44,6 +44,7 @@ class BotConfig(TypedDict):
     system_prompt: str
     context_view: ContextViewConfig
     notes: dict[str, bool]
+    input_budget: ArchiveConfig
     archive: ArchiveConfig
     actions: ArchiveConfig
 
@@ -83,6 +84,15 @@ BOT_SCHEMA = ConfigSchema(
                     "notes": {"type": "boolean", "default": True},
                     "actions": {"type": "boolean", "default": True},
                     "max_chars": {"type": "integer", "minimum": 1024, "default": 12000},
+                },
+            },
+            "input_budget": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    "enabled": {"type": "boolean", "default": False},
+                    "max_chars": {"type": "integer", "minimum": 1024, "default": 128000},
                 },
             },
             "notes": {

@@ -3,13 +3,14 @@
 from collections.abc import Callable
 from typing import TypedDict, cast
 
-from aurora_adapter.model import Message, ModelProtocolError, ToolCall
+from aurora_adapter.model import Message, ModelProtocolError, ModelRequest, ToolCall
 from aurora_control import ExecutionLink, ExecutionPlug, ExecutionRequest, InstanceStateBinding, component_entries
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
 
+from .input_budget import ModelInputBudget, ModelInputBudgetExceeded
 from .model import ModelCall, ModelCallState
 from .react import Guidance, ReActAgent
 from .tools import ToolBatchState, ToolExecutor, failure, read_request
@@ -54,6 +55,7 @@ class ReActDefaults:
         context_state: InstanceStateBinding,
         system_prompt: str = "",
         context_view: Callable[[ExecutionRequest], str] | None = None,
+        input_budget: ModelInputBudget | None = None,
     ) -> None:
         if agent.ctx is not model.ctx or agent.ctx is not tools.ctx:
             raise ValueError("默认 ReAct 组件必须使用同一 ctx")
@@ -63,6 +65,7 @@ class ReActDefaults:
         self.ctx: Context = agent.ctx
         self.context_state, self.system_prompt = context_state, system_prompt
         self.context_view = context_view
+        self.input_budget = input_budget
 
     def connect(self) -> None:
         """连接四个工作阶段；装配须先登记对应插件，失败时撤销本次连接。"""
@@ -166,10 +169,19 @@ class ReActDefaults:
                 messages.insert(0, {"role": "user", "content": view})
         if self.system_prompt:
             messages.insert(0, {"role": "system", "content": self.system_prompt})
-        model_request: dict[str, object] = {"messages": messages}
+        model_request: ModelRequest = {"messages": messages}
         definitions = self.tools.definitions()
         if definitions:
             model_request["tools"] = definitions
+        if self.input_budget is not None:
+            try:
+                model_request = self.input_budget.apply(
+                    model_request, history_start=len(messages) - len(context["messages"])
+                )
+            except ModelInputBudgetExceeded:
+                address = self.model.request_state.address(request)
+                self.ctx.delete(address.key, location=dict(address.location))
+                raise
         self.model.request_state.set(self.ctx, request, model_request)
 
     async def interpret_response(self, request: ExecutionRequest) -> None:
