@@ -9,6 +9,9 @@
 - bot 新增可选 `[input_budget] enabled=false`，max_chars 默认 128000、最小 1024；由默认装配注入策略，不新增公共 ID、插件、依赖或快照字段，已有配置默认保持行为，模板不覆盖用户文件。
 - 23 项新增单元与默认装配回归通过，覆盖完整 JSON/Unicode 计数、固定材料超限、最少完整交流省略、流式/非流式工具关系、重启历史保留和超限后显式重试。同步启动指南、架构及接续计划，未修改 README.md、AGENTS.md 或用户数据，未调用真实模型或 QQ 服务。
 
+- 完整 `uv run --locked aurora check` 通过：1176 项 Python、97 项 TS、5 项终端测试，以及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。补充的最少省略断言在工作区及独立 agent wheel 中复验通过。
+- 11 个 wheel 构建成功；从明确 wheel 路径安装的干净 agent 环境无 bot/CLI/API/模型 SDK，25 项预算及默认阶段测试通过；产品 wheel 的 10 项预算集成测试通过，模块来自 site-packages，包内 input_budget 模板可读。85 处本地文档链接、Prettier/Ruff 文档格式与 `git diff --check` 通过。
+
 ### 提供可持久查询的工具执行证据
 
 - agent 的 ToolExecutor 接受可选 ToolRecorder，覆盖批次接纳、实际调用前和结果接纳前边界；记录失败阻止继续执行，取消后未调用项保留未执行。agent 不依赖 bot、world 或数据库，原 before_call/after_call 和结果接纳契约保留。
