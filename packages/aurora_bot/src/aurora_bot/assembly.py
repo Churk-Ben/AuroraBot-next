@@ -326,11 +326,19 @@ class DefaultAssembly:
             raise AgentBusyError("默认 bot 正在运行，新引导应写入 inbox")
         self._executing = True
         self._last_request = request
+        failure: BaseException | None = None
         try:
             await self.agent.execute(request)
+        except BaseException as error:
+            failure = error
+            raise
         finally:
             try:
                 self._compact()
+            except BaseException as cleanup_error:
+                if failure is not None:
+                    raise failure from cleanup_error
+                raise
             finally:
                 self._executing = False
 

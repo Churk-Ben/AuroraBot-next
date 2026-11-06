@@ -615,3 +615,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 - 在 ctx/hook、插件发现和包边界基础上加入统一命名空间 ID。
 - 区分定义与实例、插槽与处理器、命令／端点与操作。
 - 完整公共 ID 表独立保存为附件。
+
+### 本机 API 的只读观察键
+
+宿主通过 `keys` 开放读写及订阅，通过 `read_only_keys` 仅开放 get/list/watch；CLI 对应 `--keys` 与 `--read-only-keys`，两组不得重叠。同一键的全部 location 使用相同权限；只读键的 set/delete 返回 HTTP 403 forbidden。`scripts/serve_bot.py` 将 bot、world 与 cadence 状态作为只读观察键，交流及 TOML 编辑走显式产品端点。现有 ctx 请求与响应信封不变，客户端按既有 forbidden 错误显示拒绝原因。

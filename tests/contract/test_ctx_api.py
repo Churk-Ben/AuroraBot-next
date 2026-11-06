@@ -239,3 +239,35 @@ def test_server_shutdown_closes_active_watch_before_ctx():
             ctx.close()
 
     asyncio.run(scenario())
+
+
+def test_read_only_keys_allow_observation_and_reject_all_writes():
+    async def scenario():
+        registry, ctx, _, _ = make_host()
+        ctx.set(PUBLIC, "原值", location={"instance_id": "one"})
+        async with serve(registry, keys=[PRIVATE], read_only_keys=[PUBLIC], port=0) as url, CtxClient(url) as client:
+            assert await client.request("get", key=str(PUBLIC), location={"instance_id": "one"}) == "原值"
+            assert await client.request("list", key=str(PUBLIC)) == [
+                {"id": str(PUBLIC), "location": {"instance_id": "one"}}
+            ]
+            async with client.watch(key=str(PUBLIC)) as events:
+                for location in ({}, {"instance_id": "one"}, {"instance_id": "two"}):
+                    for action in ("set", "delete"):
+                        with pytest.raises(RemoteError, match="forbidden"):
+                            await client.request(
+                                action,
+                                key=str(PUBLIC),
+                                location=location,
+                                **({"value": "覆盖"} if action == "set" else {}),
+                            )
+                ctx.set(PUBLIC, "新值", location={"instance_id": "one"})
+                assert (await anext(events))["value"] == "新值"
+            await client.request("set", key=str(PRIVATE), value=1)
+            assert await client.request("delete", key=str(PRIVATE)) is True
+            assert ctx.get(PUBLIC, location={"instance_id": "one"}) == "新值"
+        with pytest.raises(ValueError, match="同时声明"):
+            async with serve(registry, keys=[PUBLIC], read_only_keys=[PUBLIC], port=0):
+                pass
+        ctx.close()
+
+    asyncio.run(scenario())

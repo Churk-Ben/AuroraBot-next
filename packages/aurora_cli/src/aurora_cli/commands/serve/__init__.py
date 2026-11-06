@@ -8,8 +8,14 @@ from aurora_core.ids import Id
 from ...declarations import CONFIG, CommandContext, command_plugin
 
 
-async def dispatch(context: CommandContext, port: int = 10270, keys: object = None, endpoints: object = None) -> None:
-    """默认仅开放 CLI 配置状态；keys 显式指定允许读写和订阅的完整键列表。"""
+async def dispatch(
+    context: CommandContext,
+    port: int = 10270,
+    keys: object = None,
+    endpoints: object = None,
+    read_only_keys: object = None,
+) -> None:
+    """keys 开放读写和订阅，read_only_keys 仅开放读取和订阅；两者不得重叠。"""
     from aurora_api.server import serve
 
     if keys is None:
@@ -18,13 +24,19 @@ async def dispatch(context: CommandContext, port: int = 10270, keys: object = No
         allowed = [Id(key) for key in keys]
     else:
         raise ValueError("--keys 须为完整状态 ID 的 JSON 数组")
+    if read_only_keys is None:
+        readonly = []
+    elif isinstance(read_only_keys, list) and all(isinstance(key, str) for key in read_only_keys):
+        readonly = [Id(key) for key in read_only_keys]
+    else:
+        raise ValueError("--read-only-keys 须为完整状态 ID 的 JSON 数组")
     if endpoints is None:
         selected = []
     elif isinstance(endpoints, list) and all(isinstance(endpoint, str) for endpoint in endpoints):
         selected = [Id(endpoint) for endpoint in endpoints]
     else:
         raise ValueError("--endpoints 须为产品端点 ID 的 JSON 数组")
-    async with serve(context.registry, keys=allowed, port=port, endpoints=selected) as url:
+    async with serve(context.registry, keys=allowed, read_only_keys=readonly, port=port, endpoints=selected) as url:
         logging.getLogger(__name__).info("ctx API 已监听 %s，Ctrl+C 停止", url)
         await asyncio.Event().wait()
 
@@ -40,6 +52,7 @@ def plugin():
                 "arguments": [
                     {"name": "port", "type": "integer", "option": True},
                     {"name": "keys", "type": "json", "option": True},
+                    {"name": "read_only_keys", "type": "json", "option": True},
                     {"name": "endpoints", "type": "json", "option": True},
                 ],
             }

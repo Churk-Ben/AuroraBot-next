@@ -29,6 +29,8 @@ def main() -> int:
         "--port",
         str(args.port),
         "--keys",
+        "[]",
+        "--read-only-keys",
         json.dumps(
             [
                 str(key)

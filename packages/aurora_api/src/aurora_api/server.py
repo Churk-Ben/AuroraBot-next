@@ -62,10 +62,18 @@ def _filters(data: object, allowed: frozenset[Id], *, action: str) -> dict[str, 
 
 
 def create_application(
-    registry: DefinitionRegistry, *, keys: Iterable[Id], queue_limit: int = 256, endpoints: Iterable[Id] = ()
+    registry: DefinitionRegistry,
+    *,
+    keys: Iterable[Id],
+    read_only_keys: Iterable[Id] = (),
+    queue_limit: int = 256,
+    endpoints: Iterable[Id] = (),
 ) -> web.Application:
     """仅开放显式选择的完整状态键；同一键的全部 location 均开放。"""
-    allowed = frozenset(keys)
+    writable, readonly = frozenset(keys), frozenset(read_only_keys)
+    if writable & readonly:
+        raise ValueError("状态键不能同时声明为只读和可写")
+    allowed = writable | readonly
     for key in allowed:
         entry = registry.get(key)
         if entry.kind != "state_key" or not isinstance(entry.target, StateKey):
@@ -95,6 +103,8 @@ def create_application(
         if request.content_type != "application/json":
             return web.json_response(error_data("invalid_request", "请求需要 application/json"), status=415)
         values = _filters(decode_json(await request.text()), allowed, action=action)
+        if action in ("set", "delete") and values["key"] not in writable:
+            raise PermissionError("状态只允许读取和订阅")
         result = await invoke_operation(registry, HTTP_ACTIONS[action][1], **values)
         if action == "list":
             addresses = cast(tuple[StateAddress, ...], result)
@@ -197,6 +207,7 @@ async def serve(
     registry: DefinitionRegistry,
     *,
     keys: Iterable[Id],
+    read_only_keys: Iterable[Id] = (),
     port: int = 10270,
     queue_limit: int = 256,
     endpoints: Iterable[Id] = (),
@@ -204,7 +215,9 @@ async def serve(
     """在宿主循环监听 IPv4 回环地址，退出时先关闭连接与订阅。"""
     if not 0 <= port <= 65535:
         raise ValueError("端口须在 0 至 65535 之间")
-    app = create_application(registry, keys=keys, queue_limit=queue_limit, endpoints=endpoints)
+    app = create_application(
+        registry, keys=keys, read_only_keys=read_only_keys, queue_limit=queue_limit, endpoints=endpoints
+    )
     runner = web.AppRunner(app, access_log=None, shutdown_timeout=5)
     await runner.setup()
     try:
