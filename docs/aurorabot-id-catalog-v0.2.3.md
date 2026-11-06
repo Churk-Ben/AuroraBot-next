@@ -224,6 +224,8 @@ agent 包依赖 control、core 与 adapter.model。ReAct 循环、模型调用�
 
 各 component 的 `/execute` 入口登记为 hook_handler，interface 指向自身组件。ReAct 的 prepare/infer/act/observe/finish/error 是具名插槽，连接属于具体实例。默认连接依次执行上下文构建、ModelCall、响应解释、ToolExecutor 和观察接纳；finish/error 可没有处理器。
 
+ReActDefaults 可由装配注入同步 `context_view(request) -> str`，在每次 prepare 生成临时 user 观察，排列在 system 之后、已有历史之前。空文本不增加消息；失败阻止当轮推理，重试仍按原引导消费位置去重。视图不进入持久 ReActContext，不拆开 assistant/tool 关联；agent 不解释 world 或 bot 的业务数据。不增加公共 ID 或更改快照结构。
+
 AgentRuntime 提供提交、等待和取消，接入宿主显式提供的 agent 获取、执行与占用查询。运行句柄保留在进程内。agent 不规定全局消息、inbox 或运行状态地址，宿主通过 StateBinding 和 InstanceStateBinding 提供这些地址。
 
 ### 6.3 aurora_bot
