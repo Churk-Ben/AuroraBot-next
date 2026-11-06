@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable, Iterable
 from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -45,6 +46,8 @@ from .cadence.state import CONFIGURATION as CADENCE_CONFIGURATION
 from .cli import command_entries
 from .context_view import BusinessContextView
 from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
+from .event_archive import READ_EVENT, create_reader
+from .event_archive import entries as archive_entries
 from .operations import RUN_CONTROL, RunOperations
 from .work_notes import NOTE_TOOLS, WorkNotes, tool_selections
 from .work_notes import entries as note_entries
@@ -189,14 +192,37 @@ class DefaultAssembly:
             self.config = parse_config({**self.config, "tools": [*self.config["tools"], *additions]})
         if any(Id(item["tool"]) in NOTE_TOOLS.values() for item in self.config["tools"]):
             raise ValueError("笔记工具通过 notes.enabled 装配，不在 tools 中重复声明")
+        if any(Id(item["tool"]) == READ_EVENT for item in self.config["tools"]):
+            raise ValueError("归档工具通过 archive.enabled 装配，不在 tools 中重复声明")
         if self.config["notes"]["enabled"]:
             self.config = parse_config({**self.config, "tools": [*self.config["tools"], *tool_selections()]})
+        if self.config["archive"]["enabled"]:
+            if self.world_records is None:
+                raise ValueError("archive.enabled 需要显式装配 world 记录服务")
+            self.config = parse_config(
+                {
+                    **self.config,
+                    "tools": [
+                        *self.config["tools"],
+                        {"tool": str(READ_EVENT), "instance_id": "world/read_event", "config": {}},
+                    ],
+                }
+            )
         names: set[str] = set()
         for selection in self.config["tools"]:
             entry = self.registry.get(Id(selection["tool"]))
             if entry.kind != "tool" or entry.register_to != TOOLS or not isinstance(entry.target, ToolSpec):
                 raise ValueError("默认装配选择的目标不是工具定义")
             spec = entry.target
+            if entry.id == READ_EVENT:
+                assert self.world_records is not None
+                spec = ToolSpec(
+                    spec.component,
+                    spec.definition,
+                    factory=partial(
+                        create_reader, records=self.world_records, max_chars=self.config["archive"]["max_chars"]
+                    ),
+                )
             if spec.factory is None:
                 raise ValueError(f"工具未提供实例工厂：{entry.id}")
             if spec.definition["name"] in names:
@@ -269,6 +295,7 @@ class DefaultAssembly:
                     self.world_records,
                     self.config["context_view"],
                     notes=WorkNotes(self.ctx, identity) if self.config["notes"]["enabled"] else None,
+                    archive_enabled=self.config["archive"]["enabled"],
                 )
                 if self.world_records is not None or self.config["notes"]["enabled"]
                 else None
@@ -430,6 +457,7 @@ def plugin() -> Plugin:
         (
             *command_entries(),
             *note_entries(),
+            *archive_entries(),
             RegistryEntry(
                 CONVERSATION, "endpoint", ConversationEndpoint(operations), "aurora_bot", register_to=ENDPOINTS
             ),

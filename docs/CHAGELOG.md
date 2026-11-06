@@ -2,11 +2,32 @@
 
 ## 2026-11-06
 
+### 对齐归档工具的 JSON Schema 整数偏移
+
+- 同步 PR #2 的笔记整数参数修复，并修复 PR #3 中 offset=0.0 通过公开 schema 后被内部 ConfigSchema 拒绝的同类问题。归档工具边界将整数值浮点偏移复制为 int，WorldRecords 的严格整数接口及配置校验保持不变。
+- 通过实际 ToolExecutor 复现并补充完整分页、过期引用及重启后的浮点偏移回归；布尔值、小数、字符串、负值及超出 SQLite 范围的偏移继续返回 invalid_arguments，不读取或修改事件。
+- 45 项定向回归通过；完整检查中的 1118 项 Python、97 项 TS、5 项终端测试、格式与 lint 通过，1 项平台用例跳过。新增测试辅助函数的 offset 类型标注修正后，单独重跑 `pnpm run typecheck`，Python/TS 类型检查均通过；`git diff --check` 通过。未变更公开 schema、依赖或存储格式，未调用真实模型服务。
+
 ### 对齐笔记工具的 JSON Schema 整数参数
 
 - 修复 PR #2 中公开 schema 接受 expected_revision=0.0、limit=1.0，但笔记内部严格整数校验导致 tool_failed 的问题。工具执行边界对这两个字段中的整数值浮点数生成 int 副本，保持原始调用参数、配置校验与持久状态约束不变。
 - 使用默认装配的实际 ToolExecutor 复现并回归：创建、更新、过期版本冲突及分页接受整数值浮点数，状态中的 revision 保持 int；布尔值、非整数小数、字符串及越界值继续返回 invalid_arguments，原笔记不变。
 - 34 项定向回归通过；完整 `uv run --locked aurora check` 通过，包括 1087 项 Python、1 项平台用例跳过、97 项 TS、5 项终端测试及格式、lint、类型检查，保留既有 Pydantic ReadOnly 提示。无依赖、公共 ID 或快照格式变更，未调用真实模型服务。
+
+### 将按引用读取事件归档接入默认 bot
+
+- 新增 components/world/read_event、其 execute 入口及 tools/world/read_event，模型名称 world_read_event。bot 的 `[archive]` 默认关闭，启用后绑定宿主持有的 WorldRecords；缺少 world 或手工覆盖数据库配置明确拒绝，不新增插件、资源所有者、依赖或持久状态。
+- 按 journal_id/record_id/offset 读取原始事件 JSON，保留身份、来源、时间及 next_offset。max_chars 默认 8000、范围 1024–32000，约束整个 value 的 JSON 长度，包含转义及元数据、不含 ToolResult 外层信封；长内容分页，不能容纳身份或正文时明确失败。错库、缺失、越界和服务不可用分别反馈，不自动换库或重试。
+- 读取不修改笔记、不消费或重放事件；只支持已知事件引用，不提供环境观察、工具调用查询或归档搜索。启用后每轮业务视图提示读取方法，工具与视图开关独立；现有数据库及快照无需迁移。
+- 54 项工具、配置和分页单元测试及 5 项默认装配集成测试通过：覆盖 Unicode/转义预算、退出近期窗口后按笔记引用还原、错误反馈、完整工具关联、正常重启及显式再次读取；禁用时不宣告工具，无 world 时不创建数据库。同步模板、启动指南、公共 ID、架构与接续计划。
+- 完整 `uv run --locked aurora check` 通过：1115 项 Python 通过、1 项 Windows 平台用例跳过，97 项 TS、5 项终端测试及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。11 个 wheel 构建成功；干净 world 环境的 47 项测试及产品环境的 18 项归档/笔记恢复测试通过，确认 world 无 bot/agent/adapter/config 依赖、模块来自 wheel，包内模板、工具定义和最小视图预算可用。
+- 93 处本地文档链接及 `git diff --check` 通过；基于待审查的 PR #2 建立 feat/event-archive 分支。未修改 README.md、AGENTS.md 或用户数据，未调用真实供应商或 QQ 服务。
+
+### 提供核对数据库身份的事件原文分页接口
+
+- world 新增 `WorldRecords.read_content` 和不可变 `WorldContentPage`，按 journal_id/record_id 读取数据库中原始 JSON 的字符片段，保留来源、消息、接收时间及位置。分页直接查询 SQLite，不先反序列化完整载荷，不刷新 ctx、消费或重放事件。
+- 错库、缺失记录和越界位置明确失败；环境观察不属于事件归档。每页最多 65536 字符，拼接全部 text 后才是完整 JSON，next_offset 为 null 表示结束。现有数据库、快照、公共 ID 和依赖不变。
+- 47 项 world 读取与记录测试通过，覆盖 Unicode、转义、空值、多页重组、只读和分页参数边界。
 
 ### 将工作笔记接入默认装配和每轮业务视图
 

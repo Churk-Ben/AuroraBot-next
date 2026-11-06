@@ -1,6 +1,6 @@
 # 以 ctx 为中心的主动 bot 上下文设计
 
-状态：设计讨论稿；每轮世界视图及持久工作笔记已实现，事件归档读取工具仍为规划。更新：2026-11-06。
+状态：设计讨论稿；每轮世界视图、持久工作笔记及按引用读取事件归档已实现，真实模型行为尚待验收。更新：2026-11-06。
 
 bot 面对一个持续存在的世界，每次被唤起时读取当前状态，结合自己留下的目标、记录与实际行动结果，决定接下来做什么。稳定的世界规则和人格放在 system 提示中；本次唤起原因与 bot 可见的 ctx 视图通过 user 消息提供；运行中的模型行动和工具反馈保留 assistant/tool 关系。
 
@@ -72,7 +72,7 @@ assistant / tool
 
 建议由插件显式声明可供 bot 观察的状态范围及其呈现方式，装配负责组合。呈现应优先保持内容、来源和引用，少做开发者主观的语义筛选，让 bot 自己判断哪些内容值得关注。运行凭证不属于业务视图，模型输入本身也不作为下一轮的世界数据。
 
-完整记录与一次请求的有限视图需要分开。当前 world 已经将普通事件归档到数据库，并在 ctx 中提供有界的近期文本；时间和天气有独立环境状态。未来可以直接利用这些呈现，再给 bot 提供读取归档原文的工具。现有 Python 查询方法并不等于模型已经拥有查询工具，这部分需要实际接线。
+完整记录与一次请求的有限视图需要分开。当前 world 已经将普通事件归档到数据库，并在 ctx 中提供有界的近期文本；时间和天气有独立环境状态。bot 可显式启用 world_read_event，按视图或笔记中的事件引用分段读取归档原文；环境观察和工具调用引用不属于该工具范围。
 
 当内容超过窗口时，应让模型知道发生了省略，并保留可检索的身份。未完成事项不能仅因时间流逝就与近期事件一起消失，需要有独立的工作记录。记录保留、视图窗口和单次模型输入预算各有职责，不应以删除事实记录来解决提示词过长。
 
@@ -128,7 +128,7 @@ flowchart LR
 
 ## 已有能力与缺口
 
-当前实现提供了世界视图和显式工作笔记，事件归档工具及完整行动证据视图仍待实现：
+当前实现提供了世界视图、显式工作笔记和事件归档读取工具，完整行动证据视图仍待实现：
 
 - [ReActDefaults](../packages/aurora_agent/src/aurora_agent/react_defaults.py) 将字符串引导直接作为 user 内容，其他 JSON 编码后仍作为 user 内容；system 来自静态 system_prompt。装配可注入同步 context_view 回调，每轮生成独立的临时 user 消息，排列为 system、当前观察、原有历史。视图不写入持久消息；历史接纳、重试去重和未收束工具轮次沿用原机制。
 - [AgentRuntime](../packages/aurora_agent/src/aurora_agent/runtime.py) 已负责单一调度、运行中接纳、取消与关闭；[ReActAgent](../packages/aurora_agent/src/aurora_agent/react.py) 在每次推理前调用 prepare，可作为视图刷新的接入边界。
@@ -144,7 +144,7 @@ bot TOML 的 `[context_view]` 默认 enabled/events/environment/notes 均为 tru
 
 可见范围固定为 world 的两类业务状态和本实例已启用的工作笔记，通过 events/environment/notes 分别控制；不递归读取 ctx，不读取凭证、配置、模型请求或调度状态。没有 world 时不创建世界资源，仍可观察已启用的笔记；enabled=false 不生成视图，但不禁用笔记工具。配置由 aurora_config 加载，修改后重启生效；旧配置缺少该段时使用默认值，模板不覆盖现有文件。
 
-模型请求开始后到达的观察在下一推理边界生效。临时视图仍可作为当轮 model_input 被观察，正常收尾由默认装配清理；即使中断快照含有旧 model_input，恢复后的 prepare 也重新构建请求，不将其作为历史。已有快照项结构和插件名不变；笔记新增状态及工具定义见公共 ID 目录。事件归档的模型读取工具及完整输入预算留给后续切片。
+模型请求开始后到达的观察在下一推理边界生效。临时视图仍可作为当轮 model_input 被观察，正常收尾由默认装配清理；即使中断快照含有旧 model_input，恢复后的 prepare 也重新构建请求，不将其作为历史。已有快照项结构和插件名不变；新增状态及工具定义见公共 ID 目录。完整模型输入预算仍留给后续切片。
 
 ### 已实现的持久工作笔记
 
@@ -156,7 +156,19 @@ bot 的 `[notes] enabled=true` 显式启用 notes_read、notes_write、notes_lis
 
 笔记存于独立的 `org.aurora.bot:state/notes`，按实例隔离，由宿主快照保存；正常关闭后可恢复，关闭笔记功能不会删除数据。工具返回成功只表示 ctx 更新完成，不是独立持久事务或逐次 fsync 承诺。恢复不触发自动执行；取消后的再次激活接纳已有工具结果，不重复写入笔记。未知状态仍按宿主的严格恢复规则报错。
 
-世界引用使用 journal_id/record_id，工具引用使用 run_id/call_id；目前只校验结构，不核验引用存在，也不把笔记内容解释为执行证据。笔记中的“已发送”“已完成”仍是 bot 的记录，不能覆盖执行器的未知或失败结果。事件归档读取工具将在后续切片根据明确引用读取原文。
+世界引用使用 journal_id/record_id，工具引用使用 run_id/call_id；笔记写入只校验结构，不核验引用存在，也不把笔记内容解释为执行证据。笔记中的“已发送”“已完成”仍是 bot 的记录，不能覆盖执行器的未知或失败结果。事件引用在显式调用归档工具时核对数据库及记录身份。
+
+### 已实现的事件归档读取
+
+bot 的 `[archive] enabled=true` 启用 world_read_event，默认 false。工具绑定默认装配已经持有的 WorldRecords；须显式启用 world 配置或 cadence 等创建该服务的装配，不能在无 world 的路径自动打开另一个数据库。工具发现仅登记定义，prepare 注入服务；工具不持有独立连接或关闭 world，数据库继续由原宿主统一管理。
+
+参数为 journal_id、record_id 及可选 offset（默认 0）。返回 kind=world_event、完整引用、sequence、source_id、message_id、received_at、format=json、offset、text、total_chars 和 next_offset。text 是数据库保存的 JSON 字符片段，字符串载荷也含 JSON 引号及转义；按 next_offset 读取至 null，再拼接各页 text 才得到完整 JSON。offset 按 Unicode 字符计数，等于全文长度返回空末页，超过长度明确失败。读取不消耗事件、修改笔记、触发重放或表示业务完成。
+
+`max_chars` 默认 8000，可配置 1024–32000，限制整个返回 value 的 JSON 长度，含元数据及转义，不含 ToolResult 外层信封。工具通过 SQLite 分段查询，不先在 Python 中解析完整载荷；长事件通过多次调用读取，保留完整身份。身份元数据放不下返回 archive_metadata_too_large，预算不能容纳任何正文返回 archive_budget_too_small，不返回无法推进的页。该预算不限制累计工具历史、system 或整个模型请求。
+
+错库返回 archive_wrong_journal，当前数据库无记录返回 archive_not_found，越界返回 archive_invalid_offset，服务关闭或数据库不可用返回 archive_unavailable；无自动换库、回退或重试。模型参数不接受文件路径、其他数据库或来源选择。工具只按已知引用读取事件，不提供搜索、枚举归档、环境观察或 tool_call 查询。启用后业务视图提示读取方法；关闭视图不禁用工具，关闭工具不删除归档。
+
+没有新插件、依赖或持久状态，原数据库和快照格式不变，无自动迁移。离线集成验证事件过期后按笔记引用分页还原、错误反馈、完整 assistant/tool 关联、正常重启及显式再次读取；使用假模型不代表真实模型已能自主规划和核对证据。
 
 架构与已交付语义以[架构设计](aurorabot-design-v0.2.3.md)、[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)和[里程碑计划](plan.md)为准；主动 bot 的原始方向见[设计讨论](aurora_bot_react_design.md)。
 

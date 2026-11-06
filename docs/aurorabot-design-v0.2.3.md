@@ -364,12 +364,14 @@ world 的事件数据库与 ctx 变化通知配合使用，cadence 按数据库�
 - `aurora_world` 仅依赖 core。宿主创建 `WorldRecords(ctx, storage)` 并显式注入 WorldSources、配置组件和 cadence；对象不进入 ctx 或全局注册表。构造不打开资源，记录组件在 prepare 阶段打开 `namespaces/ns-org.aurora.world/events.sqlite3`，在 start 启动呈现刷新，stop 等待刷新任务结束，clean 关闭数据库。普通事件逐条事务提交后才发布 ctx 视图；数据库失败不消费序号，视图失败可凭相同消息重试修复。
 - source_id 标识来源实例及消息身份作用域，message_id 在该来源下稳定；同身份同内容返回原记录及 `duplicate=True`，不同内容抛出 MessageConflictError。去重覆盖数据库完整历史，不受近期呈现裁剪影响。载荷必须为严格 JSON，凭证由来源在提交前排除。
 - `get(source_id=..., message_id=...)`、`get_by_id(record_id)` 查询完整事件，`read(after=..., source_id=..., limit=100)` 按数据库递增序号分页返回副本。`WorldPosition(journal_id, sequence, record_id)` 绑定数据库和记录身份；错库、超前、错误锚点以及旧日志迁移前已存在的裁剪缺口仍明确报 CursorError。
+- `read_content(journal_id=..., record_id=..., offset=0, limit=4000)` 在核对数据库身份后直接查询原始 JSON 片段，返回不可变 WorldContentPage，含位置、来源、消息、接收时间、text、total_chars 和 next_offset。offset/limit 按 Unicode 字符计数，单页最多 65536；拼接所有 text 后才构成完整 JSON。错库抛 CursorError，缺失记录抛 KeyError，超出全文长度抛 ValueError；等于长度返回空末页。接口不反序列化完整载荷、不刷新 ctx 或消费记录，仅支持事件归档。
 - `org.aurora.world:state/records` 使用全局地址，v3 结构包含 journal_id、latest_sequence 和近期文本 records；每条有 sequence、record_id、source_id、message_id、received_at、text、abridged。默认仅展示接收时间最近 3600 秒，按新到旧累计 32000 字符预算，以完整条目停止，允许边界条目浮动。单条正文超过 8000 字符时显示标记及预览，可凭 record_id 查询原文；元数据计入预算。来源时间保留在原始载荷，不决定窗口。
 - 时间和天气属于环境观察，保存在 `org.aurora.world:state/environment`，按 source_id 定位；时间默认最新 1 条，天气按宿主接收时间保留一小时内最多 4 条，不进入普通事件数据库或 cadence 消费序列。WorldSources 按内置环境定义选择呈现规则；自定义来源可在 world 的 sources.presentation 显式选择 events/time/weather。来源工厂不声明 retention，也不接触 ctx。
 - 保留预算统一配置于 `org.aurora.world/config.toml` 的 `[view]`，普通视图和环境观察随有限 ctx 快照保存，启动以数据库重建普通视图、清理过期天气。默认每 30 秒及每次接纳时刷新，无新输入也会过期；恢复需同时保留数据库与 ctx 快照。ctx 修改不会改写事件历史，消费位置由消费者保存。
 - 消费者先订阅 RECORDS 再从数据库读取；窗口裁剪不会丢失积压事件。首次 cadence 消费从数据库可用历史开始。环境观察只供当前环境读取，需要可靠转发的来源应显式使用 events 呈现。
 - 默认 bot 在每次 ReAct prepare 刷新并读取近期事件、环境状态及已启用的本实例工作笔记，生成 system 之后、历史之前的临时 user 视图；来源、时间及引用随内容保留，视图不进入持久历史。bot 的 `[context_view]` 控制启用、事件/环境/笔记选择和完整视图字符预算（默认 12000），不限制整个模型请求或裁剪归档。agent 只接收通用同步回调，不依赖 world；直接交流与 cadence 的原始引导契约保持不变。
-- `[notes] enabled=true` 将 notes_read/write/list 接入既有工具执行器，不要求 world；默认 false。笔记以 org.aurora.bot:state/notes 按 instance_id 持久保存，使用版本校验防止过期覆盖。active 笔记不按事件窗口过期，archived 仍保留并占容量；关闭、恢复及取消不自动执行记录中的计划。存储、引用、容量和事件归档工具的后续范围见[主动上下文设计](aurora_bot_ctx_prompt_design.md)。
+- `[notes] enabled=true` 将 notes_read/write/list 接入既有工具执行器，不要求 world；默认 false。笔记以 org.aurora.bot:state/notes 按 instance_id 持久保存，使用版本校验防止过期覆盖。active 笔记不按事件窗口过期，archived 仍保留并占容量；关闭、恢复及取消不自动执行记录中的计划。
+- `[archive] enabled=true` 将 world_read_event 接入既有工具执行器，默认 false；复用已显式装配的 WorldRecords，不创建独立连接、后台任务或 world 服务。工具按 journal_id/record_id 核对引用并分页返回原始 JSON，明确区分错库、缺失及越界；不查环境观察或工具调用，不消耗或重放事件。max_chars 默认 8000，限制每页完整 value 的 JSON 长度，不限制累计工具历史或整个模型请求。存储、引用、预算和错误边界见[主动上下文设计](aurora_bot_ctx_prompt_design.md)。
 - v1/v2 ctx 日志启动时明确要求迁移，不自动覆盖用户数据。停机后执行 `uv run --locked python -m aurora_world.migrate --root <数据目录>`，备份原快照，逐条导入已有记录并保留日志、记录、序号和裁剪锚点。旧日志没有通用接收时间，迁移时以导入时刻作为 received_at；已有环境记录也原样归档，新环境采样只进入环境状态。旧来源配置中的 retain_count/retain_seconds 须手动移至 `[view]` 的 time_count/weather_count/weather_seconds，模板不覆盖已有配置。
 
 最小进程内使用方式（显式内存数据库；持久宿主传入 StorageService）：
