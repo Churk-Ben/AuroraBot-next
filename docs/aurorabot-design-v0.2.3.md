@@ -397,7 +397,7 @@ finally:
     ctx.close()
 ```
 
-M4.W3 已提供 `aurora_bot.cadence` 可选插件，不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。DefaultAssembly 在登记 cadence 配置定义时装配一个转发所有者，依赖 bot 和 world 记录组件；启用 world 配置时，来源组件进一步依赖 cadence，确保先订阅再开放来源。关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。`live_workshop` 当前的模拟世界与自有调度仍属示例，M4.W4 再将其改为正式能力消费者。
+M4.W3 已提供 `aurora_bot.cadence` 可选插件，不自行创建第二个激活调度循环，不绕过 AgentRuntime 写入 inbox/progress。DefaultAssembly 在登记 cadence 配置定义时装配一个转发所有者，依赖 bot 和 world 记录组件；启用 world 配置时，来源组件进一步依赖 cadence，确保先订阅再开放来源。关机先停止输入接纳，再收束来源、转发和执行资源，最终由宿主落盘。`live_workshop` 已使用正式 SourceInstance、world 配置与 cadence，直接交流走 conversation 并共用同一 AgentRuntime；示例只保留模拟来源、报告工具、观察视图和 finish 阶段的历史保留策略。
 
 cadence 的首版 D11 转交规则如下：
 
@@ -434,7 +434,7 @@ W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气�
 
 通用接入的下一阶段设计见 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)：由 Aurora 自身支持 HTTP/stdio，独立选择协议策略，提供按服务名配置、运行期凭证和可选产品装配。B5.1–B5.3 的 v2 配置、运行期引用、显式迁移与 HTTP/stdio 传输已交付；内部按声明、凭证、传输、协商、错误与所有权分工，stdio 管道与进程管理单独成模块，工具目录与执行已分模块并支持自动名称，可选产品装配及一次性预设已完成，业务事件扩展与可靠投递单独设计。
 
-B3 已完成 HTTP、stdio、混合连接的共享关闭与失败回收验收，W3 最小 cadence 已实现；后续推进 W4 live_workshop 与双路径集成。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
+B3 已完成 HTTP、stdio、混合连接的共享关闭与失败回收验收，W3 最小 cadence 已实现；W4 live_workshop 与双路径集成已交付。详细切片、边界和验收见[计划第 8.2、8.5 节](plan.md#82-m4-b最小-mcp-扩展)。
 
 ## 8. 模型适配与绑定
 
@@ -569,7 +569,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录、W2.1–W2.3 来源装配及环境周期、B1–B5 MCP 接入与共享关闭、W3 最小 cadence 已交付；接续 W4 live_workshop 与双路径整体验收。详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录、W2.1–W2.3 来源装配及环境周期、B1–B5 MCP 接入与共享关闭、W3 最小 cadence 已交付；W4 live_workshop 与双路径整体验收已完成。详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 

@@ -2,6 +2,17 @@
 
 ## 2026-11-06
 
+### M4.W4：统一持续示例的双路径并完成安装验收
+
+- live_workshop 的模拟来源改为正式 SourceInstance，由 world 配置服务托管并通过绑定 emit 归档；cadence 向同一个 AgentRuntime 转交。移除示例自有 inbox 写入、激活循环和后台调度任务，直接交流通过 conversation 的提交、查询及指定运行取消。来源暂停只停止产生新巡检事件，已归档事件仍可被接纳。
+- 保留四类控制组件、SQLite 报告台账及运行观察。历史裁剪接入 ReAct finish，保留最近引导及完整 assistant/tool 关联，跨裁剪边界的工具往返回退至完整输入组；取消的工具观察继续由默认恢复策略接纳，不重试副作用。
+- 增加 world/cadence 示例配置和 --direct-only 模式；后者不启用 world/cadence，不创建世界数据库。API 只开放 settings、bindings 的写操作，运行、报告、世界和消费状态仅可观察。启动指南同步提供 conversation 调用和两种模式的独立数据目录。
+- 移除旧示例 state/request 和自有调度处理器，新增 dev.example.workshop:sources/workshop 与 finish/observer 处理器。含旧定义的快照须保留原目录并使用新目录，不增加兼容别名或自动改写数据；含 world/cadence 状态的目录不能切换成未启用对应插件的模式。README.md、AGENTS.md 与用户 data 未修改。
+- 58 项相关回归通过；新增双路径共用 run_id、运行中直接交流、只读写入拒绝、取消收尾、关闭恢复、重复转交抑制及未启用 world/cadence 的验收，原有控制流程、工具故障、报告恢复与上下文保留断言继续通过。
+- 完整 `uv run --locked aurora check` 通过：1042 项 Python、97 项 TS、5 项终端测试；Linux 跳过 1 项 Windows CMD/PATHEXT 用例。格式、lint、Python/TS 类型和生成契约检查通过，保留既有 Pydantic ReadOnly 提示。
+- 12 个 wheel 构建成功。临时干净环境显式安装本次本地 wheel，验证 control 无 agent/模型依赖、agent 无 bot/CLI/API/world 的工具往返与引导/重启、world 基础包及配置组合的去重恢复。产品 wheel 环境的 20 项 live_workshop/API 回归通过，核验导入路径、版本和配置资源，未借助工作区 editable 安装。普通回归未调用真实模型、NapCat 或 QQ 业务服务。
+- W4 已交付；下一步按主动上下文讨论稿推进业务视图、工作笔记和归档读取，QQ 真实行为验收另行安排。
+
 ### 保护 API 观察状态并保留执行清理异常
 
 - API 和 CLI serve 增加 read_only_keys / --read-only-keys，与现有读写 keys 分开声明；重叠配置明确拒绝。只读键允许 get/list/watch，所有 location 的 set/delete 均返回 forbidden。serve_bot 的 bot、world 和 cadence 观察状态统一只读，交流和配置仍通过对应产品端点完成。公共 ID、快照和现有 keys 的读写语义不变。

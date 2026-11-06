@@ -169,9 +169,9 @@ try {
 uv run --locked python examples/live_workshop/main.py --data-dir build/workshop-demo serve --port 10270
 ```
 
-该进程持续运行，模拟世界变化并通过示例内的调度策略触发巡检。工具内部组合四种控制组件，报告保存在本地台账中。按 Ctrl+C 关闭宿主、任务、模型和存储。
+该进程持续运行，模拟来源通过正式 world 归档事件，cadence 将事件交给同一个 AgentRuntime 触发巡检。工具内部组合四种控制组件，报告保存在本地台账中。按 Ctrl+C 关闭宿主、任务、模型和存储。
 
-`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳、可选 TOML 装配与后台主循环托管，W2.3 还提供时间与天气周期来源，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。W3 已提供默认 bot 的可选 cadence；本示例的模拟来源和调度仍属示例实现，M4.W4 再替换为正式能力。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
+`aurora_world` 已提供独立的世界记录、来源去重、按位置读取、来源登记、固定身份接纳、可选 TOML 装配与后台主循环托管，W2.3 还提供时间与天气周期来源，接口见[世界输入设计](../docs/aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。本示例已使用正式来源工厂、TOML 装配及 cadence；模拟来源仅提交事件，直接交流复用同一 AgentRuntime。仅安装 core/world 的来源装配、接收及恢复验收使用 `tests/fixtures/world_roundtrip.py`，不另增第六条示例路径。
 
 TOML 路径需要安装 `aurora-world[config]`，显式启用 aurora_config、aurora_world、aurora_world.configuration 及来源提供插件；宿主同时装配 `configuration_component`、`records.component(hooks)` 和 `configured_sources_component(ctx, hooks, records, depends_on=("aurora_world/records",))`。后者在 config 阶段读取 `org.aurora.world/config.toml`，默认空列表不启动任何来源。每个 `[[sources]]` 包含 source 定义 ID、唯一 source_id 和可选的 `[sources.config]`。来源参数不承载运行期凭证；修改配置需重新启动，状态覆盖不保存到文件。夹具的 `--configured` 模式验证此路径：
 
@@ -188,11 +188,26 @@ uv run --locked aurora --connect http://127.0.0.1:10270 ctx watch --key dev.exam
 uv run --locked aurora --connect http://127.0.0.1:10270 ctx watch --key org.aurora.control:state/control
 ```
 
-手动提交请求：
+手动交流可通过 TUI 连接本机地址并选择 `workshop`，也可通过正式 conversation 端点提交：
 
 ```powershell
-uv run --locked aurora --connect http://127.0.0.1:10270 ctx set dev.example.workshop:state/request '{"text":"手动巡检","steps":4}'
+$base = "http://127.0.0.1:10270"
+$info = Invoke-RestMethod "$base/conversation/info" -Method Post -ContentType "application/json" -Body '{}'
+$body = @{ session_id = $info.result.session_id; instance_id = "workshop"; request_id = [guid]::NewGuid().ToString(); text = "手动巡检" } | ConvertTo-Json
+Invoke-RestMethod "$base/conversation/submit" -Method Post -ContentType "application/json" -Body ([Text.Encoding]::UTF8.GetBytes($body))
 ```
+
+离线模型接受普通文本；也可将 `text` 填为含 `text`、`steps`、`delay`、`fail` 的 JSON 文本以演示步骤和工具失败。运行中交流仍属于当前运行；取消使用 conversation/cancel 的 session_id、instance_id、run_id，取消后需显式提交后续工作。设置 `settings.automatic=false` 暂停产生新巡检事件，已归档事件仍由 cadence 接纳，环境 tick 继续变化。
+
+仅验证直接交流时使用独立目录：
+
+```powershell
+uv run --locked python examples/live_workshop/main.py --direct-only --data-dir build/workshop-direct serve --port 10270
+```
+
+该模式不启用 world/configuration/cadence 插件，不生成世界事件数据库。普通模式的来源与消费配置分别位于 `config/org.aurora.world/world.toml`、`config/org.aurora.bot/cadence.toml`；模板只补缺失文件。API 仅允许修改示例 settings 与模型 bindings，其他状态只读；绑定的文件配置仍需通过 TOML 修改并重启。
+
+旧示例的 `dev.example.workshop:state/request` 及自有调度处理器已移除，不提供兼容转发。旧快照若包含这些状态须保留原目录并换新数据目录运行；本次不自动改写用户快照。已有 world/cadence 快照也不能直接以 --direct-only 恢复。报告台账仍持久保存，成功运行保留最近一组引导及完整工具往返，未收束工具结果沿默认恢复语义保留；恢复不重试工具副作用。
 
 ## 插件发现与定义目录
 
@@ -305,7 +320,7 @@ uv run --locked --env-file .env python scripts/serve_bot.py --world --cadence --
 
 `error=TransferUncertain` 表示须核对 pending 是否已经进入 agent；`CursorInvalid` 表示日志换代、缺失或裁剪缺口；`SelectionChanged` 表示来源范围不一致。暂停不阻断直接交流，也不会因重启自动解除。核对时先停止宿主并保留完整快照，对照 world、pending、receipts 与 agent 数据；不能仅凭文本相同认定已投递。首版没有自动核对或重置命令，须由宿主明确决定修复后的消费状态，不能直接删除游标来重放。
 
-完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重覆盖数据库历史，呈现窗口外的同身份重投仍返回原记录。离线回归为 `uv run --locked pytest tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 的正式替换及完整双路径矩阵留在 M4.W4。
+完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重覆盖数据库历史，呈现窗口外的同身份重投仍返回原记录。离线回归为 `uv run --locked pytest tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 已完成正式替换，双路径与恢复验收见 `tests/e2e/test_live_workshop.py`。
 
 ## MCP 独立客户端验收
 

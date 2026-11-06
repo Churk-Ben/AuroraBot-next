@@ -1,4 +1,4 @@
-"""持续巡检工作台：示例内的世界来源、串行调度与默认 bot 联动。"""
+"""持续巡检工作台：正式世界来源、cadence 与默认 bot 联动。"""
 
 import asyncio
 import json
@@ -19,19 +19,26 @@ from aurora_agent.tools import plugin as tools_plugin
 from aurora_bot.assembly import DefaultAssembly
 from aurora_bot.assembly import plugin as assembly_plugin
 from aurora_bot.assembly_config import AGENTS, CONFIG, MESSAGES, RUN, WORK
+from aurora_bot.cadence import plugin as cadence_plugin
+from aurora_bot.cadence.state import CHECKPOINT
+from aurora_bot.cadence.state import CONFIG_STATE as CADENCE_CONFIG
 from aurora_cli.declarations import CONFIG as CLI_CONFIG
 from aurora_config import ConfigSpec, ConfigTemplate
-from aurora_control import CONTROL_STATE, ExecutionPlug, ExecutionRequest, component_entries
+from aurora_control import CONTROL_STATE, ExecutionPlug, component_entries
 from aurora_control import plugin as control_plugin
 from aurora_core import Id, entry_from, hook_handler
 from aurora_core.ctx import StateKey
 from aurora_core.discovery import Plugin
-from aurora_core.lifecycle import PREPARE, START, STOP, LifecycleComponent
+from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_core.registry import RegistryEntry
 from aurora_model_adapter.configuration import ADAPTERS, BINDINGS
 from aurora_model_adapter.configuration import CONFIG as MODEL_CONFIG
 from aurora_model_adapter.fake import FakeModel, FakeReply
 from aurora_model_adapter.plugin import plugin as adapter_plugin
+from aurora_world import RECORDS, SOURCE_STATUS, SOURCES, SourceInstance, SourceSpec
+from aurora_world.configuration import CONFIG_STATE as WORLD_CONFIG
+from aurora_world.configuration import configured_sources_component
+from aurora_world.configuration import plugin as world_configuration_plugin
 from aurora_world.plugin import plugin as world_plugin
 from pipeline import INSPECT, PIPELINE, STEPS, create_inspector, declared
 
@@ -39,14 +46,17 @@ NAMESPACE = "dev.example.workshop"
 ASSEMBLY = Id(f"{NAMESPACE}:assemblies/live")
 SETTINGS = Id(f"{NAMESPACE}:state/settings")
 WORLD = Id(f"{NAMESPACE}:state/world")
-REQUEST = Id(f"{NAMESPACE}:state/request")
+SOURCE = Id(f"{NAMESPACE}:sources/workshop")
+FINISH = Id(f"{NAMESPACE}:handlers/finish")
 STATUS = Id(f"{NAMESPACE}:state/status")
 REPORTS = Id(f"{NAMESPACE}:state/reports")
 ADAPTER = Id(f"{NAMESPACE}:adapters/fake")
 INSPECT_TOOL = Id(f"{NAMESPACE}:tools/inspect")
 REPORT_TOOL = Id(f"{NAMESPACE}:tools/report")
 REPORT = Id(f"{NAMESPACE}:handlers/report")
-EXPOSED = (SETTINGS, WORLD, REQUEST, STATUS, REPORTS, PIPELINE, AGENTS, MESSAGES, RUN, WORK, CONTROL_STATE, BINDINGS)
+WRITABLE = (SETTINGS, BINDINGS)
+EXPOSED = (WORLD, STATUS, REPORTS, PIPELINE, AGENTS, MESSAGES, RUN, WORK, CONTROL_STATE)
+WORLD_EXPOSED = (RECORDS, SOURCE_STATUS, CHECKPOINT)
 logger = logging.getLogger(__name__)
 
 
@@ -67,28 +77,32 @@ def validate_settings(value):
     settings(value)
 
 
-def validate_request(value):
-    if not isinstance(value, dict) or value.keys() - {"text", "fail", "steps"}:
-        raise ValueError("request 仅接受 text、fail、steps")
-    if not isinstance(value.get("text"), str) or not value["text"].strip():
-        raise ValueError("text 必须为非空字符串")
-    if type(value.get("fail", False)) is not bool:
-        raise ValueError("fail 必须为布尔值")
-    settings({"steps": value.get("steps", 3)})
-
-
-async def create_model(config, *, api_key=None):
+async def create_model(config, *, api_key=None, ctx=None):
     """确定性模型通过正式工具协议决策；保留一个请求样本，适合长时间演示。"""
 
     def respond(request):
         del model.requests[:-1]
-        jobs, calls, observations = {}, {}, []
+        waiting, calls, observations = [], {}, []
         for message in request["messages"]:
             if message["role"] == "user":
-                job = json.loads(message["content"])
-                jobs[job["job_id"]] = job
+                try:
+                    data = json.loads(message["content"])
+                except (ValueError, TypeError):
+                    data = {"text": message["content"]}
+                if not isinstance(data, dict):
+                    data = {"text": message["content"]}
+                current = settings(ctx.get(SETTINGS)) if ctx is not None else settings({})
+                waiting.append(
+                    {"job_id": uuid4().hex, "steps": current["steps"], "delay": current["delay"], "fail": False, **data}
+                )
             elif message["role"] == "assistant":
-                calls.update({call["id"]: call for call in message.get("tool_calls", [])})
+                for call in message.get("tool_calls", []):
+                    calls[call["id"]] = call
+                    if call["name"] == "inspect":
+                        for index, job in enumerate(waiting):
+                            if job["text"] == call["arguments"]["text"]:
+                                waiting.pop(index)
+                                break
             elif message["role"] == "tool":
                 observations.append(json.loads(message["content"]))
         reported = {call["arguments"]["source"] for call in calls.values() if call["name"] == "publish_report"}
@@ -109,8 +123,6 @@ async def create_model(config, *, api_key=None):
                     for item in pending
                 ),
             )
-        processed = {call["arguments"]["job_id"] for call in calls.values() if call["name"] == "inspect"}
-        waiting = [job for identity, job in jobs.items() if identity not in processed]
         if waiting:
             return FakeReply(
                 ("已接纳任务，", "开始分步巡检。"),
@@ -144,16 +156,22 @@ async def create_reporter(*, ctx, storage, instance_id, input_state, output_stat
 
 
 class Workshop:
-    """来源与调度任务各自持有，调度组件停止后才关闭 bot 的工具和模型。"""
+    """模拟来源与观察视图；引导和激活由正式 cadence、conversation 及 runtime 持有。"""
 
     def __init__(self, registry, ctx, hooks, storage):
         self.ctx, self.hooks, self.storage = ctx, hooks, storage
-        self.bot = DefaultAssembly(registry=registry, ctx=ctx, hooks=hooks, storage=storage)
-        self.wake = asyncio.Event()
+        self.bot = DefaultAssembly(
+            registry=registry,
+            ctx=ctx,
+            hooks=hooks,
+            storage=storage,
+            world_component_factory=partial(
+                configured_sources_component, source_factories={SOURCE: self.create_source}
+            ),
+        )
         self.changed = asyncio.Event()
-        self.source = self.worker = None
         self.subscription = None
-        self.closing = self.busy = False
+        self.finish_link = None
 
     @hook_handler(f"{NAMESPACE}:handlers/prepare", slot=PREPARE)
     def prepare(self):
@@ -161,12 +179,11 @@ class Workshop:
             initial = self.ctx.get(CLI_CONFIG)
         except KeyError:
             initial = {}
-        defaults = {
+        for key, value in {
             SETTINGS: settings(initial),
             WORLD: {"tick": 0, "temperature": 20},
-            STATUS: {"activations": 0, "status": "idle", "sequence": 0},
-        }
-        for key, value in defaults.items():
+            STATUS: {"activations": 0, "status": "idle"},
+        }.items():
             try:
                 self.ctx.get(key)
             except KeyError:
@@ -180,118 +197,95 @@ class Workshop:
             for address in self.ctx.list(key=key):
                 self.ctx.delete(key, location=dict(address.location))
 
-    def enqueue(self, data):
-        if self.closing:
-            return
-        request = ExecutionRequest("guidance")
-        agent = self.bot.agent
-        assert agent is not None
-        pending = agent.pending(request)
-        state = self.ctx.get(STATUS)
-        sequence = state["sequence"] + 1
-        current = settings(self.ctx.get(SETTINGS))
-        job = {"job_id": uuid4().hex, "steps": current["steps"], "delay": current["delay"], "fail": False, **data}
-        agent.inbox.set(self.ctx, request, [*pending, {"sequence": sequence, "id": job["job_id"], "payload": job}])
-        self.ctx.set(STATUS, {**state, "sequence": sequence})
-        self.wake.set()
-        logger.info("已接纳引导 #%s：%s", sequence, job["text"])
-
-    def observe(self, change):
-        if change.action != "set" or change.address.location:
-            return
-        if change.address.key == REQUEST:
-            self.enqueue(change.value)
-        elif change.address.key == SETTINGS:
-            self.changed.set()
-        elif change.address.key == WORLD:
-            current = settings(self.ctx.get(SETTINGS))
-            agent = self.bot.agent
-            if (
-                current["automatic"]
-                and not self.busy
-                and agent is not None
-                and not agent.pending(ExecutionRequest("poll"))
-            ):
-                self.enqueue({"text": f"自动巡检 #{change.value['tick']}"})
-
-    @hook_handler(f"{NAMESPACE}:handlers/start_world", slot=START)
-    def start_world(self):
-        self.source = asyncio.create_task(self.produce(), name="workshop-world")
-
-    async def produce(self):
-        while True:
-            current = settings(self.ctx.get(SETTINGS))
-            world = self.ctx.get(WORLD)
-            tick = world["tick"] + 1
-            self.ctx.set(WORLD, {"tick": tick, "temperature": 20 + tick % 9})
-            self.changed.clear()
-            with suppress(TimeoutError):
-                await asyncio.wait_for(self.changed.wait(), current["interval"])
-
-    @hook_handler(f"{NAMESPACE}:handlers/start_cadence", slot=START)
-    def start_cadence(self):
+    @hook_handler(f"{NAMESPACE}:handlers/start_observer", slot=START)
+    def start_observer(self):
+        assert self.bot.agent is not None
+        self.finish_link = self.bot.agent.slots["finish"].connect(
+            ExecutionPlug(FINISH, self.finish, instance_id="workshop/retention")
+        )
         self.subscription = self.ctx.subscribe(self.observe)
         self.ctx.set(STATUS, {**self.ctx.get(STATUS), "status": "idle"})
-        self.worker = asyncio.create_task(self.schedule(), name="workshop-cadence")
-        self.wake.set()
 
-    async def schedule(self):
-        while True:
-            await self.wake.wait()
-            self.wake.clear()
-            agent = self.bot.agent
-            assert agent is not None
-            request = ExecutionRequest(uuid4().hex)
-            if not agent.pending(request):
-                continue
-            self.busy = True
-            state = self.ctx.get(STATUS)
+    def observe(self, change):
+        if change.address.key == SETTINGS:
+            self.changed.set()
+        elif change.address.key == RUN and change.action == "set":
+            previous = self.ctx.get(STATUS)
+            value = change.value
             self.ctx.set(
                 STATUS,
-                {**state, "status": "running", "activations": state["activations"] + 1, "run_id": request.run_id},
+                {
+                    "activations": previous["activations"] + int(previous.get("run_id") != value["run_id"]),
+                    "status": value["status"],
+                    "run_id": value["run_id"],
+                },
             )
-            try:
-                await self.bot.activate(request)
-            except asyncio.CancelledError:
-                self.ctx.set(STATUS, {**self.ctx.get(STATUS), "status": "cancelled"})
-                raise
-            except Exception:
-                logger.exception("本次激活失败；宿主继续等待新的输入")
-                self.ctx.set(STATUS, {**self.ctx.get(STATUS), "status": "failed"})
-            else:
-                self.ctx.set(STATUS, {**self.ctx.get(STATUS), "status": "completed"})
-                assert self.bot.defaults is not None
-                context = cast(ReActContext, self.bot.defaults.context_state.get(self.ctx, request))
-                # 保留最近一组引导及其完整工具往返，避免常驻演示无限积累上下文。
-                start = max(index for index, message in enumerate(context["messages"]) if message["role"] == "user")
-                while start and context["messages"][start - 1]["role"] == "user":
-                    start -= 1
-                self.bot.defaults.context_state.set(
-                    self.ctx, request, {**context, "messages": context["messages"][start:]}
-                )
-                if agent.pending(request):
-                    self.wake.set()
-            finally:
-                self.busy = False
 
-    def stop_accepting(self):
-        self.closing = True
+    async def finish(self, request):
+        assert self.bot.defaults is not None
+        context = cast(ReActContext, self.bot.defaults.context_state.get(self.ctx, request))
+        # 最近一组引导连同完整工具往返保留；未收束轮次由默认策略负责恢复。
+        start = max(index for index, message in enumerate(context["messages"]) if message["role"] == "user")
+        while start and context["messages"][start - 1]["role"] == "user":
+            start -= 1
+        messages = context["messages"]
+        while start:
+            results = {message.get("tool_call_id") for message in messages[start:] if message["role"] == "tool"}
+            calls = {call["id"] for message in messages[start:] for call in message.get("tool_calls", [])}
+            if results <= calls:
+                break
+            start -= 1
+            while start and messages[start]["role"] != "user":
+                start -= 1
+        self.bot.defaults.context_state.set(self.ctx, request, {**context, "messages": messages[start:]})
 
-    @hook_handler(f"{NAMESPACE}:handlers/stop_cadence", slot=STOP)
-    async def stop_cadence(self):
+    async def create_source(self, *, source_id, emit, config):
+        if config:
+            raise ValueError("巡检来源参数通过 settings 状态管理")
+
+        async def noop():
+            pass
+
+        async def produce():
+            while True:
+                current = settings(self.ctx.get(SETTINGS))
+                tick = self.ctx.get(WORLD)["tick"] + 1
+                self.ctx.set(WORLD, {"tick": tick, "temperature": 20 + tick % 9})
+                if current["automatic"]:
+                    identity = uuid4().hex
+                    emit(
+                        message_id=identity,
+                        payload={
+                            "job_id": identity,
+                            "text": f"自动巡检 #{tick}",
+                            "steps": current["steps"],
+                            "delay": current["delay"],
+                            "fail": False,
+                        },
+                    )
+                self.changed.clear()
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(self.changed.wait(), current["interval"])
+
+        return SourceInstance(start=noop, stop=noop, aclose=noop, run=produce)
+
+    @hook_handler(f"{NAMESPACE}:handlers/stop_observer", slot=STOP)
+    def stop_observer(self):
         if self.subscription is not None:
             self.ctx.unsubscribe(self.subscription)
-        if self.worker is not None:
-            self.worker.cancel()
-            with suppress(asyncio.CancelledError):
-                await self.worker
+            self.subscription = None
 
-    @hook_handler(f"{NAMESPACE}:handlers/stop_world", slot=STOP)
-    async def stop_world(self):
-        if self.source is not None:
-            self.source.cancel()
-            with suppress(asyncio.CancelledError):
-                await self.source
+    @hook_handler(f"{NAMESPACE}:handlers/clean_observer", slot=CLEAN)
+    def clean_observer(self):
+        self.stop_observer()
+        if self.finish_link is not None:
+            assert self.bot.agent is not None
+            self.hooks.disconnect(self.finish_link.connection)
+            self.finish_link = None
+
+
+async def declared_source(*, source_id, emit, config):
+    raise RuntimeError("巡检来源需要示例装配注入业务环境")
 
 
 def assemble(*, registry, ctx, hooks, storage, workspace_root):
@@ -302,29 +296,30 @@ def assemble(*, registry, ctx, hooks, storage, workspace_root):
             target=ToolSpec(INSPECT, entry.target.definition, factory=partial(create_inspector, registry=registry)),
         )
     )
+    registry.replace(replace(registry.get(ADAPTER), target=partial(create_model, ctx=ctx)))
     app = Workshop(registry, ctx, hooks, storage)
     for owner, phase, method in (
         ("workshop/settings", PREPARE, app.prepare),
-        ("workshop/world", START, app.start_world),
-        ("workshop/world", STOP, app.stop_world),
-        ("workshop/cadence", START, app.start_cadence),
-        ("workshop/cadence", STOP, app.stop_cadence),
+        ("workshop/observer", START, app.start_observer),
+        ("workshop/observer", STOP, app.stop_observer),
+        ("workshop/observer", CLEAN, app.clean_observer),
     ):
         definition = entry_from(method, provider=NAMESPACE)
         hooks.connect(phase, definition.id, slot_instance=owner, handler_instance=owner, target=method)
-    model, bot = app.bot.components()
+    components = app.bot.components(depends_on=("workshop/settings",))
     return (
         LifecycleComponent("workshop/settings"),
-        replace(model, depends_on=("workshop/settings",)),
-        bot,
-        LifecycleComponent("workshop/world", depends_on=("workshop/settings",), stop_accepting=app.stop_accepting),
-        LifecycleComponent(
-            "workshop/cadence", depends_on=(bot.instance_id, "workshop/world"), stop_accepting=app.stop_accepting
+        *(
+            replace(component, depends_on=(*component.depends_on, "workshop/observer"))
+            if component.instance_id == "default/world"
+            else component
+            for component in components
         ),
+        LifecycleComponent("workshop/observer", depends_on=("default/bot",)),
     )
 
 
-def plugins():
+def plugins(*, with_world=True):
     tool_schema = {
         "type": "object",
         "properties": {
@@ -342,11 +337,11 @@ def plugins():
         (
             RegistryEntry(ASSEMBLY, "assembly", assemble, NAMESPACE),
             RegistryEntry(ADAPTER, "adapter", create_model, NAMESPACE, register_to=ADAPTERS),
+            RegistryEntry(SOURCE, "source", SourceSpec(declared_source), NAMESPACE, register_to=SOURCES),
             *(
                 RegistryEntry(key, "state_key", StateKey(validator), NAMESPACE)
                 for key, validator in (
                     (SETTINGS, validate_settings),
-                    (REQUEST, validate_request),
                     (WORLD, None),
                     (STATUS, None),
                     (REPORTS, None),
@@ -355,11 +350,11 @@ def plugins():
             ),
             *(
                 entry_from(getattr(Workshop, name), provider=NAMESPACE)
-                for name in ("prepare", "start_world", "stop_world", "start_cadence", "stop_cadence")
+                for name in ("prepare", "start_observer", "stop_observer", "clean_observer")
             ),
             *(
                 entry
-                for key in (INSPECT, REPORT, *(Id(f"{NAMESPACE}:handlers/{name}") for name in STEPS))
+                for key in (INSPECT, REPORT, FINISH, *(Id(f"{NAMESPACE}:handlers/{name}") for name in STEPS))
                 for entry in component_entries(key, declared, declared, provider=NAMESPACE)
             ),
             RegistryEntry(
@@ -403,10 +398,16 @@ def plugins():
         tools_plugin(),
         defaults_plugin(),
         assembly_plugin(),
-        world_plugin(),
+        *((world_plugin(), world_configuration_plugin(), cadence_plugin()) if with_world else ()),
         example,
     )
-    resources = {CONFIG: "bot.toml", MODEL_CONFIG: "profiles.toml", BINDINGS: "bindings.toml"}
+    resources = {
+        CONFIG: "bot.toml",
+        MODEL_CONFIG: "profiles.toml",
+        BINDINGS: "bindings.toml",
+        WORLD_CONFIG: "world.toml",
+        CADENCE_CONFIG: "cadence.toml",
+    }
     return tuple(
         replace(
             item,
