@@ -29,3 +29,8 @@ max_chars = 8000
 [actions]
 enabled = false
 max_chars = 8000
+
+# 统一模型请求 JSON 字符预算；保留当前交流及完整工具关系，不等同于 token 上限。
+[input_budget]
+enabled = false
+max_chars = 128000

@@ -1,15 +1,16 @@
 """默认 ReAct 阶段：准备上下文、解释模型决定和回填工具观察。"""
 
 from collections.abc import Callable
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
-from aurora_adapter.model import Message, ModelProtocolError, ToolCall
+from aurora_adapter.model import Message, ModelProtocolError, ModelRequest, ToolCall
 from aurora_control import ExecutionLink, ExecutionPlug, ExecutionRequest, InstanceStateBinding, component_entries
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
 
+from .input_budget import ModelInputBudget, ModelInputBudgetExceeded, read_exchange_ends
 from .model import ModelCall, ModelCallState
 from .react import Guidance, ReActAgent
 from .tools import ToolBatchState, ToolExecutor, failure, read_request
@@ -24,11 +25,16 @@ class PendingTurn(TypedDict):
 
 
 class ReActContext(TypedDict):
-    """上下文及引导消费位置整项写入，避免重复接纳和孤立的工具消息。"""
+    """上下文及引导消费位置整项写入，避免重复接纳和孤立的工具消息。
+
+    exchange_ends 保存正常 stop 时的历史消息数，包括静默结束，不进入模型请求。
+    宿主裁剪消息时须同步平移并过滤结束位置；旧快照可缺少此字段。
+    """
 
     messages: list[Message]
     guidance_sequence: int
     pending: PendingTurn | None
+    exchange_ends: NotRequired[list[int]]
 
 
 class ReActDefaults:
@@ -54,6 +60,7 @@ class ReActDefaults:
         context_state: InstanceStateBinding,
         system_prompt: str = "",
         context_view: Callable[[ExecutionRequest], str] | None = None,
+        input_budget: ModelInputBudget | None = None,
     ) -> None:
         if agent.ctx is not model.ctx or agent.ctx is not tools.ctx:
             raise ValueError("默认 ReAct 组件必须使用同一 ctx")
@@ -63,6 +70,7 @@ class ReActDefaults:
         self.ctx: Context = agent.ctx
         self.context_state, self.system_prompt = context_state, system_prompt
         self.context_view = context_view
+        self.input_budget = input_budget
 
     def connect(self) -> None:
         """连接四个工作阶段；装配须先登记对应插件，失败时撤销本次连接。"""
@@ -101,7 +109,7 @@ class ReActDefaults:
         try:
             value = self.context_state.get(self.ctx, request)
         except KeyError:
-            return {"messages": [], "guidance_sequence": 0, "pending": None}
+            return {"messages": [], "guidance_sequence": 0, "pending": None, "exchange_ends": []}
         if (
             not isinstance(value, dict)
             or not isinstance(value.get("messages"), list)
@@ -110,7 +118,15 @@ class ReActDefaults:
             or "pending" not in value
         ):
             raise ValueError("ReAct 上下文格式无效")
-        return cast(ReActContext, value)
+        context = cast(ReActContext, value)
+        if "exchange_ends" not in context:
+            context["exchange_ends"] = [
+                index + 1
+                for index, message in enumerate(context["messages"])
+                if message["role"] == "assistant" and not message.get("tool_calls")
+            ]
+        read_exchange_ends(context["messages"], context["exchange_ends"])
+        return context
 
     def _settle(self, context: ReActContext, *, recovering: bool) -> None:
         pending = context["pending"]
@@ -166,10 +182,21 @@ class ReActDefaults:
                 messages.insert(0, {"role": "user", "content": view})
         if self.system_prompt:
             messages.insert(0, {"role": "system", "content": self.system_prompt})
-        model_request: dict[str, object] = {"messages": messages}
+        model_request: ModelRequest = {"messages": messages}
         definitions = self.tools.definitions()
         if definitions:
             model_request["tools"] = definitions
+        if self.input_budget is not None:
+            try:
+                model_request = self.input_budget.apply(
+                    model_request,
+                    history_start=len(messages) - len(context["messages"]),
+                    exchange_ends=context["exchange_ends"],
+                )
+            except ModelInputBudgetExceeded:
+                address = self.model.request_state.address(request)
+                self.ctx.delete(address.key, location=dict(address.location))
+                raise
         self.model.request_state.set(self.ctx, request, model_request)
 
     async def interpret_response(self, request: ExecutionRequest) -> None:
@@ -189,8 +216,13 @@ class ReActDefaults:
         if calls:
             message["tool_calls"] = calls
             context["pending"] = {"run_id": request.run_id, "turn_id": batch["turn_id"], "message": message}
-        elif response["text"]:
-            context["messages"].append(message)
+        else:
+            if response["text"]:
+                context["messages"].append(message)
+            end = len(context["messages"])
+            ends = context["exchange_ends"]
+            if end and (not ends or ends[-1] != end):
+                ends.append(end)
         self.context_state.set(self.ctx, request, context)
         self.tools.request_state.set(self.ctx, request, batch)
         self.agent.decision.set(self.ctx, request, "act" if calls else "finish")

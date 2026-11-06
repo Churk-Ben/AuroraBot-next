@@ -5,13 +5,16 @@ import json
 import os
 import re
 import sys
+import tomllib
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+import tomli_w
 from aiohttp import ClientSession
 from aurora_api.client import CtxClient, RemoteError
+from aurora_core.json_data import encode_json
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "live_workshop" / "main.py"
 PREFIX = "dev.example.workshop:state/"
@@ -330,5 +333,83 @@ def test_direct_conversation_cancel_and_recovery_with_optional_world(tmp_path, d
             assert (await state(client, PREFIX + "reports"))["total"] == 2
             await submit(client, "重启后的直接交流")
             await until(client, PREFIX + "reports", lambda value: value["total"] == 3)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("direct_only", [False, True])
+def test_budget_notice_is_not_an_inspection_job(tmp_path, streaming, direct_only):
+    config = tomllib.loads((EXAMPLE.parent / "config.tomls/bot.toml").read_text(encoding="utf-8"))
+    config.update(streaming=streaming, input_budget={"enabled": True, "max_chars": 8000})
+    path = tmp_path / "data/config/org.aurora.bot/bot.toml"
+    path.parent.mkdir(parents=True)
+    path.write_text(tomli_w.dumps(config), encoding="utf-8")
+    snapshot = tmp_path / "data/framework/ctx.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text(
+        encode_json(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "id": "org.aurora.bot:state/messages",
+                        "location": {"instance_id": "workshop"},
+                        "value": {
+                            "messages": [
+                                {"role": "user", "content": "旧观察" * 4000},
+                                {"role": "assistant", "content": "旧巡检已结束"},
+                            ],
+                            "guidance_sequence": 0,
+                            "pending": None,
+                            "exchange_ends": [2],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def scenario():
+        async with workshop(tmp_path, {"automatic": False, "delay": 0}, direct_only=direct_only) as (client, _, _):
+            requests = []
+            async with client.watch(key="org.aurora.bot:state/react_work") as events:
+
+                async def collect():
+                    async for event in events:
+                        if event["action"] == "set" and event["location"].get("part") == "model_input":
+                            requests.append(event["value"])
+
+                collector = asyncio.create_task(collect())
+                try:
+                    receipt = await submit(client, {"text": "预算内巡检", "steps": 2, "delay": 0})
+                    status = await until(
+                        client,
+                        PREFIX + "status",
+                        lambda value: (
+                            value.get("run_id") == receipt["run_id"] and value["status"] in ("completed", "failed")
+                        ),
+                    )
+                    assert status["status"] == "completed"
+                finally:
+                    collector.cancel()
+                    await asyncio.gather(collector, return_exceptions=True)
+            assert len(requests) == 3
+            for request in requests:
+                assert len(encode_json(request)) <= 8000
+                kinds = {json.loads(m["content"]).get("kind") for m in request["messages"] if m["role"] == "user"}
+                assert "input_budget" in kinds
+                assert ("business_context" in kinds) is not direct_only
+            reports = await state(client, PREFIX + "reports")
+            assert reports["total"] == 1 and reports["recent"][0]["text"] == "预算内巡检"
+            assert reports["recent"][0]["result"]["status"] == "completed"
+            context = await state(client, "org.aurora.bot:state/messages", location={"instance_id": "workshop"})
+            calls = [call for message in context["messages"] for call in message.get("tool_calls", [])]
+            results = [m for m in context["messages"] if m["role"] == "tool"]
+            assert [call["name"] for call in calls] == ["inspect", "publish_report"]
+            assert all(call["arguments"]["text"] == "预算内巡检" for call in calls)
+            assert [call["id"] for call in calls] == [m["tool_call_id"] for m in results]
+            assert all(json.loads(m["content"])["status"] == "completed" for m in results)
 
     asyncio.run(scenario())

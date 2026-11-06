@@ -2,6 +2,32 @@
 
 ## 2026-11-06
 
+### 修复巡检示例将输入预算提示识别为任务
+
+- 复现 PR #5 的 P2：默认装配启用输入预算并省略历史时，live_workshop 将 input_budget 提示识别为缺少 text 的巡检任务，导致运行失败。离线模型现在同时跳过 business_context 和 input_budget，只对实际引导生成工具调用；同步示例启动指南。
+- 新增 4 项跨进程回归，覆盖流式/非流式与启用世界输入/direct-only 的组合：恢复超限历史后实际触发省略，核对每轮请求的预算和提示、唯一巡检及报告、完整工具关联与成功结果。修复前失败，修复后全部通过。
+
+- 61 项定向回归及完整 `uv run --locked aurora check` 通过：1196 项 Python、97 项 TS、5 项终端测试，以及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。未变更依赖、公共 ID 或存储格式，未调用真实模型或 QQ 服务。
+
+### 修复空回复结束的交流无法参与预算裁剪
+
+- 复现 PR #5 的 P2：1024 字符预算下每次约 350 字符，前两次静默正常结束，第三次触发 ModelInputBudgetExceeded；流式、非流式及重启场景均复现。
+- ReActContext 新增可选 exchange_ends，正常 stop 无论正文是否为空均保存当前历史结束位置，预算关闭时同样记录；不追加空白 assistant 消息，不把元数据发送给模型。无新增消息的重复静默结束不产生重复边界，模型失败、取消和未完整结束的响应不记为完成。
+- 预算按显式边界裁剪完整交流；边界类型、顺序、范围及工具关系严格校验。旧快照缺少字段时仅重建已有 assistant 回复可证明的结束位置，不能推断历史静默结束；不迁移或删除用户数据。live_workshop 裁剪历史时同步过滤和平移位置，文档补充快照和消费者影响。
+- 51 项预算、默认阶段与默认装配回归通过，包含连续静默、流式/非流式、先关闭预算再启用、正常重启、边界损坏、完整工具关系及原有超限重试；持续示例的 6 项回归通过。未修改 README.md、AGENTS.md，未调用真实供应商或 QQ 服务。
+
+- 完整 `uv run --locked aurora check` 通过：1192 项 Python、97 项 TS、5 项终端测试及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。11 个 wheel 构建成功，独立 agent wheel 的 33 项预算/默认阶段测试和产品环境的 18 项预算集成测试通过；84 处本地文档链接、文档格式及 `git diff --check` 通过。
+
+### 提供完整模型请求字符预算
+
+- agent 新增 ModelInputBudget 和明确的 ModelInputBudgetExceeded。ReActDefaults 在每轮 prepare 生成统一请求后约束完整 JSON 字符数，覆盖 system、当前视图、历史及工具定义；不是供应商 token 或 HTTP 字节上限。
+- 超限时按完整交流段从旧到新选择最少省略范围，保留最新交流及其全部引导、工具请求和结果，临时省略提示同样计入预算。必要内容仍放不下时清除旧 model_input 并阻止模型调用；持久历史及已完成工具结果不删除，显式重试不重复接纳或执行。
+- bot 新增可选 `[input_budget] enabled=false`，max_chars 默认 128000、最小 1024；由默认装配注入策略，不新增公共 ID、插件、依赖或快照字段，已有配置默认保持行为，模板不覆盖用户文件。
+- 23 项新增单元与默认装配回归通过，覆盖完整 JSON/Unicode 计数、固定材料超限、最少完整交流省略、流式/非流式工具关系、重启历史保留和超限后显式重试。同步启动指南、架构及接续计划，未修改 README.md、AGENTS.md 或用户数据，未调用真实模型或 QQ 服务。
+
+- 完整 `uv run --locked aurora check` 通过：1176 项 Python、97 项 TS、5 项终端测试，以及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。补充的最少省略断言在工作区及独立 agent wheel 中复验通过。
+- 11 个 wheel 构建成功；从明确 wheel 路径安装的干净 agent 环境无 bot/CLI/API/模型 SDK，25 项预算及默认阶段测试通过；产品 wheel 的 10 项预算集成测试通过，模块来自 site-packages，包内 input_budget 模板可读。85 处本地文档链接、Prettier/Ruff 文档格式与 `git diff --check` 通过。
+
 ### 提供可持久查询的工具执行证据
 
 - agent 的 ToolExecutor 接受可选 ToolRecorder，覆盖批次接纳、实际调用前和结果接纳前边界；记录失败阻止继续执行，取消后未调用项保留未执行。agent 不依赖 bot、world 或数据库，原 before_call/after_call 和结果接纳契约保留。

@@ -91,7 +91,7 @@ async def create_model(config, *, api_key=None, ctx=None):
                     data = {"text": message["content"]}
                 if not isinstance(data, dict):
                     data = {"text": message["content"]}
-                if data.get("kind") == "business_context":
+                if data.get("kind") in ("business_context", "input_budget"):
                     continue
                 current = settings(ctx.get(SETTINGS)) if ctx is not None else settings({})
                 waiting.append(
@@ -239,7 +239,15 @@ class Workshop:
             start -= 1
             while start and messages[start]["role"] != "user":
                 start -= 1
-        self.bot.defaults.context_state.set(self.ctx, request, {**context, "messages": messages[start:]})
+        self.bot.defaults.context_state.set(
+            self.ctx,
+            request,
+            {
+                **context,
+                "messages": messages[start:],
+                "exchange_ends": [end - start for end in context.get("exchange_ends", []) if end > start],
+            },
+        )
 
     async def create_source(self, *, source_id, emit, config):
         if config:
