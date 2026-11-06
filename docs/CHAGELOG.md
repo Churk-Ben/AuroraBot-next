@@ -10,6 +10,9 @@
 - 查询固定当前实例，按 Unicode 字符位置分页，max_chars 默认 8000、范围 1024–32000，约束每页 value 的完整 JSON。SQL 分段读取结果；每轮业务视图按总预算提供最近 16 次调用摘要，可单独隐藏。记录永久保留，关闭功能不删数据，不新增插件、依赖或 ctx 持久状态，旧快照无需迁移；完整备份须包含新增数据库。
 - 69 项定向回归通过，覆盖流式/非流式往返、笔记引用、重启分页、取消、未执行、结果写入失败、实例隔离、重复引用、严格预算和工具参数拒绝。同步启动指南、公共 ID、架构与接续计划；未修改 README.md、AGENTS.md 或用户数据，未调用真实模型或 QQ 服务。
 
+- 最终完整 `uv run --locked aurora check` 通过：1153 项 Python、97 项 TS、5 项终端测试及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。首次全量中的 MCP 20 毫秒启动预算用例在进入模拟传输前超时，单文件 35 项及后续完整检查均通过，未改断言；新增文档换行格式已修正并复验。
+- 11 个 wheel 构建成功。通过明确 wheel 路径安装验证，干净 control 环境不含 agent/adapter/模型，干净 agent 环境不含 bot/CLI/API/模型 SDK 且 22 项工具测试通过；产品 wheel 的 27 项证据单元与集成测试通过，模块确来自 site-packages，包内 actions 模板可读。96 处本地文档链接及 `git diff --check` 通过。
+
 ### 对齐归档工具的 JSON Schema 整数偏移
 
 - 同步 PR #2 的笔记整数参数修复，并修复 PR #3 中 offset=0.0 通过公开 schema 后被内部 ConfigSchema 拒绝的同类问题。归档工具边界将整数值浮点偏移复制为 int，WorldRecords 的严格整数接口及配置校验保持不变。
