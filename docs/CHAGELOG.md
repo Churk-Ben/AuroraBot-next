@@ -9,6 +9,8 @@
 - 预算按显式边界裁剪完整交流；边界类型、顺序、范围及工具关系严格校验。旧快照缺少字段时仅重建已有 assistant 回复可证明的结束位置，不能推断历史静默结束；不迁移或删除用户数据。live_workshop 裁剪历史时同步过滤和平移位置，文档补充快照和消费者影响。
 - 51 项预算、默认阶段与默认装配回归通过，包含连续静默、流式/非流式、先关闭预算再启用、正常重启、边界损坏、完整工具关系及原有超限重试；持续示例的 6 项回归通过。未修改 README.md、AGENTS.md，未调用真实供应商或 QQ 服务。
 
+- 完整 `uv run --locked aurora check` 通过：1192 项 Python、97 项 TS、5 项终端测试及格式、lint、Python/TS 类型检查通过，保留既有 Pydantic ReadOnly 提示。11 个 wheel 构建成功，独立 agent wheel 的 33 项预算/默认阶段测试和产品环境的 18 项预算集成测试通过；84 处本地文档链接、文档格式及 `git diff --check` 通过。
+
 ### 提供完整模型请求字符预算
 
 - agent 新增 ModelInputBudget 和明确的 ModelInputBudgetExceeded。ReActDefaults 在每轮 prepare 生成统一请求后约束完整 JSON 字符数，覆盖 system、当前视图、历史及工具定义；不是供应商 token 或 HTTP 字节上限。
