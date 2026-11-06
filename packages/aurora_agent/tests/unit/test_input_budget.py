@@ -82,3 +82,29 @@ def test_required_material_is_never_silently_truncated(part):
 def test_invalid_budgets_rejected(budget):
     with pytest.raises(ValueError):
         ModelInputBudget(budget)
+
+
+@pytest.mark.parametrize("ends", [None, [True], [0], [4], [2, 1], [1, 1], [1.0]])
+def test_recorded_exchange_boundaries_reject_invalid_snapshot_data(ends):
+    from aurora_agent.input_budget import read_exchange_ends
+
+    messages = [{"role": "user", "content": "观察"} for _ in range(3)]
+    with pytest.raises(TypeError if ends is None else ValueError):
+        read_exchange_ends(messages, ends)
+
+
+def test_recorded_boundary_preserves_tool_batch_and_latest_silent_exchange():
+    request = {
+        "messages": [
+            {"role": "user", "content": "旧观察" * 400},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "a", "name": "send", "arguments": {}}]},
+            {"role": "tool", "tool_call_id": "a", "content": "结果待核实"},
+            {"role": "user", "content": "新观察"},
+        ]
+    }
+    with pytest.raises(ValueError, match="工具往返"):
+        ModelInputBudget(1024).apply(request, history_start=0, exchange_ends=[2])
+    result = ModelInputBudget(1024).apply(request, history_start=0, exchange_ends=[3])
+    assert result["messages"][-1:] == request["messages"][-1:]
+    with pytest.raises(ModelInputBudgetExceeded):
+        ModelInputBudget(1024).apply({"messages": request["messages"][:3]}, history_start=0, exchange_ends=[3])

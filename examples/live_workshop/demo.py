@@ -239,7 +239,15 @@ class Workshop:
             start -= 1
             while start and messages[start]["role"] != "user":
                 start -= 1
-        self.bot.defaults.context_state.set(self.ctx, request, {**context, "messages": messages[start:]})
+        self.bot.defaults.context_state.set(
+            self.ctx,
+            request,
+            {
+                **context,
+                "messages": messages[start:],
+                "exchange_ends": [end - start for end in context.get("exchange_ends", []) if end > start],
+            },
+        )
 
     async def create_source(self, *, source_id, emit, config):
         if config:

@@ -267,7 +267,7 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | `org.aurora.bot:handlers/assembly/stop_bot` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/clean_bot` | `hook_handler` | `aurora_bot.assembly` |
 
-`state/config` 的来源为 bot 的 TOML 模板，不进入快照。`state/agents` 保存实例级 inbox/progress，`state/messages` 保存上下文，`state/run` 保存最近运行状态，`state/react_work` 保存按 run_id 定位的工作数据。实例以 instance_id 隔离。
+`state/config` 的来源为 bot 的 TOML 模板，不进入快照。`state/agents` 保存实例级 inbox/progress，`state/messages` 保存上下文及可选 exchange_ends（正常 stop 时的历史消息数，包含静默结束），`state/run` 保存最近运行状态，`state/react_work` 保存按 run_id 定位的工作数据。实例以 instance_id 隔离。 exchange_ends 不进入模型请求；历史裁剪消费者须同步平移并过滤边界。旧快照缺少字段时只重建已有 assistant 回复能证明的边界，不能推断未记录的历史静默结束；显式边界损坏时拒绝恢复使用，不新增状态 ID。
 
 `state/notes` 以 `location={instance_id}` 保存版本为 1 的笔记集合，由宿主快照持久化；不随 react_work 清理。每条含 note_id、revision、text、status、references、创建/更新时间以及最近写入的 run_id/execution_id/call_id。active 笔记不按时间过期，archived 笔记仍保留并占用容量。默认关闭，由 bot 的 `[notes] enabled=true` 将 notes_read/notes_write/notes_list 接入既有 ToolExecutor，不在 tools 列表手工重复声明；工具从装配的工作状态绑定确定所有者，模型参数不接受 instance_id。
 

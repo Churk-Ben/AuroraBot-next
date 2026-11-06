@@ -142,3 +142,44 @@ def test_default_configuration_keeps_budget_opt_in():
         "enabled": False,
         "max_chars": 128000,
     }
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("restart", [False, True])
+@pytest.mark.parametrize("initially_enabled", [False, True])
+def test_silent_completed_exchanges_remain_prunable(tmp_path, streaming, restart, initially_enabled):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+
+        def options():
+            configure(ctx, streaming=streaming, budget=1024, enabled=initially_enabled)
+            ctx.set(CONFIG, {**cast(dict, ctx.get(CONFIG)), "tools": []})
+
+        await host.start(configure=options)
+        clients[0].respond = lambda request: FakeReply()
+        inputs = [f"观察 {index}:" + "文" * 350 for index in range(6)]
+        try:
+            for text in inputs[:2]:
+                assert (await assembly.runtime.submit(text).run.wait()).status == "completed"
+            if restart:
+                await host.stop()
+                host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)
+                await host.start()
+                assert clients[0].requests == []
+                clients[0].respond = lambda request: FakeReply()
+            assert assembly.defaults is not None
+            assembly.defaults.input_budget = ModelInputBudget(1024)
+            for text in inputs[2:]:
+                assert (await assembly.runtime.submit(text).run.wait()).status == "completed"
+                request = clients[0].requests[-1]
+                assert len(encode_json(request)) <= 1024
+                assert request["messages"][-1] == {"role": "user", "content": text}
+                assert json.loads(request["messages"][0]["content"])["kind"] == "input_budget"
+            context = cast(dict, ctx.get(MESSAGES, location={"instance_id": "main"}))
+            assert context["messages"] == [{"role": "user", "content": text} for text in inputs]
+            assert context["exchange_ends"] == list(range(1, 7))
+            assert all(m["role"] != "assistant" for r in clients[0].requests for m in r["messages"])
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())

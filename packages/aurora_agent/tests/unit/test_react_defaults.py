@@ -318,8 +318,9 @@ def test_missing_results_are_not_replaced_by_stale_batch(factory):
 
 @pytest.mark.parametrize("finish_reason", ["length", "content_filter"])
 def test_incomplete_model_response_cannot_be_treated_as_success(factory, finish_reason):
-    ctx, agent, _, _, calls, _, _ = factory(lambda _: FakeReply(("部分输出",), finish_reason=finish_reason))
+    ctx, agent, defaults, _, calls, _, _ = factory(lambda _: FakeReply(("部分输出",), finish_reason=finish_reason))
     request = ExecutionRequest("run")
     with pytest.raises(ModelProtocolError):
         asyncio.run(agent.execute(request))
     assert calls == [] and cast(dict, agent.runtime.get(ctx, request))["status"] == "failed"
+    assert defaults.context_state.get(ctx, request)["exchange_ends"] == []

@@ -2,8 +2,22 @@
 
 from copy import deepcopy
 
-from aurora_adapter.model import ModelRequest
+from aurora_adapter.model import Message, ModelRequest
 from aurora_core.json_data import encode_json
+
+
+def read_exchange_ends(messages: list[Message], value: object) -> list[int]:
+    """校验相对持久历史的结束位置，不允许越界、重复或切断工具往返。"""
+    if not isinstance(value, list):
+        raise TypeError("交流结束位置必须为列表")
+    previous = 0
+    for end in value:
+        if type(end) is not int or not previous < end <= len(messages):
+            raise ValueError("交流结束位置必须为递增且不越界的正整数")
+        if messages[end - 1].get("tool_calls") or (end < len(messages) and messages[end]["role"] == "tool"):
+            raise ValueError("交流结束位置不能切断工具往返")
+        previous = end
+    return value
 
 
 class ModelInputBudgetExceeded(ValueError):
@@ -17,8 +31,8 @@ class ModelInputBudgetExceeded(ValueError):
 class ModelInputBudget:
     """限制统一 ModelRequest JSON 字符数，不等同于供应商 token 或 HTTP 字节数。
 
-    system、临时观察及工具定义完整保留。仅从历史开头移除以无工具调用的
-    assistant 消息结束的完整交流段；至少保留最新一段及其后的全部输入和结果。
+    system、临时观察及工具定义完整保留。按显式正常结束位置选择完整交流段；
+    未提供位置时仅识别无工具调用的 assistant 消息，至少保留最新交流段。
     省略提示计入预算，不生成摘要，不修改原请求或持久历史。
     """
 
@@ -27,17 +41,21 @@ class ModelInputBudget:
             raise ValueError("完整模型输入预算必须为至少 1024 的整数")
         self.max_chars = max_chars
 
-    def apply(self, request: ModelRequest, *, history_start: int) -> ModelRequest:
-        if len(encode_json(request)) <= self.max_chars:
-            return request
+    def apply(
+        self, request: ModelRequest, *, history_start: int, exchange_ends: list[int] | None = None
+    ) -> ModelRequest:
         messages = request["messages"]
         history = messages[history_start:]
-        # 最后一条之前的完整回复构成可删除边界，最新交流段始终保留。
-        boundaries = [
-            index + 1
-            for index, message in enumerate(history[:-1])
-            if message["role"] == "assistant" and not message.get("tool_calls")
-        ]
+        if exchange_ends is None:
+            exchange_ends = [
+                index + 1
+                for index, message in enumerate(history)
+                if message["role"] == "assistant" and not message.get("tool_calls")
+            ]
+        ends = read_exchange_ends(history, exchange_ends)
+        if len(encode_json(request)) <= self.max_chars:
+            return request
+        boundaries = [end for end in ends if end < len(history)]
 
         def candidate_at(removed: int) -> ModelRequest:
             notice = {
