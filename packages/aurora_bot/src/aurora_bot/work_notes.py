@@ -200,7 +200,12 @@ async def _factory(action, *, ctx, storage, instance_id, input_state, output_sta
 
     async def execute(request):
         call = input_state.get(ctx, request)
-        arguments = call["arguments"]
+        arguments = {
+            name: int(value)
+            if name in ("expected_revision", "limit") and type(value) is float and value.is_integer()
+            else value
+            for name, value in call["arguments"].items()
+        }
         if action == "write":
             result = notes.write(arguments, request, call["id"])
         elif action == "read":

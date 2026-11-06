@@ -9,7 +9,7 @@ from aurora_adapter.model import ToolCall
 from aurora_adapter.model.fake import FakeReply
 from aurora_bot.assembly_config import CONFIG, MESSAGES
 from aurora_bot.work_notes import NOTE_TOOLS, NOTES
-from aurora_control import ExecutionPlug, component_entries
+from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
 from aurora_core import Id
 from aurora_world.configuration import plugin as configuration_plugin
 from aurora_world.plugin import plugin as world_plugin
@@ -32,6 +32,93 @@ def write_call(identity, revision, text, references) -> ToolCall:
             "references": references,
         },
     }
+
+
+async def execute_calls(assembly, ctx, calls):
+    assert assembly.defaults is not None
+    executor = assembly.defaults.tools
+    request = ExecutionRequest("notes-arguments")
+    executor.request_state.set(ctx, request, {"turn_id": "arguments", "calls": calls})
+    await executor.execute(request)
+    return cast(dict, executor.output_state.get(ctx, request))["results"]
+
+
+def test_integer_valued_float_arguments_work_through_tool_executor(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
+
+        def configure():
+            seed(ctx, tools=False)
+            ctx.set(CONFIG, {**cast(dict, ctx.get(CONFIG)), "notes": {"enabled": True}})
+
+        await host.start(configure=configure)
+        other = write_call("other", 0.0, "另一条笔记", [])
+        other["arguments"]["note_id"] = "other"
+        calls = [
+            write_call("create", 0.0, "待核对", []),
+            write_call("update", 1.0, "仍待核对", []),
+            write_call("stale", 1.0, "过期覆盖", []),
+            other,
+            {"id": "first", "name": "notes_list", "arguments": {"limit": 1.0}},
+            {"id": "next", "name": "notes_list", "arguments": {"limit": 1.0, "after": "inspection"}},
+        ]
+        try:
+            results = await execute_calls(assembly, ctx, calls)
+            assert [result["status"] for result in results] == [
+                "completed",
+                "completed",
+                "failed",
+                "completed",
+                "completed",
+                "completed",
+            ]
+            assert results[0]["value"]["revision"] == 1 and results[1]["value"]["revision"] == 2
+            assert results[2]["error"]["code"] == "note_conflict" and results[2]["value"] == {"revision": 2}
+            assert [note["note_id"] for note in results[4]["value"]["items"]] == ["inspection"]
+            assert results[4]["value"]["next_after"] == "inspection"
+            assert [note["note_id"] for note in results[5]["value"]["items"]] == ["other"]
+            assert results[5]["value"]["next_after"] is None
+            stored = cast(dict, ctx.get(NOTES, location={"instance_id": "main"}))["notes"]
+            assert stored[0]["text"] == "仍待核对" and all(type(note["revision"]) is int for note in stored)
+            assert type(calls[0]["arguments"]["expected_revision"]) is float
+            assert type(calls[4]["arguments"]["limit"]) is float
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_invalid_integer_arguments_are_rejected_without_changing_notes(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
+
+        def configure():
+            seed(ctx, tools=False)
+            ctx.set(CONFIG, {**cast(dict, ctx.get(CONFIG)), "notes": {"enabled": True}})
+
+        await host.start(configure=configure)
+        try:
+            assert (await execute_calls(assembly, ctx, [write_call("create", 0, "保留原文", [])]))[0][
+                "status"
+            ] == "completed"
+            before = ctx.get(NOTES, location={"instance_id": "main"})
+            calls = [
+                write_call(f"write-{index}", value, "无效覆盖", [])
+                for index, value in enumerate((True, False, 1.5, -1.0, "1"))
+            ]
+            calls.extend(
+                {"id": f"list-{index}", "name": "notes_list", "arguments": {"limit": value}}
+                for index, value in enumerate((True, False, 1.5, 0.0, 51.0, "1"))
+            )
+            results = await execute_calls(assembly, ctx, calls)
+            assert all(
+                result["status"] == "failed" and result["error"]["code"] == "invalid_arguments" for result in results
+            )
+            assert ctx.get(NOTES, location={"instance_id": "main"}) == before
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("with_world", [False, True])
