@@ -2,6 +2,12 @@
 
 ## 2026-11-06
 
+### 对齐笔记工具的 JSON Schema 整数参数
+
+- 修复 PR #2 中公开 schema 接受 expected_revision=0.0、limit=1.0，但笔记内部严格整数校验导致 tool_failed 的问题。工具执行边界对这两个字段中的整数值浮点数生成 int 副本，保持原始调用参数、配置校验与持久状态约束不变。
+- 使用默认装配的实际 ToolExecutor 复现并回归：创建、更新、过期版本冲突及分页接受整数值浮点数，状态中的 revision 保持 int；布尔值、非整数小数、字符串及越界值继续返回 invalid_arguments，原笔记不变。
+- 34 项定向回归通过；完整 `uv run --locked aurora check` 通过，包括 1087 项 Python、1 项平台用例跳过、97 项 TS、5 项终端测试及格式、lint、类型检查，保留既有 Pydantic ReadOnly 提示。无依赖、公共 ID 或快照格式变更，未调用真实模型服务。
+
 ### 将工作笔记接入默认装配和每轮业务视图
 
 - bot 配置新增可选 `[notes] enabled=false`；显式启用后自动装配 notes_read/write/list，模型所有者由 bot 工作状态绑定固定，不允许模型参数或工具配置覆盖。已有插件入口不变，发现只登记定义，不创建笔记或后台资源。
