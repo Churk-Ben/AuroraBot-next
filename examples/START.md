@@ -189,10 +189,11 @@ enabled = true
 events = true
 environment = true
 notes = true
+actions = true
 max_chars = 12000
 ```
 
-缺少该段时采用上述默认值；`enabled=false` 关闭临时视图，另外三个开关分别控制事件、环境与已启用的工作笔记。字符预算包含视图元数据，各类非空材料平分预算并优先呈现最新记录；超长正文标记 abridged，整条省略计入 omitted，已呈现记录保留完整身份。近期事件并非完整归档，环境观察也不属于事件归档；该预算不裁剪消息历史或数据库。离线巡检模型识别并跳过观察块，只对引导生成巡检动作；真实模型如何使用视图须另行验收。直接交流、工具关联和历史恢复保持原有行为，`--direct-only` 不生成世界视图。
+缺少该段时采用上述默认值；`enabled=false` 关闭临时视图，另外四个开关分别控制事件、环境、已启用的工作笔记和行动证据。字符预算包含视图元数据，各类非空材料平分预算并优先呈现最新记录；超长正文标记 abridged，整条省略计入 omitted，已呈现记录保留完整身份。近期事件并非完整归档，环境观察也不属于事件归档；该预算不裁剪消息历史或数据库。离线巡检模型识别并跳过观察块，只对引导生成巡检动作；真实模型如何使用视图须另行验收。直接交流、工具关联和历史恢复保持原有行为，`--direct-only` 不生成世界视图。
 
 工作笔记独立于 world，默认关闭。在同一个 bot 配置文件中添加以下配置并重启，即可向模型提供 notes_write、notes_read 和 notes_list；不需要将它们手工填入 tools：
 
@@ -228,6 +229,18 @@ max_chars = 8000
 该工具要求宿主已经装配 world 记录服务；live_workshop 的持续模式满足此条件，`--direct-only` 不支持此配置。不要将内置工具手工加入 tools 列表。模型调用 world_read_event 的参数为 `{"journal_id":"引用中的数据库 ID","record_id":"引用中的记录 ID","offset":0}`；返回 text 为原始 JSON 片段，按 next_offset 继续，直到 null 表示结束。各页 text 拼接后才构成完整 JSON；字符串载荷也保留 JSON 引号和转义，不能把第一页当作完整事件。
 
 max_chars 限制每页 value 的完整 JSON 长度，含元数据及转义、不含工具结果外层信封，范围 1024–32000；不限制累计消息历史或整次模型输入。错库、缺失记录、越界分别返回 archive_wrong_journal、archive_not_found、archive_invalid_offset；服务不可用或元数据过长也明确失败，不自动换库或重试。工具只读取已知事件引用，不检索环境观察或 tool_call，不消费、重放事件或将事项标为完成。事件过期及重启后的引用读取由 `tests/e2e/test_event_archive_integration.py` 验证。
+
+需要保存并核对工具调用结果时，在同一个 bot 配置中启用并重启：
+
+```toml
+[actions]
+enabled = true
+max_chars = 8000
+```
+
+该功能独立于 world 和 notes，不在 tools 中手工声明。模型可以使用 `actions_read`，例如 `{"run_id":"原运行身份","call_id":"原工具调用身份","offset":0}`；按 next_offset 继续分页，至 null 后拼接 text 得到完整证据 JSON。近期视图提供最近 16 次调用的引用及 outcome；`[context_view] actions=false` 只隐藏摘要。
+
+completed/failed 表示工具返回成功/错误，unknown 表示需要核实，not_executed 表示执行器未进入调用；这些状态不由笔记内容决定。结果缺失不证明动作未发生，不自动重试。相同实例内 run_id/call_id 不允许复用；重复引用阻止整个新批次。记录独立保存于 bot 命名空间的 actions.sqlite3，关闭功能不删除记录，完整备份须在停机后包含数据库。当前不自动裁剪记录。回归见 `tests/e2e/test_action_evidence_integration.py`，存储、预算和错误边界见[行动证据设计](../docs/aurora_bot_ctx_prompt_design.md#已实现的行动证据)。
 
 在另一个终端观察报告及控制状态：
 

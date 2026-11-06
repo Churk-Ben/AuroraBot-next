@@ -29,6 +29,9 @@ from aurora_world import WorldRecords
 from aurora_world.configuration import CONFIGURATION as WORLD_CONFIGURATION
 from aurora_world.configuration import configured_sources_component
 
+from .action_evidence import READ_ACTION, ActionEvidence
+from .action_evidence import create_reader as create_action_reader
+from .action_evidence import entries as action_entries
 from .assembly_config import (
     AGENTS,
     BOT_SCHEMA,
@@ -113,6 +116,7 @@ class DefaultAssembly:
         )
         self._run_operations: RunOperations | None = None
         self.world_records: WorldRecords | None = None
+        self.action_evidence: ActionEvidence | None = None
 
     def _runtime_agent(self) -> ReActAgent:
         if self.agent is None:
@@ -194,6 +198,21 @@ class DefaultAssembly:
             raise ValueError("笔记工具通过 notes.enabled 装配，不在 tools 中重复声明")
         if any(Id(item["tool"]) == READ_EVENT for item in self.config["tools"]):
             raise ValueError("归档工具通过 archive.enabled 装配，不在 tools 中重复声明")
+        if any(Id(item["tool"]) == READ_ACTION for item in self.config["tools"]):
+            raise ValueError("行动证据工具通过 actions.enabled 装配，不在 tools 中重复声明")
+        if self.config["actions"]["enabled"]:
+            self.action_evidence = ActionEvidence(
+                self.storage, self.config["instance_id"], max_chars=self.config["actions"]["max_chars"]
+            )
+            self.config = parse_config(
+                {
+                    **self.config,
+                    "tools": [
+                        *self.config["tools"],
+                        {"tool": str(READ_ACTION), "instance_id": "actions/read", "config": {}},
+                    ],
+                }
+            )
         if self.config["notes"]["enabled"]:
             self.config = parse_config({**self.config, "tools": [*self.config["tools"], *tool_selections()]})
         if self.config["archive"]["enabled"]:
@@ -222,6 +241,13 @@ class DefaultAssembly:
                     factory=partial(
                         create_reader, records=self.world_records, max_chars=self.config["archive"]["max_chars"]
                     ),
+                )
+            if entry.id == READ_ACTION:
+                assert self.action_evidence is not None
+                spec = ToolSpec(
+                    spec.component,
+                    spec.definition,
+                    factory=partial(create_action_reader, evidence=self.action_evidence),
                 )
             if spec.factory is None:
                 raise ValueError(f"工具未提供实例工厂：{entry.id}")
@@ -255,6 +281,8 @@ class DefaultAssembly:
     async def prepare_bot(self) -> None:
         assert self.config is not None and self.client is not None
         identity = self.config["instance_id"]
+        if self.action_evidence is not None:
+            self.action_evidence.open()
         self.agent = ReActAgent(
             self.ctx,
             self.hooks,
@@ -283,6 +311,7 @@ class DefaultAssembly:
             output_state=self._work("tool_results"),
             current_state=self._work("tool_current"),
             timeout=self.config["tool_timeout"],
+            recorder=self.action_evidence,
         )
         self.defaults = ReActDefaults(
             self.agent,
@@ -296,8 +325,9 @@ class DefaultAssembly:
                     self.config["context_view"],
                     notes=WorkNotes(self.ctx, identity) if self.config["notes"]["enabled"] else None,
                     archive_enabled=self.config["archive"]["enabled"],
+                    actions=self.action_evidence,
                 )
-                if self.world_records is not None or self.config["notes"]["enabled"]
+                if self.world_records is not None or self.config["notes"]["enabled"] or self.action_evidence is not None
                 else None
             ),
         )
@@ -428,6 +458,8 @@ class DefaultAssembly:
             if owned.aclose is not None:
                 await owned.aclose()
             self._owned_tools.pop()
+        if self.action_evidence is not None:
+            self.action_evidence.close()
         for connection in self._execution_connections:
             self.hooks.disconnect(connection)
         self._execution_connections.clear()
@@ -458,6 +490,7 @@ def plugin() -> Plugin:
             *command_entries(),
             *note_entries(),
             *archive_entries(),
+            *action_entries(),
             RegistryEntry(
                 CONVERSATION, "endpoint", ConversationEndpoint(operations), "aurora_bot", register_to=ENDPOINTS
             ),

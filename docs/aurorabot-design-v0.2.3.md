@@ -369,9 +369,10 @@ world 的事件数据库与 ctx 变化通知配合使用，cadence 按数据库�
 - 时间和天气属于环境观察，保存在 `org.aurora.world:state/environment`，按 source_id 定位；时间默认最新 1 条，天气按宿主接收时间保留一小时内最多 4 条，不进入普通事件数据库或 cadence 消费序列。WorldSources 按内置环境定义选择呈现规则；自定义来源可在 world 的 sources.presentation 显式选择 events/time/weather。来源工厂不声明 retention，也不接触 ctx。
 - 保留预算统一配置于 `org.aurora.world/config.toml` 的 `[view]`，普通视图和环境观察随有限 ctx 快照保存，启动以数据库重建普通视图、清理过期天气。默认每 30 秒及每次接纳时刷新，无新输入也会过期；恢复需同时保留数据库与 ctx 快照。ctx 修改不会改写事件历史，消费位置由消费者保存。
 - 消费者先订阅 RECORDS 再从数据库读取；窗口裁剪不会丢失积压事件。首次 cadence 消费从数据库可用历史开始。环境观察只供当前环境读取，需要可靠转发的来源应显式使用 events 呈现。
-- 默认 bot 在每次 ReAct prepare 刷新并读取近期事件、环境状态及已启用的本实例工作笔记，生成 system 之后、历史之前的临时 user 视图；来源、时间及引用随内容保留，视图不进入持久历史。bot 的 `[context_view]` 控制启用、事件/环境/笔记选择和完整视图字符预算（默认 12000），不限制整个模型请求或裁剪归档。agent 只接收通用同步回调，不依赖 world；直接交流与 cadence 的原始引导契约保持不变。
+- 默认 bot 在每次 ReAct prepare 刷新并读取近期事件、环境状态及已启用的本实例工作笔记，生成 system 之后、历史之前的临时 user 视图；来源、时间及引用随内容保留，视图不进入持久历史。bot 的 `[context_view]` 控制启用、事件/环境/笔记/行动证据选择和完整视图字符预算（默认 12000），不限制整个模型请求或裁剪归档。agent 只接收通用同步回调，不依赖 world；直接交流与 cadence 的原始引导契约保持不变。
 - `[notes] enabled=true` 将 notes_read/write/list 接入既有工具执行器，不要求 world；默认 false。笔记以 org.aurora.bot:state/notes 按 instance_id 持久保存，使用版本校验防止过期覆盖。active 笔记不按事件窗口过期，archived 仍保留并占容量；关闭、恢复及取消不自动执行记录中的计划。
 - `[archive] enabled=true` 将 world_read_event 接入既有工具执行器，默认 false；复用已显式装配的 WorldRecords，不创建独立连接、后台任务或 world 服务。工具按 journal_id/record_id 核对引用并分页返回原始 JSON，明确区分错库、缺失及越界；不查环境观察或工具调用，不消耗或重放事件。max_chars 默认 8000，限制每页完整 value 的 JSON 长度，不限制累计工具历史或整个模型请求。存储、引用、预算和错误边界见[主动上下文设计](aurora_bot_ctx_prompt_design.md)。
+- `[actions] enabled=true` 接入 ToolRecorder 和 actions_read，默认关闭。工具批次引用、调用开始和原始结果在 bot 自有 SQLite 数据库独立事务记录；默认视图包含最近 16 次调用摘要，按 run_id/call_id 分页查询全文。记录按实例隔离，重复引用拒绝执行，取消及丢失结果保留 unknown，不因恢复或笔记声明自动重试；completed/failed 只表示工具返回。资源由默认装配持有，不反向引入 agent 对 bot 的依赖。详细语义见[行动证据](aurora_bot_ctx_prompt_design.md#已实现的行动证据)。
 - v1/v2 ctx 日志启动时明确要求迁移，不自动覆盖用户数据。停机后执行 `uv run --locked python -m aurora_world.migrate --root <数据目录>`，备份原快照，逐条导入已有记录并保留日志、记录、序号和裁剪锚点。旧日志没有通用接收时间，迁移时以导入时刻作为 received_at；已有环境记录也原样归档，新环境采样只进入环境状态。旧来源配置中的 retain_count/retain_seconds 须手动移至 `[view]` 的 time_count/weather_count/weather_seconds，模板不覆盖已有配置。
 
 最小进程内使用方式（显式内存数据库；持久宿主传入 StorageService）：

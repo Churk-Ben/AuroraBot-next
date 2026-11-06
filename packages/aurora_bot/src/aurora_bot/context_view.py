@@ -1,4 +1,4 @@
-"""将世界记录和本实例工作笔记呈现为有界观察，不读取配置或执行工作区。"""
+"""将世界记录、本实例笔记和执行证据呈现为有界观察，不读取配置或执行工作区。"""
 
 from typing import cast
 
@@ -6,6 +6,7 @@ from aurora_control import ExecutionRequest
 from aurora_core.json_data import encode_json
 from aurora_world import ENVIRONMENT, RECORDS, WorldRecords
 
+from .action_evidence import ActionEvidence
 from .assembly_config import ContextViewConfig
 from .work_notes import WorkNotes
 
@@ -30,7 +31,7 @@ def _fit(item: dict, budget: int) -> dict | None:
 
 
 class BusinessContextView:
-    """观察近期世界与本实例工作笔记，独立限制完整 JSON 的字符数。
+    """观察近期世界、本实例笔记和执行证据，独立限制完整 JSON 的字符数。
 
     各类非空材料平分预算，各自优先保留最新记录。省略数只统计当前候选材料中
     因预算略去的条目，不表示归档总量；笔记引用不证明外部动作成功。
@@ -43,15 +44,18 @@ class BusinessContextView:
         *,
         notes: WorkNotes | None = None,
         archive_enabled: bool = False,
+        actions: ActionEvidence | None = None,
     ) -> None:
         self.records, self.config, self.notes = records, config, notes
         self.archive_enabled = archive_enabled
+        self.actions = actions
 
     def __call__(self, request: ExecutionRequest) -> str:
         enabled = {
             "events": self.records is not None and self.config["events"],
             "environment": self.records is not None and self.config["environment"],
             "notes": self.notes is not None and self.config["notes"],
+            "actions": self.actions is not None and self.config["actions"],
         }
         if not self.config["enabled"] or not any(enabled.values()):
             return ""
@@ -82,6 +86,8 @@ class BusinessContextView:
             else []
         )
         materials = {"events": events, "environment": environment, "notes": notes}
+        if self.actions is not None:
+            materials["actions"] = self.actions.recent() if enabled["actions"] else []
         sections = {
             name: {"enabled": enabled[name], "records": [], "omitted": len(items)} for name, items in materials.items()
         }
@@ -102,6 +108,11 @@ class BusinessContextView:
                     if self.archive_enabled
                     else ""
                 )
+                + (
+                    "actions 是最近16次工具调用证据，按 run_id/call_id 用 actions_read 分页查询。completed/failed 仅代表工具返回成功/错误，unknown 须核实；笔记不覆盖证据，缺失不证明未执行，不自动重试。"
+                    if self.actions is not None
+                    else ""
+                )
             ),
             **sections,
         }
@@ -113,8 +124,8 @@ class BusinessContextView:
             for item in sorted(
                 items,
                 key=lambda item: (
-                    (item["updated_at"], 0, item["note_id"])
-                    if "note_id" in item
+                    (item["updated_at"], 0, item.get("note_id", item.get("call_id", "")))
+                    if "updated_at" in item
                     else (item["received_at"], item["sequence"], item["source_id"])
                 ),
                 reverse=True,
