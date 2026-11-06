@@ -2,6 +2,12 @@
 
 ## 2026-11-06
 
+### 提供核对数据库身份的事件原文分页接口
+
+- world 新增 `WorldRecords.read_content` 和不可变 `WorldContentPage`，按 journal_id/record_id 读取数据库中原始 JSON 的字符片段，保留来源、消息、接收时间及位置。分页直接查询 SQLite，不先反序列化完整载荷，不刷新 ctx、消费或重放事件。
+- 错库、缺失记录和越界位置明确失败；环境观察不属于事件归档。每页最多 65536 字符，拼接全部 text 后才是完整 JSON，next_offset 为 null 表示结束。现有数据库、快照、公共 ID 和依赖不变。
+- 47 项 world 读取与记录测试通过，覆盖 Unicode、转义、空值、多页重组、只读和分页参数边界。
+
 ### 将工作笔记接入默认装配和每轮业务视图
 
 - bot 配置新增可选 `[notes] enabled=false`；显式启用后自动装配 notes_read/write/list，模型所有者由 bot 工作状态绑定固定，不允许模型参数或工具配置覆盖。已有插件入口不变，发现只登记定义，不创建笔记或后台资源。

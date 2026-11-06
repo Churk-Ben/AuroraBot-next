@@ -69,6 +69,24 @@ class WorldRecord:
 
 
 @dataclass(frozen=True)
+class WorldContentPage:
+    """事件原始 JSON 的字符片段；拼接全部 text 才构成完整 JSON。"""
+
+    position: WorldPosition
+    source_id: str
+    message_id: str
+    received_at: float
+    offset: int
+    text: str
+    total_chars: int
+
+    @property
+    def next_offset(self) -> int | None:
+        end = self.offset + len(self.text)
+        return end if end < self.total_chars else None
+
+
+@dataclass(frozen=True)
 class WorldReceipt:
     """普通事件已提交数据库，环境观察已更新 ctx；不表示已转交消费者。"""
 
@@ -320,6 +338,39 @@ class WorldRecords:
         if row is None:
             raise KeyError(record_id)
         return self._record(row)
+
+    def read_content(self, *, journal_id: str, record_id: str, offset: int = 0, limit: int = 4000) -> WorldContentPage:
+        """核对数据库身份后读取事件 JSON 片段，不反序列化完整载荷或刷新 ctx。
+
+        offset/limit 按 Unicode 字符计数；单页最多 65536 字符。offset 等于全文长度
+        返回空末页，超出长度明确失败。环境观察不进入事件数据库，不能通过此接口读取。
+        """
+        _identity(journal_id)
+        _identity(record_id)
+        if type(offset) is not int or not 0 <= offset < 2**63 - 1:
+            raise ValueError("归档偏移必须为 SQLite 范围内的非负整数")
+        if type(limit) is not int or not 1 <= limit <= 65536:
+            raise ValueError("归档单页字符数必须在 1 到 65536 之间")
+        db = self._connection()
+        if db.execute("SELECT id FROM journal").fetchone()[0] != journal_id:
+            raise CursorError("归档引用属于其他 world 数据库")
+        row = db.execute(
+            "SELECT sequence, source_id, message_id, received_at, length(payload) AS total_chars, substr(payload, ?, ?) AS text FROM events WHERE record_id=?",
+            (offset + 1, limit, record_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError(record_id)
+        if offset > row["total_chars"]:
+            raise ValueError("归档偏移超出全文长度")
+        return WorldContentPage(
+            WorldPosition(journal_id, row["sequence"], record_id),
+            row["source_id"],
+            row["message_id"],
+            row["received_at"],
+            offset,
+            row["text"],
+            row["total_chars"],
+        )
 
     def read(
         self, *, after: WorldPosition | None = None, source_id: str | None = None, limit: int = 100
