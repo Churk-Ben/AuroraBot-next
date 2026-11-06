@@ -368,6 +368,7 @@ world 的事件数据库与 ctx 变化通知配合使用，cadence 按数据库�
 - 时间和天气属于环境观察，保存在 `org.aurora.world:state/environment`，按 source_id 定位；时间默认最新 1 条，天气按宿主接收时间保留一小时内最多 4 条，不进入普通事件数据库或 cadence 消费序列。WorldSources 按内置环境定义选择呈现规则；自定义来源可在 world 的 sources.presentation 显式选择 events/time/weather。来源工厂不声明 retention，也不接触 ctx。
 - 保留预算统一配置于 `org.aurora.world/config.toml` 的 `[view]`，普通视图和环境观察随有限 ctx 快照保存，启动以数据库重建普通视图、清理过期天气。默认每 30 秒及每次接纳时刷新，无新输入也会过期；恢复需同时保留数据库与 ctx 快照。ctx 修改不会改写事件历史，消费位置由消费者保存。
 - 消费者先订阅 RECORDS 再从数据库读取；窗口裁剪不会丢失积压事件。首次 cadence 消费从数据库可用历史开始。环境观察只供当前环境读取，需要可靠转发的来源应显式使用 events 呈现。
+- 默认 bot 在每次 ReAct prepare 刷新并读取近期事件和环境状态，生成 system 之后、历史之前的临时 user 视图；来源、接收时间及引用随内容保留，视图不进入持久历史。bot 的 `[context_view]` 控制启用、事件/环境选择和完整视图字符预算（默认 12000），不限制整个模型请求或裁剪归档。agent 只接收通用同步回调，不依赖 world；直接交流与 cadence 的原始引导契约保持不变。工作笔记、归档读取工具与真实行为验收见[主动上下文设计](aurora_bot_ctx_prompt_design.md)。
 - v1/v2 ctx 日志启动时明确要求迁移，不自动覆盖用户数据。停机后执行 `uv run --locked python -m aurora_world.migrate --root <数据目录>`，备份原快照，逐条导入已有记录并保留日志、记录、序号和裁剪锚点。旧日志没有通用接收时间，迁移时以导入时刻作为 received_at；已有环境记录也原样归档，新环境采样只进入环境状态。旧来源配置中的 retain_count/retain_seconds 须手动移至 `[view]` 的 time_count/weather_count/weather_seconds，模板不覆盖已有配置。
 
 最小进程内使用方式（显式内存数据库；持久宿主传入 StorageService）：

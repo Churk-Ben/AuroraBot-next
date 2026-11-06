@@ -20,6 +20,13 @@ class ToolSelection(TypedDict):
     config: dict[str, JsonValue]
 
 
+class ContextViewConfig(TypedDict):
+    enabled: bool
+    events: bool
+    environment: bool
+    max_chars: int
+
+
 class BotConfig(TypedDict):
     instance_id: str
     model_role: str
@@ -28,6 +35,7 @@ class BotConfig(TypedDict):
     tool_timeout: float
     streaming: bool
     system_prompt: str
+    context_view: ContextViewConfig
 
 
 def validate_json(value: object) -> None:
@@ -54,6 +62,17 @@ BOT_SCHEMA = ConfigSchema(
             "tool_timeout": {"type": "number", "exclusiveMinimum": 0, "default": 30.0},
             "streaming": {"type": "boolean", "default": True},
             "system_prompt": {"type": "string", "default": ""},
+            "context_view": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    "enabled": {"type": "boolean", "default": True},
+                    "events": {"type": "boolean", "default": True},
+                    "environment": {"type": "boolean", "default": True},
+                    "max_chars": {"type": "integer", "minimum": 1024, "default": 12000},
+                },
+            },
             "tools": {
                 "type": "array",
                 "default": [],

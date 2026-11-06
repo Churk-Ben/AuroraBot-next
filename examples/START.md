@@ -181,6 +181,18 @@ uv run --locked python tests/fixtures/world_roundtrip.py .aurora/world-config-ch
 
 重复运行同一存储目录可验证去重与恢复。后台失败状态位于 `org.aurora.world:state/sources`，按 source_id 查询或订阅；失败关闭对应来源入口，其他来源继续接纳，资源在宿主关闭时释放。配置及运行状态均不进入业务快照。
 
+启用 world 的默认装配会在每次推理前刷新近期事件和环境观察，将其作为临时 user 视图提供给模型。bot 配置文件可添加以下可选段；产品默认文件为 `org.aurora.bot/config.toml`，本示例为 `org.aurora.bot/bot.toml`，修改后重启生效：
+
+```toml
+[context_view]
+enabled = true
+events = true
+environment = true
+max_chars = 12000
+```
+
+缺少该段时采用上述默认值；`enabled=false` 关闭临时视图，另外两个开关分别控制事件与环境。字符预算包含视图元数据，两类非空材料平分预算并优先呈现最新记录；超长正文标记 abridged，整条省略计入 omitted，已呈现记录保留完整身份。近期事件并非完整归档，环境观察也不属于事件归档；该预算不裁剪消息历史或数据库。离线巡检模型识别并跳过观察块，只对引导生成巡检动作；真实模型如何使用视图须另行验收。直接交流、工具关联和历史恢复保持原有行为，`--direct-only` 不生成世界视图。
+
 在另一个终端观察报告及控制状态：
 
 ```powershell

@@ -1,10 +1,10 @@
 # 以 ctx 为中心的主动 bot 上下文设计
 
-状态：设计讨论稿。日期：2026-11-03。
+状态：设计讨论稿；每轮世界视图切片已实现，工作笔记与归档工具仍为规划。更新：2026-11-06。
 
 bot 面对一个持续存在的世界，每次被唤起时读取当前状态，结合自己留下的目标、记录与实际行动结果，决定接下来做什么。稳定的世界规则和人格放在 system 提示中；本次唤起原因与 bot 可见的 ctx 视图通过 user 消息提供；运行中的模型行动和工具反馈保留 assistant/tool 关系。
 
-这个方向将更多关注、解释和行动选择交给 bot。开发者提供可读、可写、可追溯的环境，允许 bot 用相对自由的笔记和工作方式组织自己的活动。具体如何选择输入、管理记录和构建模型请求仍需实现验证；下文不改变已交付的 M4.W3 转交契约，也不表示 W4 已完成。
+这个方向将更多关注、解释和行动选择交给 bot。开发者提供可读、可写、可追溯的环境，允许 bot 用相对自由的笔记和工作方式组织自己的活动。完整工作记录与行为效果仍需实现验证；下文不改变已交付的 M4.W3 转交契约，W4 双路径与安装验收已完成。
 
 ## 核心思想
 
@@ -128,13 +128,23 @@ flowchart LR
 
 ## 已有能力与缺口
 
-当前实现提供了部分基础，但还不是上述上下文体系：
+当前实现提供了世界视图切片，完整工作记录仍待实现：
 
-- [ReActDefaults](../packages/aurora_agent/src/aurora_agent/react_defaults.py) 将字符串引导直接作为 user 内容，其他 JSON 编码后仍作为 user 内容；system 主要来自静态 system_prompt。历史消息、引导消费位置和未收束工具轮次已有实例级上下文。
+- [ReActDefaults](../packages/aurora_agent/src/aurora_agent/react_defaults.py) 将字符串引导直接作为 user 内容，其他 JSON 编码后仍作为 user 内容；system 来自静态 system_prompt。装配可注入同步 context_view 回调，每轮生成独立的临时 user 消息，排列为 system、当前观察、原有历史。视图不写入持久消息；历史接纳、重试去重和未收束工具轮次沿用原机制。
 - [AgentRuntime](../packages/aurora_agent/src/aurora_agent/runtime.py) 已负责单一调度、运行中接纳、取消与关闭；[ReActAgent](../packages/aurora_agent/src/aurora_agent/react.py) 在每次推理前调用 prepare，可作为视图刷新的接入边界。
 - [cadence](../packages/aurora_bot/src/aurora_bot/cadence/forwarder.py) 仍逐条提交世界记录的原始 payload，来源与转交关联保存在消费状态中，尚未自动作为模型输入语义提供。
 - [world 记录服务](../packages/aurora_world/src/aurora_world/records.py) 已提供事件数据库、近期事件视图与独立环境状态。ctx 中的近期窗口不能代替完整事件归档，也不是每个 bot 的待办清单。
 - [默认装配](../packages/aurora_bot/src/aurora_bot/assembly.py) 已保留消息上下文并清理部分运行临时状态，但尚未提供完整的目标、笔记、事项处理和行动证据视图。现有中间状态不能直接视为完整的长期工作记录。
+
+### 已实现的世界视图边界
+
+[BusinessContextView](../packages/aurora_bot/src/aurora_bot/context_view.py) 在已装配 WorldRecords 时读取近期事件和环境观察，每次 prepare 先刷新 world 窗口。单条保留来源、消息、记录、数据库身份及接收时间；环境正文以 JSON 文本呈现，和事件归档分区。直接交流仍在原消息历史中，cadence 仍原样提交 payload；视图不提供引导与来源的新增映射，也不把所有 user 消息解释为人的请求。
+
+bot TOML 的 `[context_view]` 默认 enabled/events/environment 均为 true，max_chars 为 12000、最小 1024。预算包括整个视图 JSON 的说明、正文及元数据；两类非空材料平分预算，各自优先保留最新条目。正文截短标记 abridged，保留完整引用；身份本身放不下时省略整条，以 omitted 计数。omitted 只统计当前 world 视图中因本次预算被省略的条目，不是归档数量。视图预算不限制历史消息、system 或工具定义，也不删除归档。
+
+首版可见范围固定为 world 的两类业务状态，通过 events/environment 分别关闭；不递归读取 ctx，不读取凭证、配置、模型请求或调度状态。没有 world 时不创建视图或世界资源；enabled=false 不生成视图。配置由 aurora_config 加载，修改后重启生效；旧配置缺少该段时使用默认值，模板不覆盖现有文件。
+
+模型请求开始后到达的观察在下一推理边界生效。临时视图仍可作为当轮 model_input 被观察，正常收尾由默认装配清理；即使中断快照含有旧 model_input，恢复后的 prepare 也重新构建请求，不将其作为历史。已有快照结构、公共 ID 和插件名不变。事件归档的模型读取工具、工作笔记及完整输入预算留给后续切片。
 
 架构与已交付语义以[架构设计](aurorabot-design-v0.2.3.md)、[公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)和[里程碑计划](plan.md)为准；主动 bot 的原始方向见[设计讨论](aurora_bot_react_design.md)。
 

@@ -31,7 +31,7 @@ COMPONENT = Id("dev.defaults:handlers/compute")
 def factory():
     resources = []
 
-    def create(respond, *, behavior="success"):
+    def create(respond, *, behavior="success", context_view=None):
         registry = bootstrap()
         register_plugins(registry, (react_plugin(), model_plugin(), tools_plugin(), defaults_plugin()))
         registry.register(RegistryEntry(STATE, "state_key", StateKey(), "test"))
@@ -108,7 +108,12 @@ def factory():
         )
         tools.connect(identity, ExecutionPlug(COMPONENT, compute, {"input": tool_input, "output": tool_output}))
         defaults = ReActDefaults(
-            agent, model, tools, context_state=fixed("context"), system_prompt="自主判断是否需要行动"
+            agent,
+            model,
+            tools,
+            context_state=fixed("context"),
+            system_prompt="自主判断是否需要行动",
+            context_view=context_view,
         )
         defaults.connect()
         return ctx, agent, defaults, client, calls, entered, cleaned
@@ -194,6 +199,59 @@ def test_prepare_is_idempotent_when_context_was_saved_before_progress(factory):
     context = cast(ReActContext, defaults.context_state.get(ctx, request))
     assert context["messages"] == [{"role": "user", "content": "保持安静"}]
     assert agent.progress.get(ctx, request) == 1
+
+
+def test_context_view_refreshes_without_changing_history_or_tool_pairs(factory):
+    observations = ["初始观察"]
+    boundaries = []
+
+    def view(request):
+        boundaries.append(request.run_id)
+        return observations[-1]
+
+    def respond(request):
+        if len(boundaries) == 1:
+            observations.append("推理期间到达的新观察")
+            return FakeReply(tool_calls=(tool_call(),))
+        return FakeReply(("完成",))
+
+    ctx, agent, defaults, client, calls, _, _ = factory(respond, context_view=view)
+    request = ExecutionRequest("run")
+    agent.inbox.set(ctx, request, [{"id": "first", "sequence": 1, "payload": "执行计算"}])
+    asyncio.run(agent.execute(request))
+    assert boundaries == ["run", "run"] and len(calls) == 1
+    first, second = [item["messages"] for item in client.requests]
+    assert first[1] == {"role": "user", "content": "初始观察"}
+    assert second[1] == {"role": "user", "content": "推理期间到达的新观察"}
+    assert [message["role"] for message in second] == ["system", "user", "user", "assistant", "tool"]
+    assert second[-2]["tool_calls"][0]["id"] == second[-1]["tool_call_id"] == "one"
+    history = defaults.context_state.get(ctx, request)["messages"]
+    assert [message["content"] for message in history if message["role"] == "user"] == ["执行计算"]
+    asyncio.run(agent.execute(ExecutionRequest("again")))
+    assert boundaries[-1] == "again" and len(calls) == 1
+    assert sum(message["content"] == observations[-1] for message in client.requests[-1]["messages"]) == 1
+
+
+def test_context_view_failure_retries_guidance_without_duplicate_history(factory):
+    attempts = []
+
+    def view(request):
+        attempts.append(request.run_id)
+        if len(attempts) == 1:
+            raise ValueError("视图不可用")
+        return "恢复后的观察"
+
+    ctx, agent, defaults, client, _, _, _ = factory(lambda _: FakeReply(), context_view=view)
+    request = ExecutionRequest("first")
+    agent.inbox.set(ctx, request, [{"id": "guide", "sequence": 1, "payload": "继续"}])
+    with pytest.raises(ValueError, match="视图不可用"):
+        asyncio.run(agent.execute(request))
+    assert not client.requests and len(agent.pending(request)) == 1
+    asyncio.run(agent.execute(ExecutionRequest("retry")))
+    history = defaults.context_state.get(ctx, request)["messages"]
+    assert history == [{"role": "user", "content": "继续"}]
+    assert agent.progress.get(ctx, request) == 1
+    assert client.requests[0]["messages"][1]["content"] == "恢复后的观察"
 
 
 def test_cancelled_batch_is_observed_next_time_without_reexecution(factory):

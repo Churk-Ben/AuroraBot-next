@@ -43,6 +43,7 @@ from .assembly_config import (
 from .cadence import Cadence
 from .cadence.state import CONFIGURATION as CADENCE_CONFIGURATION
 from .cli import command_entries
+from .context_view import BusinessContextView
 from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
 from .operations import RUN_CONTROL, RunOperations
 
@@ -252,7 +253,16 @@ class DefaultAssembly:
             timeout=self.config["tool_timeout"],
         )
         self.defaults = ReActDefaults(
-            self.agent, model, tools, context_state=self._fixed(MESSAGES), system_prompt=self.config["system_prompt"]
+            self.agent,
+            model,
+            tools,
+            context_state=self._fixed(MESSAGES),
+            system_prompt=self.config["system_prompt"],
+            context_view=(
+                BusinessContextView(self.world_records, self.config["context_view"])
+                if self.world_records is not None
+                else None
+            ),
         )
         for selection, spec in zip(self.config["tools"], self._specs, strict=True):
             assert spec.factory is not None

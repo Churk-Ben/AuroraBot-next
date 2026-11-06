@@ -1,5 +1,6 @@
 """默认 ReAct 阶段：准备上下文、解释模型决定和回填工具观察。"""
 
+from collections.abc import Callable
 from typing import TypedDict, cast
 
 from aurora_adapter.model import Message, ModelProtocolError, ToolCall
@@ -37,6 +38,7 @@ class ReActDefaults:
     引导 payload 为字符串时直接作为 user 内容，其他 JSON 编码后作为环境输入。
     模型文本保留在上下文中，不自动发布为用户消息；无工具请求即允许结束。
     工具请求与全部结果一起回填，普通工具失败仍作为 tool 消息进入下一次推理。
+    context_view 在每次 prepare 同步生成临时 user 观察，置于历史之前，不写入 context。
 
     后续激活遇到 pending 时保留可获得的工具结果，将其余标记 interrupted，
     不自动重跑动作、不假定中断的动作没有副作用。恢复所需的工具输出由装配保留，
@@ -51,6 +53,7 @@ class ReActDefaults:
         *,
         context_state: InstanceStateBinding,
         system_prompt: str = "",
+        context_view: Callable[[ExecutionRequest], str] | None = None,
     ) -> None:
         if agent.ctx is not model.ctx or agent.ctx is not tools.ctx:
             raise ValueError("默认 ReAct 组件必须使用同一 ctx")
@@ -59,6 +62,7 @@ class ReActDefaults:
         self.agent, self.model, self.tools = agent, model, tools
         self.ctx: Context = agent.ctx
         self.context_state, self.system_prompt = context_state, system_prompt
+        self.context_view = context_view
 
     def connect(self) -> None:
         """连接四个工作阶段；装配须先登记对应插件，失败时撤销本次连接。"""
@@ -154,6 +158,12 @@ class ReActDefaults:
                 context["guidance_sequence"] = item["sequence"]
         self.context_state.set(self.ctx, request, context)
         messages = list(context["messages"])
+        if self.context_view is not None:
+            view = self.context_view(request)
+            if not isinstance(view, str):
+                raise TypeError("上下文视图必须返回文本")
+            if view:
+                messages.insert(0, {"role": "user", "content": view})
         if self.system_prompt:
             messages.insert(0, {"role": "system", "content": self.system_prompt})
         model_request: dict[str, object] = {"messages": messages}

@@ -91,6 +91,8 @@ async def create_model(config, *, api_key=None, ctx=None):
                     data = {"text": message["content"]}
                 if not isinstance(data, dict):
                     data = {"text": message["content"]}
+                if data.get("kind") == "business_context":
+                    continue
                 current = settings(ctx.get(SETTINGS)) if ctx is not None else settings({})
                 waiting.append(
                     {"job_id": uuid4().hex, "steps": current["steps"], "delay": current["delay"], "fail": False, **data}
