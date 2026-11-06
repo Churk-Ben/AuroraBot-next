@@ -248,6 +248,12 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | `org.aurora.bot:state/messages` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/run` | `state_key` | `aurora_bot.assembly` |
 | `org.aurora.bot:state/react_work` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/notes` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:components/notes` | `component` | `aurora_bot.assembly` |
+| `org.aurora.bot:components/notes/execute` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/notes/read` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/notes/write` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/notes/list` | `tool` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/clean_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_bot` | `hook_handler` | `aurora_bot.assembly` |
@@ -256,6 +262,12 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | `org.aurora.bot:handlers/assembly/clean_bot` | `hook_handler` | `aurora_bot.assembly` |
 
 `state/config` 的来源为 bot 的 TOML 模板，不进入快照。`state/agents` 保存实例级 inbox/progress，`state/messages` 保存上下文，`state/run` 保存最近运行状态，`state/react_work` 保存按 run_id 定位的工作数据。实例以 instance_id 隔离。
+
+`state/notes` 以 `location={instance_id}` 保存版本为 1 的笔记集合，由宿主快照持久化；不随 react_work 清理。每条含 note_id、revision、text、status、references、创建/更新时间以及最近写入的 run_id/execution_id/call_id。active 笔记不按时间过期，archived 笔记仍保留并占用容量。默认关闭，由 bot 的 `[notes] enabled=true` 将 notes_read/notes_write/notes_list 接入既有 ToolExecutor，不在 tools 列表手工重复声明；工具从装配的工作状态绑定确定所有者，模型参数不接受 instance_id。
+
+notes_write 以 expected_revision=0 创建，后续更新必须携带当前 revision；冲突返回 note_conflict 而不覆盖。每实例最多 128 条，每条正文最多 16000 字符、引用最多 16 项。世界事件引用含 kind=world_event、journal_id、record_id，工具调用引用含 kind=tool_call、run_id、call_id；只校验引用结构，不核验目标存在或动作成功。notes_list 按 note_id 分页提供摘要，notes_read 读取完整正文及归档笔记。serve_bot 将 notes 作为只读观察键开放，set/delete 被拒绝。
+
+上述为新增定义，无旧 ID 或插件替换；旧快照无需迁移，包含笔记的新快照须由登记这些定义的版本恢复。关闭 notes.enabled 不删除已有笔记；不支持这些定义的旧版本不能静默忽略新状态。工具成功表示 ctx 已更新，崩溃恢复窗口仍由宿主落盘策略决定，不承诺每次工具结果均已 fsync。
 
 运行操作和命令均使用 `run/submit`、`run/activate`、`run/cancel`，要求显式 instance_id。运行管理服务按实例绑定 AgentRuntime；CLI 命令通过公共操作分发，不要求 bot 导入 CLI 实现。默认装配的资源在 prepare 创建，stop 收束运行，clean 关闭工具与模型并解绑实例。
 

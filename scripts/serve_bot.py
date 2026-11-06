@@ -8,6 +8,7 @@ from pathlib import Path
 from aurora_bot.assembly_config import AGENTS, MESSAGES, RUN, WORK
 from aurora_bot.cadence.state import CHECKPOINT
 from aurora_bot.conversation import CONVERSATION
+from aurora_bot.work_notes import NOTES
 from aurora_cli.main import main as cli_main
 from aurora_config import CONFIGURATION
 from aurora_world import ENVIRONMENT, RECORDS, SOURCE_STATUS
@@ -39,6 +40,7 @@ def main() -> int:
                     MESSAGES,
                     RUN,
                     WORK,
+                    NOTES,
                     *((RECORDS, ENVIRONMENT, SOURCE_STATUS) if args.world else ()),
                     *((CHECKPOINT,) if args.cadence else ()),
                 )
