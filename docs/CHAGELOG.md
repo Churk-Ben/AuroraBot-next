@@ -2,6 +2,12 @@
 
 ## 2026-11-06
 
+### 对齐归档工具的 JSON Schema 整数偏移
+
+- 同步 PR #2 的笔记整数参数修复，并修复 PR #3 中 offset=0.0 通过公开 schema 后被内部 ConfigSchema 拒绝的同类问题。归档工具边界将整数值浮点偏移复制为 int，WorldRecords 的严格整数接口及配置校验保持不变。
+- 通过实际 ToolExecutor 复现并补充完整分页、过期引用及重启后的浮点偏移回归；布尔值、小数、字符串、负值及超出 SQLite 范围的偏移继续返回 invalid_arguments，不读取或修改事件。
+- 45 项定向回归通过；完整检查中的 1118 项 Python、97 项 TS、5 项终端测试、格式与 lint 通过，1 项平台用例跳过。新增测试辅助函数的 offset 类型标注修正后，单独重跑 `pnpm run typecheck`，Python/TS 类型检查均通过；`git diff --check` 通过。未变更公开 schema、依赖或存储格式，未调用真实模型服务。
+
 ### 对齐笔记工具的 JSON Schema 整数参数
 
 - 修复 PR #2 中公开 schema 接受 expected_revision=0.0、limit=1.0，但笔记内部严格整数校验导致 tool_failed 的问题。工具执行边界对这两个字段中的整数值浮点数生成 int 副本，保持原始调用参数、配置校验与持久状态约束不变。

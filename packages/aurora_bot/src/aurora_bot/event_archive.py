@@ -108,7 +108,11 @@ async def create_reader(
 
     async def execute(request: ExecutionRequest) -> None:
         call = cast(dict, input_state.get(ctx, request))
-        output_state.set(ctx, request, archive.read(call["arguments"]))
+        arguments = dict(call["arguments"])
+        offset = arguments.get("offset")
+        if type(offset) is float and offset.is_integer():
+            arguments["offset"] = int(offset)
+        output_state.set(ctx, request, archive.read(arguments))
 
     return ToolInstance(
         ExecutionPlug(COMPONENT, execute, {"input": input_state, "output": output_state}, instance_id=instance_id)

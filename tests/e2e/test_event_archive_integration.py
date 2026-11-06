@@ -20,7 +20,7 @@ def observation(request):
     return json.loads(next(message["content"] for message in request["messages"] if message["role"] == "user"))
 
 
-def read_call(identity, reference, offset=0) -> ToolCall:
+def read_call(identity, reference, offset: JsonValue = 0) -> ToolCall:
     return {
         "id": identity,
         "name": "world_read_event",
@@ -28,7 +28,8 @@ def read_call(identity, reference, offset=0) -> ToolCall:
     }
 
 
-def test_note_reference_reads_expired_event_in_pages_and_survives_restart(tmp_path):
+@pytest.mark.parametrize("float_offset", [False, True])
+def test_note_reference_reads_expired_event_in_pages_and_survives_restart(tmp_path, float_offset):
     async def scenario():
         clock = [10000.0]
         host, assembly, ctx, _, clients, _, _, _ = setup(
@@ -100,7 +101,7 @@ def test_note_reference_reads_expired_event_in_pages_and_survives_restart(tmp_pa
                 }
                 latest = request["messages"][-1]
                 if latest["role"] != "tool":
-                    return FakeReply(tool_calls=(read_call("page-0", reference),))
+                    return FakeReply(tool_calls=(read_call("page-0", reference, 0.0 if float_offset else 0),))
                 result = json.loads(latest["content"])
                 assert result["status"] == "completed"
                 page = result["value"]
@@ -112,7 +113,8 @@ def test_note_reference_reads_expired_event_in_pages_and_survives_restart(tmp_pa
                 pages.append(page)
                 if page["next_offset"] is None:
                     return FakeReply(("已读完原始事件，尚未执行外部动作",))
-                return FakeReply(tool_calls=(read_call(f"page-{len(pages)}", reference, page["next_offset"]),))
+                offset = float(page["next_offset"]) if float_offset else page["next_offset"]
+                return FakeReply(tool_calls=(read_call(f"page-{len(pages)}", reference, offset),))
 
             clients[0].respond = retrieve
             assert (await assembly.runtime.submit("核对旧事件").run.wait()).status == "completed"
@@ -169,14 +171,19 @@ def test_wrong_references_return_tool_errors_without_fallback(tmp_path):
                         read_call("wrong", {**reference, "journal_id": "other"}),
                         read_call("missing", {**reference, "record_id": "missing"}),
                         read_call("offset", reference, 1000),
+                        read_call("boolean", reference, True),
+                        read_call("fraction", reference, 1.5),
+                        read_call("string", reference, "0"),
+                        read_call("negative", reference, -1.0),
+                        read_call("overflow", reference, 2**63),
                     )
                 )
-            assert [result["status"] for result in results] == ["failed"] * 3
+            assert [result["status"] for result in results] == ["failed"] * 8
             assert [result["error"]["code"] for result in results] == [
                 "archive_wrong_journal",
                 "archive_not_found",
                 "archive_invalid_offset",
-            ]
+            ] + ["invalid_arguments"] * 5
             return FakeReply(("引用需核对",))
 
         clients[0].respond = respond
