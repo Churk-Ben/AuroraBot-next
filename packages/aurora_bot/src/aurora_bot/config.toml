@@ -12,4 +12,9 @@ tools = []
 enabled = true
 events = true
 environment = true
+notes = true
 max_chars = 12000
+
+# 显式启用实例隔离的笔记工具；笔记由宿主快照保存，不自动执行其中的计划。
+[notes]
+enabled = false

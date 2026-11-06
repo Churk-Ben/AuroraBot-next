@@ -30,6 +30,9 @@ ADAPTER = Id("dev.configuration:adapters/fake")
         {"context_view": {"max_chars": 1023}},
         {"context_view": {"max_chars": True}},
         {"context_view": {"enabled": "yes"}},
+        {"context_view": {"notes": "yes"}},
+        {"notes": {"enabled": "yes"}},
+        {"notes": {"owner": "other"}},
         {"context_view": {"states": ["org.aurora.bot:state/config"]}},
         {"unknown": 1},
         {

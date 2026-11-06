@@ -188,10 +188,34 @@ uv run --locked python tests/fixtures/world_roundtrip.py .aurora/world-config-ch
 enabled = true
 events = true
 environment = true
+notes = true
 max_chars = 12000
 ```
 
-缺少该段时采用上述默认值；`enabled=false` 关闭临时视图，另外两个开关分别控制事件与环境。字符预算包含视图元数据，两类非空材料平分预算并优先呈现最新记录；超长正文标记 abridged，整条省略计入 omitted，已呈现记录保留完整身份。近期事件并非完整归档，环境观察也不属于事件归档；该预算不裁剪消息历史或数据库。离线巡检模型识别并跳过观察块，只对引导生成巡检动作；真实模型如何使用视图须另行验收。直接交流、工具关联和历史恢复保持原有行为，`--direct-only` 不生成世界视图。
+缺少该段时采用上述默认值；`enabled=false` 关闭临时视图，另外三个开关分别控制事件、环境与已启用的工作笔记。字符预算包含视图元数据，各类非空材料平分预算并优先呈现最新记录；超长正文标记 abridged，整条省略计入 omitted，已呈现记录保留完整身份。近期事件并非完整归档，环境观察也不属于事件归档；该预算不裁剪消息历史或数据库。离线巡检模型识别并跳过观察块，只对引导生成巡检动作；真实模型如何使用视图须另行验收。直接交流、工具关联和历史恢复保持原有行为，`--direct-only` 不生成世界视图。
+
+工作笔记独立于 world，默认关闭。在同一个 bot 配置文件中添加以下配置并重启，即可向模型提供 notes_write、notes_read 和 notes_list；不需要将它们手工填入 tools：
+
+```toml
+[notes]
+enabled = true
+```
+
+notes_write 创建示例参数：
+
+```json
+{
+  "note_id": "inspection",
+  "expected_revision": 0,
+  "text": "等待核实通知结果，尚未确认发送成功。",
+  "status": "active",
+  "references": []
+}
+```
+
+更新时携带最近读取到的 revision，并完整提供正文、状态和引用。冲突返回 note_conflict，原文保持不变。active 笔记在下一轮视图中可见且不会随时间过期；status=archived 将其移出当前视图，仍可通过 notes_read 或 notes_list 的 status=all 读取。notes_list 返回 200 字符预览和 next_after，每页最多 50 条；notes_read 返回全文。每实例最多 128 条，单条正文最多 16000 字符，达到容量后仍可更新已有笔记，归档不释放容量。
+
+笔记由宿主快照保存，正常关闭后恢复；关闭 `[notes]` 不删除已有内容，恢复也不自动执行计划。笔记和引用本身不证明工具动作成功。`scripts/serve_bot.py` 将笔记作为只读状态开放，可用 ctx get 读取 `org.aurora.bot:state/notes`、location 为目标 instance_id；`[context_view] notes=false` 只关闭视图展示，工具仍可使用。事件归档读取工具尚未提供，具体数据边界见[主动上下文设计](../docs/aurora_bot_ctx_prompt_design.md#已实现的持久工作笔记)。离线巡检示例不模拟模型自主写笔记，工具往返、取消与恢复由 `tests/e2e/test_work_notes_integration.py` 验证。
 
 在另一个终端观察报告及控制状态：
 

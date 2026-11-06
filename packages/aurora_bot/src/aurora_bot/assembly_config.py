@@ -24,6 +24,7 @@ class ContextViewConfig(TypedDict):
     enabled: bool
     events: bool
     environment: bool
+    notes: bool
     max_chars: int
 
 
@@ -36,6 +37,7 @@ class BotConfig(TypedDict):
     streaming: bool
     system_prompt: str
     context_view: ContextViewConfig
+    notes: dict[str, bool]
 
 
 def validate_json(value: object) -> None:
@@ -70,8 +72,15 @@ BOT_SCHEMA = ConfigSchema(
                     "enabled": {"type": "boolean", "default": True},
                     "events": {"type": "boolean", "default": True},
                     "environment": {"type": "boolean", "default": True},
+                    "notes": {"type": "boolean", "default": True},
                     "max_chars": {"type": "integer", "minimum": 1024, "default": 12000},
                 },
+            },
+            "notes": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {"enabled": {"type": "boolean", "default": False}},
             },
             "tools": {
                 "type": "array",

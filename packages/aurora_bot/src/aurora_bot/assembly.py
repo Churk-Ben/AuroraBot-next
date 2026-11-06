@@ -46,6 +46,8 @@ from .cli import command_entries
 from .context_view import BusinessContextView
 from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
 from .operations import RUN_CONTROL, RunOperations
+from .work_notes import NOTE_TOOLS, WorkNotes, tool_selections
+from .work_notes import entries as note_entries
 
 ASSEMBLY = Id("org.aurora.bot:assemblies/default")
 
@@ -185,6 +187,10 @@ class DefaultAssembly:
         if self._additional_tools is not None:
             additions = self._additional_tools(tuple(deepcopy(self.config["tools"])))
             self.config = parse_config({**self.config, "tools": [*self.config["tools"], *additions]})
+        if any(Id(item["tool"]) in NOTE_TOOLS.values() for item in self.config["tools"]):
+            raise ValueError("笔记工具通过 notes.enabled 装配，不在 tools 中重复声明")
+        if self.config["notes"]["enabled"]:
+            self.config = parse_config({**self.config, "tools": [*self.config["tools"], *tool_selections()]})
         names: set[str] = set()
         for selection in self.config["tools"]:
             entry = self.registry.get(Id(selection["tool"]))
@@ -259,8 +265,12 @@ class DefaultAssembly:
             context_state=self._fixed(MESSAGES),
             system_prompt=self.config["system_prompt"],
             context_view=(
-                BusinessContextView(self.world_records, self.config["context_view"])
-                if self.world_records is not None
+                BusinessContextView(
+                    self.world_records,
+                    self.config["context_view"],
+                    notes=WorkNotes(self.ctx, identity) if self.config["notes"]["enabled"] else None,
+                )
+                if self.world_records is not None or self.config["notes"]["enabled"]
                 else None
             ),
         )
@@ -419,6 +429,7 @@ def plugin() -> Plugin:
         "aurora_bot.assembly",
         (
             *command_entries(),
+            *note_entries(),
             RegistryEntry(
                 CONVERSATION, "endpoint", ConversationEndpoint(operations), "aurora_bot", register_to=ENDPOINTS
             ),
