@@ -140,6 +140,7 @@ async def run(args: argparse.Namespace) -> None:
         assert assembly.agent is not None and assembly.defaults is not None
         print("装配已启动；尚未激活。", flush=True)
         if args.serve:
+            from aurora_api.access import AccessPolicy, token_from_env
             from aurora_api.server import serve
             from aurora_bot.assembly_config import AGENTS, MESSAGES, RUN, WORK
             from aurora_bot.conversation import CONVERSATION
@@ -149,6 +150,7 @@ async def run(args: argparse.Namespace) -> None:
                 keys=[AGENTS, MESSAGES, RUN, WORK],
                 endpoints=[CONVERSATION, *([CONFIGURATION] if args.edit_config else [])],
                 port=args.port,
+                access=AccessPolicy(token=token_from_env(args.token_env), allowed_origins=tuple(args.allowed_origin)),
             ) as url:
                 print(f"直接交流 API: {url}", flush=True)
                 await asyncio.Event().wait()
@@ -174,6 +176,8 @@ def main() -> None:
     parser.add_argument("--profile", choices=("primary", "secondary"), help="本次启动前更新并保存模型角色绑定")
     parser.add_argument("--serve", action="store_true", help="持续提供本机直接交流与 ctx API")
     parser.add_argument("--port", type=int, default=10270, help="本机 API 端口")
+    parser.add_argument("--token-env", help="serve 模式访问令牌的环境变量名")
+    parser.add_argument("--allowed-origin", action="append", default=[], help="允许的浏览器来源，可重复")
     parser.add_argument("--edit-config", action="store_true", help="在 serve 模式开放声明 TOML 配置编辑")
     try:
         asyncio.run(run(parser.parse_args()))
