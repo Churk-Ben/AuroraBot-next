@@ -13,6 +13,8 @@ export interface ClientOptions {
   reconnect?: boolean;
   /** 单次 HTTP 请求及 WS 握手期限，默认 10 秒。 */
   timeoutMs?: number;
+  /** 仅保存在当前客户端内存中的访问令牌。 */
+  token?: string;
 }
 
 /** 共用 core ctx 语义；本地关闭及取消订阅不取消后端业务运行。 */
@@ -34,13 +36,14 @@ export class CtxClient {
       timeoutMs: options.timeoutMs ?? 10_000,
       bufferLimit: options.bufferLimit ?? 256,
       reconnect: options.reconnect ?? true,
+      token: options.token,
     };
     for (const value of [this.options.timeoutMs, this.options.bufferLimit]) {
       if (!Number.isInteger(value) || value <= 0 || value > 2_147_483_647) {
         throw new TypeError('超时和缓冲上限必须为有效的正整数');
       }
     }
-    this.transport = new Transport(url, this.options.timeoutMs);
+    this.transport = new Transport(url, this.options.timeoutMs, options.token);
     this.configuration = new ConfigurationClient(this.transport);
     this.conversation = new ConversationClient(this.transport);
   }

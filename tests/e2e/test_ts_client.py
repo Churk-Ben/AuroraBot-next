@@ -2,10 +2,12 @@
 
 import asyncio
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from aurora_api.access import AccessPolicy
 from aurora_api.client import CtxClient, RemoteError
 from aurora_api.protocol import SUBSCRIBE, UNSUBSCRIBE
 from aurora_api.server import serve
@@ -43,15 +45,18 @@ def host():
     return registry, ctx, active, empty
 
 
-def test_python_and_typescript_share_ctx_cases_and_reconnect_after_host_restart():
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_python_and_typescript_share_ctx_cases_and_reconnect_after_host_restart(authenticated):
     async def scenario():
         registry, ctx, active, _ = host()
-        server = serve(registry, keys=[PUBLIC], port=0)
+        token = "test-client-access-token-1234567890" if authenticated else None
+        access = AccessPolicy(token=token)
+        server = serve(registry, keys=[PUBLIC], port=0, access=access)
         url = await server.__aenter__()
         process = None
         try:
             cases = json.loads((ROOT / "tests/fixtures/ctx_cases.json").read_text(encoding="utf-8"))
-            async with CtxClient(url) as client:
+            async with CtxClient(url, token=token) as client:
                 for case in cases:
                     if "error" in case:
                         with pytest.raises(RemoteError) as error:
@@ -66,6 +71,7 @@ def test_python_and_typescript_share_ctx_cases_and_reconnect_after_host_restart(
                 str(ROOT / "tests/fixtures/ts_client_process.mjs"),
                 url,
                 cwd=ROOT,
+                env={**os.environ, "AURORA_TEST_ACCESS": token or ""},
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -81,7 +87,7 @@ def test_python_and_typescript_share_ctx_cases_and_reconnect_after_host_restart(
             ctx.close()
             registry, ctx, active, empty = host()
             ctx.set(PUBLIC, "重启后的状态")
-            server = serve(registry, keys=[PUBLIC], port=int(url.rsplit(":", 1)[1]))
+            server = serve(registry, keys=[PUBLIC], port=int(url.rsplit(":", 1)[1]), access=access)
             assert await server.__aenter__() == url
             process.stdin.write(b"continue\n")
             await process.stdin.drain()

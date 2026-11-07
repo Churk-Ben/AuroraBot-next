@@ -96,6 +96,60 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('运行期认证', () => {
+  const token = 'test-browser-access-token-1234567890';
+
+  it('通过 HTTP 请求头与 WS 首帧认证，重连重新认证并刷新', async () => {
+    const instance = client({ token });
+    await instance.list();
+    expect(request.mock.calls[0]?.[1]).toMatchObject({
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'omit',
+      redirect: 'error',
+    });
+    const subscription = instance.subscribe({ key: KEY }, () => {});
+    const first = await socket();
+    expect(first.url).not.toContain(token);
+    expect(first.send).toHaveBeenCalledWith(JSON.stringify({ key: KEY, access_token: token }));
+    first.message({ type: 'ready' });
+    await subscription.ready;
+    first.serverClose();
+    await vi.advanceTimersByTimeAsync(2000);
+    const second = await socket();
+    expect(second).not.toBe(first);
+    expect(second.send).toHaveBeenCalledWith(JSON.stringify({ key: KEY, access_token: token }));
+    second.message({ type: 'ready' });
+    await flush();
+    expect(subscription.status.state).toBe('connected');
+    for (const [url, options] of request.mock.calls) {
+      expect(String(url)).not.toContain(token);
+      expect(options?.body).not.toContain(token);
+      expect(options?.headers).toMatchObject({ Authorization: `Bearer ${token}` });
+    }
+  });
+
+  it('认证拒绝停止订阅重连，HTTP 动作也不重试', async () => {
+    const instance = client({ token });
+    const error = { code: 'unauthorized', message: '访问令牌无效或缺失' };
+    request.mockResolvedValueOnce(Response.json({ error }, { status: 401 }));
+    await expect(instance.list()).rejects.toMatchObject({ code: 'unauthorized', status: 401 });
+    const subscription = instance.subscribe({}, () => {});
+    const ws = await socket();
+    ws.message({ type: 'error', error });
+    await expect(subscription.ready).rejects.toMatchObject({ code: 'unauthorized' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(subscription.status.state).toBe('failed');
+    expect(Socket.instances).toHaveLength(1);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('无效令牌在发送前拒绝且不回显', () => {
+    expect(() => client({ token: 'secret\nvalue' })).toThrow('访问令牌须为');
+    expect(request).not.toHaveBeenCalled();
+    expect(Socket.instances).toHaveLength(0);
+  });
+});
+
 describe('声明 TOML 编辑', () => {
   const document = { id: 'org.aurora.bot:configs/default', content: '# 注释\nvalue = 1', revision: 'a'.repeat(64) };
 

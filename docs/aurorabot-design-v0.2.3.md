@@ -480,6 +480,10 @@ core 的事件机制负责进程内发布订阅，ctx 变化订阅属于 ctx 接
 
 统一 interface 表示共享访问语义，不表示 Python 与 TS 必须导入同一份代码。client 实现对应 ctx ID 的访问入口、参数传递、结果接收和订阅；不将后端 callable、服务对象或插件执行树复制到前端。
 
+共享传输的浏览器访问由 API 的 AccessPolicy 控制：默认仅本机非浏览器访问，显式开放来源或代理 Host 必须配置运行期令牌。HTTP 使用 Bearer，WS 使用带 access_token 的 WatchHandshake 首帧，认证通过前不创建订阅或读取状态；原 WatchRequest 仍只描述过滤条件。CORS 预检仅开放已登记路由的方法与所需头，错误来源/Host 返回 403，错误令牌返回 unauthorized。无 Origin 的原生客户端在启用认证时同样需要令牌。
+
+后端保持 IPv4 回环监听，生产代理承担 TLS/WS Upgrade，来源与 Host 使用精确白名单，不信任转发头或通配符。认证适用于 ctx、conversation、configuration 的全部已开放路由，不改变状态键与端点授权范围。令牌不进入 TOML、ctx、快照或 TUI 偏好；环境变量名由宿主/客户端选项指定，更换令牌须重启。认证失败停止重连；网络断线重新认证、订阅、读取快照，HTTP 动作不自动重放。具体命令与部署边界见[浏览器访问指南](../examples/START.md#浏览器访问与运行期认证)。
+
 ### 10.2 界面动作边界
 
 TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各自维护本地视图、动作、主题、键位与偏好。首版采用围绕长期存在的 bot 的工作台，展示直接交流、运行、输出和工具活动；世界能力接入后展示世界输入及其引导关联，不提前建立多会话上下文隔离。
@@ -506,7 +510,7 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 
 当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，直接交流由 [bot 契约](../packages/aurora_bot/src/aurora_bot/conversation_contract.py) 描述，声明 TOML 编辑由 [config 契约](../packages/aurora_config/src/aurora_config/editor_contract.py) 描述。`uv run --locked python scripts/generate_ctx_contract.py` 显式合并三者，生成 client 的 JSON 描述、TS 类型和绑定常量；增加 `--check` 可只读检查产物。API 独立导出仍只包含 ctx，不要求安装 bot 或 config。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 CtxClient 提供 ctx 访问、订阅、conversation.info/submit/query/cancel 与 configuration.list/get/save；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
 
-开发时可使用 Vite 代理 API，生产环境优先同源部署。认证与外部访问配置随实际连接方案确定。同源安排不代替访问控制。docsite 与 landing 独立构建。
+开发时可使用 Vite 代理 API，生产环境优先同源部署。认证采用运行期令牌和显式来源/Host 白名单，部署方式见浏览器访问指南。同源安排不代替访问控制。docsite 与 landing 独立构建。
 
 ## 11. 依赖方向与目录
 
@@ -571,12 +575,12 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 
 各阶段记录已经实现的可观察行为，避免同一接口出现互相矛盾的实现；不以冻结所有规划契约作为启动下一阶段的前置任务。消息提交与取消按第 10.2 节的已定方向实施，具体传输协议随 M3.6 验证。
 
-当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器与远程访问待补齐，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录、W2.1–W2.3 来源装配及环境周期、B1–B5 MCP 接入与共享关闭、W3 最小 cadence 已交付；W4 live_workshop 与双路径整体验收已完成。详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
+当前 M0、M1、M2 已完成；M2.8 于 2026-10-31 通过整体验收。M3 已交付本机 HTTP/WS ctx、按需契约、共享 TS client、直接交流和工作台本机联调；D08 的浏览器来源、运行期认证及代理 Host 边界已交付，生产 TLS 代理部署仍须按环境验收，D09 的本机订阅/重连和 D10 的传输关联已验证。M4.W1 世界记录、W2.1–W2.3 来源装配及环境周期、B1–B5 MCP 接入与共享关闭、W3 最小 cadence 已交付；W4 live_workshop 与双路径整体验收已完成。详细依赖和验收见[里程碑计划](plan.md)。附件区分当前定义与规划身份，不表示所有对象均已加载或对外提供。
 
 ## 14. 后续讨论
 
 1. **直接交流工作台。** 复用 M3.6 已实现的回执、重复请求、状态查询、取消和契约，交付 OpenTUI 交互，不把接纳或模型输出解释为业务完成。
-2. **client 连接（D08、D09）。** 本机 ctx 与订阅重连已交付；按浏览器和远程接入需要补齐认证、来源与数据范围，复用已有关闭和刷新语义。
+2. **client 连接（D08、D09）。** 本机 ctx 与订阅重连已交付；浏览器认证、来源白名单和数据开放范围已明确，后续按实际环境验收反向代理部署，复用已有关闭和刷新语义。
 3. **独立 harness。** 复用 core、adapter.model、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
 4. **世界与 cadence（D11、M4-W）。** world 的记录与来源独立于执行；bot 的可选 cadence 插件先原样转发，统一通过既有 AgentRuntime 提交。细化记录保留、重复识别、消费位置、转交结果不确定及恢复行为，验证两条输入路径并存；唤醒工具与子代理另行实施。
 5. **公共接口维护。** 从实际边界提炼必要的 schema、兼容与迁移规则，不预设通用证明系统，不以规划 ID 证明接口已经冻结。

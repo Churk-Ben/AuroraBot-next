@@ -161,7 +161,36 @@ try {
 
 网络结果不确定时保留原 message，先按其身份查询；同一会话下显式重试须使用原 request_id 和原文本，客户端不会自动重发。宿主重启返回 session_expired，需核对恢复状态后再决定是否发起新消息。每会话最多保留 4096 条回执，达到上限拒绝新消息，旧回执仍可查询；不承诺跨重启去重。完整信封和错误边界见[设计文档](../docs/aurorabot-design-v0.2.3.md#102-界面动作边界)。
 
-已配置默认装配的 CLI 宿主可用 `serve --endpoints '["org.aurora.bot:endpoints/conversation"]'` 显式开放该端点；ctx 状态仍由 `--keys` 独立选择。`aurora_api` 插件提供端点接收方声明，未启用时不妨碍进程内运行；安装包不会自动启用插件或开放路由。接口仍限本机客户端，不接受浏览器 Origin。
+已配置默认装配的 CLI 宿主可用 `serve --endpoints '["org.aurora.bot:endpoints/conversation"]'` 显式开放该端点；ctx 状态仍由 `--keys` 独立选择。`aurora_api` 插件提供端点接收方声明，未启用时不妨碍进程内运行；安装包不会自动启用插件或开放路由。默认仍限本机客户端，不接受浏览器 Origin；浏览器访问须显式启用下述访问策略。
+
+### 浏览器访问与运行期认证
+
+后端仍监听 `127.0.0.1`。开发页面可通过明确的 Origin 白名单跨端口访问；生产环境由反向代理提供 HTTPS/WSS，静态页面优先同源部署。启用浏览器来源或额外 Host 时必须同时提供访问令牌；同源也需要显式列入来源白名单。令牌授予宿主已经开放的全部状态和端点，不提供多用户或每个状态的权限隔离。
+
+先在当前终端生成令牌，再启动已配置好的宿主；令牌值不作为命令行参数传递：
+
+```powershell
+$env:AURORA_API_TOKEN = uv run --locked python -c "import secrets; print(secrets.token_urlsafe(32))"
+uv run --locked python scripts/serve_bot.py --data-dir data --token-env AURORA_API_TOKEN --allowed-origin http://localhost:5173
+```
+
+`--allowed-origin` 可重复，要求精确的 `协议://主机[:端口]`，不含路径、尾斜杠、通配符或 `null`。`localhost` 和 `127.0.0.1` 是不同来源，端口也参与匹配。`--allowed-host` 可重复，指定小写 ASCII 域名或 IPv4 地址，不含端口；默认只允许 localhost 和 127.0.0.1，显式提供时替换默认列表。这些参数不扩大 `--keys`、`--read-only-keys` 或 `--endpoints` 的开放范围。
+
+通用 CLI 的同等选项为 `serve --token-env NAME --allowed-origins JSON数组 --allowed-hosts JSON数组`。浏览器页通过 `new CtxClient(apiOrigin, { token })` 连接，token 由界面在运行时取得，不写入前端源码、构建变量、URL 或浏览器持久存储。Python 使用 `CtxClient(url, token=token)`。已有 CLI 与 TUI 使用同一环境变量的值：
+
+```powershell
+uv run --locked aurora --connect http://127.0.0.1:10270 --connect-token-env AURORA_API_TOKEN ctx list
+pnpm --filter @aurorabot/tui start --connect http://127.0.0.1:10270 --token-env AURORA_API_TOKEN
+```
+
+HTTP 通过 `Authorization: Bearer <token>` 认证；CORS 预检只允许已开放的路径、方法和 Authorization/Content-Type 请求头，不需要令牌。错误来源或 Host 返回 403，缺失或错误令牌返回 401，允许来源能读取错误信封。共享 client 不发送 HTTP cookie，不自动重试动作请求。
+
+WS 先检查 Origin/Host，再要求在 10 秒内发送首帧 `{ "access_token": "<token>", "key": "<可选状态 ID>", "location": {} }`；认证成功后才创建订阅并返回 ready。无认证的本机模式仍使用原有过滤帧，不发送 access_token。认证失败返回 unauthorized 信封并以 1008 关闭，client 停止重连；网络断线后重新认证、订阅并刷新状态，不重放业务动作。接口定义见生成契约中的 WatchHandshake，过滤条件仍为 WatchRequest。
+
+生产反向代理须终止 TLS、支持 WS Upgrade，并原样转发 Origin、Authorization 和明确允许的 Host。将公开域名加入 `--allowed-host`、页面的 HTTPS 来源加入 `--allowed-origin`，按需保留本机 Host 以供 CLI/TUI 使用；API 不信任 Forwarded/X-Forwarded-* 来改变来源或认证判断。后端不直接监听公网，不支持代理路径前缀。令牌只在进程内使用，要求 32–256 位 URL 安全字符；更换环境变量后重启宿主和客户端才能轮换，已连接 WS 随宿主关闭断开。
+
+来源与浏览器传输规则参考 [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS) 和 [WebSocket 构造器](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/WebSocket)。认证与默认装配回归见 `packages/aurora_api/tests/contract/test_browser_access.py`、`tests/e2e/test_browser_conversation.py`；真实浏览器验收记录见 [变更记录](../docs/CHAGELOG.md)。
+
 
 ## 持续巡检宿主
 

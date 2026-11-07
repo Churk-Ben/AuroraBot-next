@@ -51,32 +51,46 @@ async def command(*args, cwd=None):
             await process.communicate()
 
 
-def test_remote_watch_and_commands_share_one_host_with_transient_configuration(tmp_path):
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_remote_watch_and_commands_share_one_host_with_transient_configuration(tmp_path, monkeypatch, authenticated):
+    monkeypatch.setenv("AURORA_TEST_ACCESS", "test-cli-access-token-123456789012")
+    authentication = ["--connect-token-env", "AURORA_TEST_ACCESS"] if authenticated else []
+    server_authentication = ["--token-env", "AURORA_TEST_ACCESS"] if authenticated else []
+
     async def scenario():
         data = tmp_path / "host-data"
         client_dir = tmp_path / "client"
         client_dir.mkdir()
         host_stop = tmp_path / "stop-host"
         watch_stop = tmp_path / "stop-watch"
-        host = await start_cli("-d", data, "--config", '{"count":0}', "serve", "--port", "0", stop_file=host_stop)
+        host = await start_cli(
+            "-d", data, "--config", '{"count":0}', "serve", "--port", "0", *server_authentication, stop_file=host_stop
+        )
         processes = [host]
         try:
             line = await wait_message(host, "ctx API 已监听")
             match = re.search(r"http://127\.0\.0\.1:\d+", line)
             assert match is not None, line
             url = match.group()
-            watcher = await start_cli("--connect", url, "ctx", "watch", cwd=client_dir, stop_file=watch_stop)
+            watcher = await start_cli(
+                "--connect", url, *authentication, "ctx", "watch", cwd=client_dir, stop_file=watch_stop
+            )
             processes.append(watcher)
             await wait_message(watcher, "正在观察")
             assert watcher.stdout is not None
-            assert await command("--connect", url, "ctx", "set", CONFIG, '{"count":1}', cwd=client_dir) is None
+            assert (
+                await command("--connect", url, *authentication, "ctx", "set", CONFIG, '{"count":1}', cwd=client_dir)
+                is None
+            )
             event = json.loads(await asyncio.wait_for(watcher.stdout.readline(), 5))
             assert event["previous"] == {"count": 0}
             assert event["value"] == {"count": 1}
             assert event["action"] == "set"
-            assert await command("--connect", url, "ctx/get", CONFIG, cwd=client_dir) == {"count": 1}
-            assert await command("--connect", url, "ctx/list", cwd=client_dir) == [{"id": CONFIG, "location": {}}]
-            assert await command("--connect", url, "ctx/delete", CONFIG, cwd=client_dir) is True
+            assert await command("--connect", url, *authentication, "ctx/get", CONFIG, cwd=client_dir) == {"count": 1}
+            assert await command("--connect", url, *authentication, "ctx/list", cwd=client_dir) == [
+                {"id": CONFIG, "location": {}}
+            ]
+            assert await command("--connect", url, *authentication, "ctx/delete", CONFIG, cwd=client_dir) is True
             deleted = json.loads(await asyncio.wait_for(watcher.stdout.readline(), 5))
             assert deleted["action"] == "delete"
             assert deleted["revision"] > event["revision"]
@@ -85,9 +99,9 @@ def test_remote_watch_and_commands_share_one_host_with_transient_configuration(t
             await asyncio.wait_for(watcher.communicate(), 5)
             assert watcher.returncode == 130
             assert host.returncode is None
-            await command("--connect", url, "ctx/set", CONFIG, '{"count":2}', cwd=client_dir)
+            await command("--connect", url, *authentication, "ctx/set", CONFIG, '{"count":2}', cwd=client_dir)
 
-            watcher = await start_cli("--connect", url, "ctx/watch", cwd=client_dir)
+            watcher = await start_cli("--connect", url, *authentication, "ctx/watch", cwd=client_dir)
             processes.append(watcher)
             await wait_message(watcher, "正在观察")
             host_stop.touch()

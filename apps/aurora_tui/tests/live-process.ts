@@ -19,9 +19,10 @@ async function until(condition: () => boolean): Promise<void> {
 const url = process.argv[2];
 assert.ok(url);
 const terminal = await createTestRenderer({ width: 100, height: 30, kittyKeyboard: true });
-const model = new Workbench(new CtxClient(url));
+const options = { token: process.env.AURORA_TEST_ACCESS || undefined };
+const model = new Workbench(new CtxClient(url, options));
 const view = new WorkbenchView(terminal.renderer, model, () => {});
-const observer = new CtxClient(url);
+const observer = new CtxClient(url, options);
 try {
   await model.start();
   await until(() => model.ready);
