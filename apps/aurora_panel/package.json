@@ -3,7 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
   "dependencies": {
-    "@aurorabot/client": "workspace:*"
+    "@aurorabot/client": "workspace:*",
+    "vue": "catalog:"
+  },
+  "devDependencies": {
+    "@vben/tsconfig": "workspace:*",
+    "@vitejs/plugin-vue": "catalog:",
+    "vite": "catalog:",
+    "vue-tsc": "catalog:"
   }
 }
