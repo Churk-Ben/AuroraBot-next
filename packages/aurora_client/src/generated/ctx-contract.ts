@@ -178,6 +178,12 @@ export type WatchEvent = {
   type: 'event';
 };
 
+export type WatchHandshake = {
+  access_token?: string;
+  key?: StateId;
+  location?: Location;
+};
+
 export type WatchMessage = WatchError | WatchEvent | WatchReady;
 
 export type WatchReady = {
