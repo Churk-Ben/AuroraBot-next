@@ -165,7 +165,7 @@ try {
 
 ### 浏览器工作台（Panel）
 
-Panel 提供连接、Bot 实例选择、交流和只读状态页，复用共享 client。先安装工作区依赖：
+Panel 使用 Vue、Naive UI、Font Awesome、Pinia 和 Vue Router，提供连接、Bot 实例选择、交流和只读状态页，复用共享 client。页面路由为 `/#/conversation` 和 `/#/state`，可使用浏览器前进/后退，切页不重建订阅连接。先安装工作区依赖：
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -192,6 +192,8 @@ pnpm --filter @aurorabot/panel preview
 ```
 
 产物位于 `apps/aurora_panel/dist`，预览地址为 `http://127.0.0.1:4173`，需相应开放这个 Origin。生产页面默认以当前页面的 Origin 作为 API 地址；可在连接表单中改为其他明确开放的 API Origin。通过同源 HTTPS 代理部署静态资源及 API 时，保持 `/ctx`、`/conversation` 等 API 路径转发与 WS Upgrade，后端继续进行来源及令牌校验。令牌不放入 Vite 构建变量或静态文件。
+
+前端按 `layouts`、`views`、`components`、`composables`、`stores`、`services` 分工，工程结构与依赖边界见[架构设计](../docs/aurorabot-design-v0.2.3.md#102-界面动作边界)。开发时运行 `pnpm --filter @aurorabot/panel typecheck` 检查 TypeScript 与严格模板类型，`pnpm exec vitest run apps/aurora_panel` 执行服务和页面回归；图标按需导入 Font Awesome，主题统一在 `src/theme` 配置。
 
 本切片未提供 ctx/TOML 编辑、浏览器偏好持久化或完整 Markdown 渲染。界面与连接回归见 `apps/aurora_panel/tests`、`tests/e2e/test_panel.py`，浏览器和布局验收记录见 [变更记录](../docs/CHAGELOG.md)。
 
