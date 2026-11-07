@@ -1,65 +1,11 @@
-import type {
-  CtxClient as Client,
-  ConnectionState,
-  ConversationReceipt,
-  ConversationSubmitRequest,
-  JsonValue,
-  StateRecord,
-  SubscriptionUpdate,
-} from '@aurorabot/client';
+import type { SubscriptionUpdate } from '@aurorabot/client';
+
+import type { PanelClient, PanelState, Submission } from '../types/workbench.ts';
 
 import { CtxClient, RemoteError } from '@aurorabot/client';
 
-export const BOT = {
-  messages: 'org.aurora.bot:state/messages',
-  run: 'org.aurora.bot:state/run',
-  work: 'org.aurora.bot:state/react_work',
-};
-
-export type PanelClient = Pick<Client, 'close' | 'subscribe'> & {
-  conversation: Pick<Client['conversation'], 'cancel' | 'info' | 'query' | 'submit'>;
-};
-export interface Submission {
-  error?: string;
-  receipt?: ConversationReceipt;
-  request: ConversationSubmitRequest;
-  status:
-    'accepted' | 'cancelled' | 'completed' | 'expired' | 'failed' | 'missing' | 'rejected' | 'sending' | 'uncertain';
-}
-
-export interface Activity {
-  execution: string;
-  instance: string;
-  run: string;
-  results: JsonValue[];
-  session: string;
-  text: string;
-  tools: JsonValue[];
-}
-
-export interface PanelState {
-  activities: Activity[];
-  cancelling: boolean;
-  connection: ConnectionState;
-  instance: string;
-  instances: string[];
-  notice: string;
-  ready: boolean;
-  records: StateRecord[];
-  session: string;
-  submissions: Submission[];
-  url: string;
-}
-
-export function object(value: unknown): Record<string, JsonValue> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, JsonValue>)
-    : undefined;
-}
-
-export function address(record: Pick<StateRecord, 'id' | 'location'>): string {
-  return JSON.stringify([record.id, Object.entries(record.location).toSorted(([a], [b]) => a.localeCompare(b))]);
-}
+import { BOT } from '../constants/bot.ts';
+import { address, object } from '../utils/state.ts';
 
 /** 页面只持有观察与请求回执；关闭连接不取消 bot，也不重放消息。 */
 export class PanelWorkbench {

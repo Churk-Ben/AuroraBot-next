@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BOT, PanelWorkbench } from '../src/workbench.ts';
+import { BOT } from '../src/constants/bot.ts';
+import { PanelWorkbench } from '../src/services/workbench.ts';
 import { FakeClient, settle } from './fake-client.ts';
 
 const models: PanelWorkbench[] = [];

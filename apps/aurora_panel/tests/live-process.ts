@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import process from 'node:process';
 import { setTimeout } from 'node:timers/promises';
 
-import { PanelWorkbench } from '../src/workbench.ts';
+import { PanelWorkbench } from '../src/services/workbench.ts';
 
 const model = new PanelWorkbench();
 const url = process.argv[2];

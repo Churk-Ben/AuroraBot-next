@@ -7,7 +7,7 @@ import type {
   SubscriptionUpdate,
 } from '@aurorabot/client';
 
-import type { PanelClient } from '../src/workbench.ts';
+import type { PanelClient } from '../src/types/workbench.ts';
 
 import { RemoteError } from '@aurorabot/client';
 
