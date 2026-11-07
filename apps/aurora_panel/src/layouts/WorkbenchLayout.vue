@@ -155,7 +155,7 @@ const menu: MenuOption[] = [
   padding: 20px 22px;
   font-size: 27px;
   font-weight: 700;
-  color: #326656;
+  color: var(--aurora-accent);
   text-decoration: none;
 }
 

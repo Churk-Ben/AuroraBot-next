@@ -11,7 +11,7 @@ const emit = defineEmits<{ refresh: []; retry: [message: Submission] }>();
 
 <template>
   <NThing class="submission-message" content-indented>
-    <template #avatar><NAvatar round size="small">你</NAvatar></template>
+    <template #avatar><NAvatar class="user-avatar" round size="small">你</NAvatar></template>
     <template #header>你</template>
     <template #description>
       <NTag size="small" :bordered="false">{{ statusNames[message.status] }}</NTag>
@@ -34,6 +34,11 @@ const emit = defineEmits<{ refresh: []; retry: [message: Submission] }>();
 </template>
 
 <style scoped>
+.user-avatar {
+  color: #181818;
+  background-color: var(--aurora-complement);
+}
+
 .submission-message {
   min-width: 0;
 }

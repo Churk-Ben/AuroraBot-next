@@ -5,6 +5,7 @@ import { faStop } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import { NAvatar, NButton, NCard, NThing } from 'naive-ui';
 
+import { brandColors } from '../../theme';
 import SubmissionMessage from './SubmissionMessage.vue';
 import ToolActivity from './ToolActivity.vue';
 
@@ -37,7 +38,7 @@ const emit = defineEmits<{ cancel: [run: string]; refresh: []; retry: [message: 
         @retry="emit('retry', $event)"
       />
       <NThing v-for="activity in group.activities" :key="activity.execution" content-indented>
-        <template #avatar><NAvatar round size="small" color="#326656">A</NAvatar></template>
+        <template #avatar><NAvatar round size="small" :color="brandColors.accent">A</NAvatar></template>
         <template #header>Aurora</template>
         <template #description>模型过程</template>
         <div v-if="activity.text" class="text-content">{{ activity.text }}</div>

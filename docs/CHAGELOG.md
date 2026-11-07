@@ -2,6 +2,11 @@
 
 ## 2026-11-07
 
+### 对齐 Panel 与 TUI 的品牌配色
+
+- 以 `apps/aurora_tui/assets/palette.svg` 为依据，将 Panel 强调色统一为主题蓝 `#4B79EC`，对比色统一为暖金 `#ECBE4B`，hover/pressed 使用浅蓝 `#81A1F2` 与深蓝 `#3555A5`。品牌色集中在 `src/theme`，导航、主按钮、品牌标识和 Bot 头像使用蓝色，用户头像使用暖金配深色文字。
+- Panel 的 14 项既有测试、类型检查、生产构建、格式/lint 检查通过；Chrome 复验桌面与窄屏流程，并核对蓝色品牌标识与暖金头像的实际计算样式。未更改后端行为、公共 ID 或数据格式。
+
 ### 按职责重构 Panel 并接入成熟组件库
 
 - 将根组件中的连接、导航、交流、工具和状态展示拆为 layouts/views/components；services 保存无界面的连接与回执控制，stores 使用 Pinia 统一持有跨页状态和内存草稿，composables 管理视图投影及监听，types/constants/utils/theme/styles 分别维护契约、常量、辅助函数、主题和基础样式。移除手写 SVG 图标和原集中样式文件，无兼容转发层。
