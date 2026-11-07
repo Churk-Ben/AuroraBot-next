@@ -44,6 +44,9 @@ def describe_contract(*, extensions: Iterable[dict] = ()) -> dict:
         "SetRequest": _object({**filters, "value": _ref("JsonValue")}, ("key", "value")),
         "DeleteRequest": _object(filters, ("key",)),
         "WatchRequest": _object(filters, ()),
+        "WatchHandshake": _object(
+            {**filters, "access_token": {"type": "string", "pattern": "^[A-Za-z0-9_-]{32,256}$"}}, ()
+        ),
         "GetResponse": _object({"result": _ref("JsonValue")}),
         "ListResponse": _object({"result": {"type": "array", "items": _ref("StateAddress")}}),
         "SetResponse": _object({"result": {"type": "null"}}),
@@ -85,7 +88,7 @@ def describe_contract(*, extensions: Iterable[dict] = ()) -> dict:
             "subscribe": str(SUBSCRIBE),
             "unsubscribe": str(UNSUBSCRIBE),
             "event": CHANGED,
-            "request": _ref("WatchRequest"),
+            "request": _ref("WatchHandshake"),
             "message": _ref("WatchMessage"),
             "subscription": "one_per_connection",
             "unsubscribe_by": "close_connection",

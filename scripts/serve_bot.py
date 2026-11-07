@@ -18,6 +18,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="使用已有 TOML 配置启动本机 bot API，供 TUI 连接")
     parser.add_argument("--data-dir", type=Path, default=Path("data"), help="宿主数据目录，默认 data")
     parser.add_argument("--port", type=int, default=10270, help="本机端口，默认 10270")
+    parser.add_argument("--token-env", help="运行期访问令牌的环境变量名")
+    parser.add_argument("--allowed-origin", action="append", default=[], help="允许的浏览器来源，可重复")
+    parser.add_argument("--allowed-host", action="append", help="允许的 Host 主机名，可重复；默认仅本机")
     parser.add_argument("--edit-config", action="store_true", help="开放已登记 TOML 配置编辑，保存后重启生效")
     parser.add_argument("--world", action="store_true", help="开放世界记录和来源状态；须先在宿主启用 world 插件")
     parser.add_argument("--cadence", action="store_true", help="开放消费位置和转交诊断；须先启用 aurora_bot.cadence")
@@ -49,6 +52,12 @@ def main() -> int:
         "--endpoints",
         json.dumps([str(CONVERSATION), *([str(CONFIGURATION)] if args.edit_config else [])]),
     ]
+    if args.token_env is not None:
+        sys.argv.extend(["--token-env", args.token_env])
+    if args.allowed_origin:
+        sys.argv.extend(["--allowed-origins", json.dumps(args.allowed_origin)])
+    if args.allowed_host is not None:
+        sys.argv.extend(["--allowed-hosts", json.dumps(args.allowed_host)])
     return cli_main()
 
 

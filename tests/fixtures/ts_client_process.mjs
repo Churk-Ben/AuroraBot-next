@@ -7,8 +7,9 @@ import { setTimeout } from 'node:timers/promises';
 import { CtxClient, RemoteError } from '../../packages/aurora_client/src/index.ts';
 
 const key = 'dev.client:state/public';
-const first = new CtxClient(process.argv[2]);
-const second = new CtxClient(process.argv[2]);
+const options = { token: process.env.AURORA_TEST_ACCESS || undefined };
+const first = new CtxClient(process.argv[2], options);
+const second = new CtxClient(process.argv[2], options);
 const control = createInterface({ input: process.stdin });
 const instructions = control[Symbol.asyncIterator]();
 

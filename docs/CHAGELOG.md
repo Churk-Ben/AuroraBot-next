@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-07
+
+### 开放显式认证的浏览器 HTTP/WS 访问
+
+- API 新增 AccessPolicy，默认保留仅本机非浏览器访问；来源或额外 Host 必须绑定运行期令牌。HTTP 使用 Bearer，WS 首帧认证成功后才订阅；预检仅接受显式开放的路由、方法与请求头。来源/Host 拒绝返回 403，令牌拒绝返回 unauthorized，不回显凭证。
+- 服务仍监听回环地址，生产 HTTPS/WSS 由代理终止；不信任 Forwarded/X-Forwarded-*。认证不扩大状态键、只读状态或端点范围，令牌不进入 TOML、ctx、快照或界面偏好。无新公共 ID、插件或业务快照格式；生成契约新增 WatchHandshake，原过滤类型与默认本机请求保持兼容。
+- TS/Python client、CLI serve/connect、serve_bot 与 TUI 同步运行期令牌入口。WS 断线重新认证并刷新，认证拒绝停止自动重连，HTTP 动作不重放；同步使用指南、架构与接续队列，token 预算及输出预留按用户要求暂缓。
+- Chrome headless 以真实跨端口页面加载共享 client 的 Vite 构建产物：CORS 请求、WS 状态推送、默认 bot 提交与取消、错误令牌、API 重启重连均通过；未开放来源被浏览器阻止。使用假模型和本地工具，未调用供应商；生产 TLS 代理与 Panel 页面尚未验收。
+
+- 完整检查中的 1214 项 Python、100 项 TS、5 项终端测试通过，保留既有 Pydantic ReadOnly 提示；首轮 lint 检出新增 TS 测试写法与接口排序问题，修正后完整 `pnpm check --lint` 与 55 项共享 client 测试复验通过。测试使用仓库固定的 Node 26.13；系统 Node 24 不支持终端 FFI 参数。
+- 11 个 wheel 构建成功；干净 API wheel 环境不含 bot/agent/CLI，确认模块来自 site-packages，28 项 API 协议与认证测试通过。76 处本地文档链接、文档格式及差异检查通过。
+
 ## 2026-11-06
 
 ### 修复巡检示例将输入预算提示识别为任务

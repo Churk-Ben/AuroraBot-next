@@ -29,6 +29,7 @@ export interface SubscriptionOptions {
   bufferLimit: number;
   reconnect: boolean;
   timeoutMs: number;
+  token?: string;
 }
 
 function closeSocket(socket: WebSocket): Promise<void> {
@@ -86,8 +87,11 @@ export class Subscription implements CtxSubscription {
     const endpoint = new URL(WATCH_BINDING.path, url);
     endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
     this.url = endpoint.href;
-    this.payload = encodeRequest(filters);
-    this.filters = JSON.parse(this.payload) as WatchRequest;
+    this.filters = JSON.parse(encodeRequest(filters)) as WatchRequest;
+    this.payload = encodeRequest({
+      ...this.filters,
+      ...(options.token === undefined ? {} : { access_token: options.token }),
+    });
     this.observer = observer;
     this.refresh = refresh;
     this.options = options;

@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       connect: { type: 'string' },
+      'token-env': { type: 'string' },
       instance: { type: 'string' },
       preferences: { type: 'string' },
       'save-preferences': { type: 'boolean' },
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
     process.stdout.write(
       `Aurora 终端工作台\n\npnpm --filter @aurorabot/tui start [--connect URL] [--instance ID]\n\n` +
         `--preferences PATH  指定本地偏好文件\n` +
+        `--token-env NAME    从指定环境变量读取访问令牌，不保存到偏好文件\n` +
         `--save-preferences  保存连接与实例后退出，不连接后端\n` +
         `默认偏好文件：${defaultPreferencesPath()}\n` +
         `命令行参数 > 本地偏好 > 内置默认值；临时参数不自动保存。\n` +
@@ -48,7 +50,9 @@ async function main(): Promise<void> {
   }
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new Error('TUI 需要交互终端，请在 PowerShell 或其他终端中启动。');
-  const client = new CtxClient(preferences.connect);
+  const token = values['token-env'] === undefined ? undefined : process.env[values['token-env']];
+  if (values['token-env'] !== undefined && !token) throw new Error('访问令牌环境变量未设置或为空');
+  const client = new CtxClient(preferences.connect, { token });
   const model = new Workbench(client, preferences.instance);
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,

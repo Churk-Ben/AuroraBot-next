@@ -124,6 +124,23 @@
       "required": [],
       "additionalProperties": false
     },
+    "WatchHandshake": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/StateId"
+        },
+        "location": {
+          "$ref": "#/$defs/Location"
+        },
+        "access_token": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{32,256}$"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
     "GetResponse": {
       "type": "object",
       "properties": {
@@ -807,7 +824,7 @@
     "unsubscribe": "org.aurora.core:operations/ctx/unsubscribe",
     "event": "org.aurora.core:events/ctx/changed",
     "request": {
-      "$ref": "#/$defs/WatchRequest"
+      "$ref": "#/$defs/WatchHandshake"
     },
     "message": {
       "$ref": "#/$defs/WatchMessage"

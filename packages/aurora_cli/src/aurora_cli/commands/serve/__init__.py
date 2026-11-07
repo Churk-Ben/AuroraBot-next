@@ -14,9 +14,21 @@ async def dispatch(
     keys: object = None,
     endpoints: object = None,
     read_only_keys: object = None,
+    token_env: str | None = None,
+    allowed_origins: object = None,
+    allowed_hosts: object = None,
 ) -> None:
     """keys 开放读写和订阅，read_only_keys 仅开放读取和订阅；两者不得重叠。"""
+    from aurora_api.access import AccessPolicy, token_from_env
     from aurora_api.server import serve
+
+    access_values = {}
+    for name, value in (("allowed_origins", allowed_origins), ("allowed_hosts", allowed_hosts)):
+        if value is not None:
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise ValueError(f"--{name.replace('_', '-')} 须为字符串 JSON 数组")
+            access_values[name] = tuple(value)
+    access = AccessPolicy(token=token_from_env(token_env), **access_values)
 
     if keys is None:
         allowed = [CONFIG]
@@ -36,7 +48,9 @@ async def dispatch(
         selected = [Id(endpoint) for endpoint in endpoints]
     else:
         raise ValueError("--endpoints 须为产品端点 ID 的 JSON 数组")
-    async with serve(context.registry, keys=allowed, read_only_keys=readonly, port=port, endpoints=selected) as url:
+    async with serve(
+        context.registry, keys=allowed, read_only_keys=readonly, port=port, endpoints=selected, access=access
+    ) as url:
         logging.getLogger(__name__).info("ctx API 已监听 %s，Ctrl+C 停止", url)
         await asyncio.Event().wait()
 
@@ -54,6 +68,9 @@ def plugin():
                     {"name": "keys", "type": "json", "option": True},
                     {"name": "read_only_keys", "type": "json", "option": True},
                     {"name": "endpoints", "type": "json", "option": True},
+                    {"name": "token_env", "type": "string", "option": True},
+                    {"name": "allowed_origins", "type": "json", "option": True},
+                    {"name": "allowed_hosts", "type": "json", "option": True},
                 ],
             }
         },

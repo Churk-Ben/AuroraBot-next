@@ -174,8 +174,9 @@ export class Transport {
   private readonly lifetime = new AbortController();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly timeoutMs: number;
+  private readonly token?: string;
 
-  constructor(url: string, timeoutMs: number) {
+  constructor(url: string, timeoutMs: number, token?: string) {
     const parsed = new URL(url);
     if (
       !['http:', 'https:'].includes(parsed.protocol) ||
@@ -189,6 +190,10 @@ export class Transport {
     }
     this.url = parsed.origin;
     this.timeoutMs = timeoutMs;
+    if (token !== undefined && !/^[A-Za-z0-9_-]{32,256}$/u.test(token)) {
+      throw new TypeError('访问令牌须为 32 至 256 位 URL 安全字符');
+    }
+    this.token = token;
   }
 
   async close(): Promise<void> {
@@ -224,7 +229,11 @@ export class Transport {
       const binding = HTTP_BINDINGS[action];
       const response = await fetch(this.url + binding.path, {
         method: binding.method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.token === undefined ? {} : { Authorization: `Bearer ${this.token}` }),
+        },
+        credentials: 'omit',
         body: encodeRequest(request),
         redirect: 'error',
         signal: AbortSignal.any(signals),

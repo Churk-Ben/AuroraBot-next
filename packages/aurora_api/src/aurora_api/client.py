@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from aiohttp import ClientSession, ClientTimeout, ClientWSTimeout, WSMsgType
 from aurora_core.json_data import decode_json, encode_json
 
+from .access import validate_token
 from .protocol import CHANGED, HTTP_ACTIONS, WATCH_PATH
 
 
@@ -34,7 +35,7 @@ def _check_error(body: object) -> dict:
 class CtxClient:
     """通过 async with 持有连接；关闭 watch 即取消订阅，不自动重连或重放。"""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, token: str | None = None) -> None:
         parsed = urlsplit(url)
         if (
             parsed.scheme not in ("http", "https")
@@ -47,12 +48,15 @@ class CtxClient:
         ):
             raise ValueError("连接地址须为 http(s)://主机:端口")
         self.url = url.rstrip("/")
+        validate_token(token)
+        self._token = token
         self._session: ClientSession | None = None
 
     async def __aenter__(self) -> Self:
         if self._session is not None:
             raise RuntimeError("客户端已连接")
-        self._session = ClientSession(timeout=ClientTimeout(total=10), json_serialize=encode_json)
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token is not None else {}
+        self._session = ClientSession(timeout=ClientTimeout(total=10), json_serialize=encode_json, headers=headers)
         return self
 
     async def __aexit__(
@@ -83,7 +87,7 @@ class CtxClient:
         # aiohttp 的 attrs 动态构造签名无法被 basedpyright 完整识别。
         timeout = ClientWSTimeout(ws_receive=None, ws_close=2)  # pyright: ignore[reportCallIssue]
         async with self._connection().ws_connect(self.url + WATCH_PATH, heartbeat=30, timeout=timeout) as ws:
-            await ws.send_json(filters)
+            await ws.send_json({**filters, **({"access_token": self._token} if self._token is not None else {})})
             body = _check_error(await ws.receive_json(timeout=10, loads=decode_json))
             if body.get("type") != "ready":
                 raise ValueError("API 未确认订阅")
