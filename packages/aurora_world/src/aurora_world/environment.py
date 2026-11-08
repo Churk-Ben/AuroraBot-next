@@ -2,8 +2,10 @@
 
 import asyncio
 import math
+import random
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from statistics import NormalDist
 from typing import cast
 from uuid import uuid4
 
@@ -47,14 +49,24 @@ _CONDITIONS = {
     96: "雷暴伴小冰雹",
     99: "雷暴伴强冰雹",
 }
+
+
+def _time_config(value: object) -> None:
+    values = cast(dict, value)
+    if values["mean_seconds"] <= 3 * values["deviation_seconds"]:
+        raise ValueError("时间更新均值须大于三倍标准差")
+
+
 TIME_CONFIG = ConfigSchema(
     {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "interval_seconds": {"type": "number", "minimum": 1, "maximum": 86400, "default": 60},
+            "mean_seconds": {"type": "number", "minimum": 60, "default": 1800.0},
+            "deviation_seconds": {"type": "number", "minimum": 1, "default": 300.0},
         },
-    }
+    },
+    check=_time_config,
 )
 WEATHER_CONFIG = ConfigSchema(
     {
@@ -113,15 +125,45 @@ async def create_time(
     config: dict[str, object],
     now: Callable[[], datetime] = _now,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    uniform: Callable[[float, float], float] = random.uniform,
 ) -> SourceInstance:
-    """每次采样记录宿主本地时间；使用相对等待，不补发错过的周期。"""
+    """以三倍标准差内的截断正态间隔主动看时间，ctx 变化时刷新到秒。"""
     values = cast(dict, TIME_CONFIG.parse(config))
+    normal = NormalDist()
+    lower, upper = normal.cdf(-3), normal.cdf(3)
+    session, sequence = uuid4().hex, 0
+    previous: datetime | None = None
 
-    async def observe() -> dict[str, object]:
-        current = now()
-        return {"kind": "time", "observed_at": current.isoformat(), "timezone": current.tzname()}
+    def publish(trigger: str) -> None:
+        nonlocal previous, sequence
+        current = now().replace(microsecond=0)
+        if trigger == "context" and previous == current:
+            return
+        previous = current
+        sequence += 1
+        emit(
+            message_id=f"{session}/{sequence}",
+            payload={
+                "kind": "time",
+                "observed_at": current.isoformat(),
+                "timezone": current.tzname(),
+                "trigger": trigger,
+            },
+        )
 
-    return _periodic(emit, observe, values["interval_seconds"], sleep)
+    async def start() -> None:
+        publish("startup")
+
+    async def run() -> None:
+        while True:
+            probability = uniform(lower, upper)
+            if not math.isfinite(probability) or not lower <= probability <= upper:
+                raise ValueError("时间更新随机值超出正态分布采样范围")
+            interval = values["mean_seconds"] + values["deviation_seconds"] * normal.inv_cdf(probability)
+            await sleep(interval)
+            publish("rhythm")
+
+    return SourceInstance(start, _noop, _noop, run, lambda: publish("context"))
 
 
 def _current_weather(value: object) -> dict[str, object]:

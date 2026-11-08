@@ -134,7 +134,7 @@ def setup(root, declarations, mode, monkeypatch, events):
         "org.aurora.bot/config.toml": {"instance_id": "main", "model_role": "reasoning", "streaming": False},
         "org.aurora.world/config.toml": {
             "sources": [
-                {"source": str(TIME), "source_id": "clock", "config": {"interval_seconds": 60}},
+                {"source": str(TIME), "source_id": "clock", "config": {}},
                 *[
                     {
                         "source": str(WORLD_SOURCE),

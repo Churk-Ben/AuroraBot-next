@@ -47,7 +47,7 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
             tomli_w.dumps(
                 {
                     "sources": [
-                        {"source": str(TIME), "source_id": "environment/time", "config": {"interval_seconds": 2}},
+                        {"source": str(TIME), "source_id": "environment/time", "config": {"mean_seconds": 1800}},
                         {"source": str(WEATHER), "source_id": "environment/weather", "config": LOCATION},
                     ]
                 }
@@ -69,7 +69,7 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
                 tmp_path, extra_plugins=[plugin for plugin in plugins if plugin.name != "aurora_config"]
             )
             for identity, factory in (
-                (TIME, partial(create_time, sleep=clocks[0].sleep)),
+                (TIME, partial(create_time, sleep=clocks[0].sleep, uniform=lambda a, b: 0.5)),
                 (
                     WEATHER,
                     partial(
@@ -93,7 +93,7 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
             )
             await host.start(configure=partial(seed, ctx, tools=False))
             try:
-                assert await clocks[0].waiting.get() == (3 if restart else 2)
+                assert await clocks[0].waiting.get() == (2100 if restart else 1800)
                 assert await clocks[1].waiting.get() == 900
                 assert assembly.world_records is not None
                 records = assembly.world_records.observations()
@@ -123,7 +123,7 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
                         key=str(ENVIRONMENT), location={"source_id": "environment/time"}
                     ) as changes:
                         clocks[0].wake.put_nowait(None)
-                        assert await clocks[0].waiting.get() == (3 if restart else 2)
+                        assert await clocks[0].waiting.get() == (2100 if restart else 1800)
                         change = await asyncio.wait_for(anext(changes), timeout=2)
                         assert change["value"]["records"][-1]["payload"]["kind"] == "time"
                     value = cast(
@@ -147,6 +147,6 @@ def test_default_assembly_exposes_environment_without_activating_model_and_resto
             assert sum(len(cast(dict, value)["records"]) for value in stored) == len(previous)
             if not restart:
                 text = path.read_text(encoding="utf-8")
-                path.write_text(text.replace("interval_seconds = 2", "interval_seconds = 3"), encoding="utf-8")
+                path.write_text(text.replace("mean_seconds = 1800", "mean_seconds = 2100"), encoding="utf-8")
 
     asyncio.run(scenario())
