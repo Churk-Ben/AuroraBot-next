@@ -397,7 +397,9 @@ API 默认监听 `127.0.0.1:10270`，允许 `http://127.0.0.1:5173` 与 `http://
 
 模型由 `profiles.toml` 与 `bindings.toml` 选择；MCP 服务、世界来源和 cadence 消费范围分别由对应 TOML 决定，缺失文件只补模板。新模板中的 MCP 服务、世界来源和 cadence 来源均为空，不自动接入外部服务或启动模型任务。已有配置选中了外部连接或自动转交来源时，启动会按配置建立连接并处理事件；笔记、归档、行动证据等能力仍由 Bot 配置开关决定。
 
-另开终端运行 `pnpm --filter @aurorabot/tui start` 或 `pnpm --filter @aurorabot/panel dev`，API 令牌使用 `.env` 中的 `AURORA_API_TOKEN`。后端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一数据目录。
+另开终端，在仓库根目录运行 `pnpm tui`，自动加载根目录 `.env` 并读取 `AURORA_API_TOKEN`，已有环境变量优先。令牌只需在 `.env` 中配置一次；该命令只启动 TUI，后端需保持运行。连接地址沿用本地偏好，未保存偏好时默认为 `http://127.0.0.1:10270`；可用 `pnpm tui --connect http://127.0.0.1:10270 --instance main` 显式指定，也可用 `--token-env NAME` 指定其他令牌变量。离线无认证示例继续使用 `pnpm --filter @aurorabot/tui start`。
+
+浏览器界面运行 `pnpm --filter @aurorabot/panel dev`，连接时填写 `.env` 中的 `AURORA_API_TOKEN`。后端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一数据目录。
 
 ### 在默认装配中观察时间和天气
 
@@ -427,7 +429,7 @@ timeout_seconds = 10
 
 ```powershell
 uv run --locked python bot.py --edit-config
-pnpm --filter @aurorabot/tui start
+pnpm tui
 ```
 
 两个命令分别在两个终端运行。`bot.py` 默认开放近期事件、环境观察与来源状态，TUI 状态页筛选 `org.aurora.world` 即可读取，F7 可编辑 TOML。观察包含采样时间、地点、温度、天气描述及数据有效时间；天气来自 [Open-Meteo 当前天气接口](https://open-meteo.com/en/docs)，属于天气模型数据，载荷保留提供方归属。超时、网络失败或无效响应写入 `status=unavailable` 和固定错误代码，不伪造天气；时间来源继续运行，下一个天气周期会重新采样。
