@@ -38,6 +38,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return true;
   }
 
+  async function connectDefault(): Promise<void> {
+    await service.connectDefault();
+    if (!state.value.ready && state.value.notice) connectionVisible.value = true;
+  }
+
   onScopeDispose(() => {
     unlisten();
     void service.disconnect();
@@ -50,6 +55,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     connecting,
     connectionVisible,
     connect,
+    connectDefault,
     submit,
     cancel: (run: string) => service.cancel(run),
     disconnect: () => service.disconnect(),

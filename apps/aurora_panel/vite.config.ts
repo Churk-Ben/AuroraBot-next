@@ -2,8 +2,10 @@ import tailwindcss from '@tailwindcss/vite';
 import Vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
+import { panelConnection } from './dev/connection.ts';
+
 export default defineConfig({
-  plugins: [Vue(), tailwindcss()],
+  plugins: [Vue(), tailwindcss(), panelConnection()],
   build: {
     rolldownOptions: {
       output: {

@@ -14,6 +14,12 @@ const endpoint = ref(import.meta.env.DEV ? 'http://127.0.0.1:10270' : window.loc
 const token = ref('');
 const error = ref('');
 const origin = window.location.origin;
+watch(
+  () => state.value.url,
+  (url) => {
+    if (url) endpoint.value = url;
+  },
+);
 watch(connectionVisible, (visible) => {
   if (!visible) token.value = '';
 });
