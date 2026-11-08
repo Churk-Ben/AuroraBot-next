@@ -9,8 +9,13 @@ catalog:
   '@fortawesome/fontawesome-svg-core': 7.3.1
   '@fortawesome/free-solid-svg-icons': 7.3.1
   '@fortawesome/vue-fontawesome': 3.3.3
+  '@kungal/ui-core': 2.64.1
+  '@kungal/ui-tokens': 2.64.1
+  '@kungal/ui-vue': 2.64.1
+  '@lucide/vue': 1.70.0
   '@opentui/core': 0.8.1
   '@stylistic/stylelint-plugin': 5.3.1
+  '@tailwindcss/vite': 4.3.5
   '@types/node': 26.6.6
   '@typescript-eslint/parser': 8.72.1
   '@vitejs/plugin-vue': 6.0.10
@@ -42,6 +47,7 @@ catalog:
   stylelint-config-standard: 40.0.0
   stylelint-order: 8.1.2
   stylelint-scss: 7.4.0
+  tailwindcss: 4.3.5
   typescript: 6.0.3
   vite: 8.3.5
   vitest: 5.0.5
@@ -50,3 +56,6 @@ catalog:
   vue-router: 5.4.0
   vue-tsc: 3.3.14
   yaml-eslint-parser: 2.1.0
+
+allowBuilds:
+  vue-demi: true

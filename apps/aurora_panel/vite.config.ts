@@ -1,10 +1,17 @@
+import { fileURLToPath } from 'node:url';
+
+import tailwindcss from '@tailwindcss/vite';
 import Vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [Vue()],
+  plugins: [Vue(), tailwindcss()],
   build: {
     rolldownOptions: {
+      input: {
+        index: fileURLToPath(new URL('index.html', import.meta.url)),
+        kun: fileURLToPath(new URL('kun.html', import.meta.url)),
+      },
       output: {
         strictExecutionOrder: true,
         codeSplitting: {
