@@ -48,8 +48,10 @@ def test_browser_file_larger_than_default_body_limit_reaches_model(tmp_path):
         try:
             assert restored.defaults is not None
             context = restored.defaults._context(ExecutionRequest("inspect"))
-            assert context["messages"][0]["content"][0]["file"]["file_data"].endswith(data)
-            assert context["messages"][-1]["reasoning_content"] == "分析附件"
+            content = context["messages"][0]["content"]
+            assert isinstance(content, list) and content[0]["type"] == "file"
+            assert content[0]["file"].get("file_data", "").endswith(data)
+            assert context["messages"][-1].get("reasoning_content") == "分析附件"
             assert clients[0].requests == []
         finally:
             await restarted.stop()

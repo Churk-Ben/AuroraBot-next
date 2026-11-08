@@ -147,7 +147,6 @@ function keydown(event: KeyboardEvent) {
             variant="light"
             is-icon-only
             aria-label="添加附件"
-            title="图片、PDF 或 UTF-8 文本；最多 8 个，合计 10 MiB"
             :disabled="!store.state.ready || store.readingFiles"
             @click="filePicker?.click()"
           >
