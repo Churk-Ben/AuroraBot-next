@@ -23,11 +23,7 @@ const selected = computed(
 <template>
   <section class="state-page" aria-label="状态工作区">
     <header class="state-heading">
-      <div>
-        <span class="eyebrow">看见正在发生的事</span>
-        <h1>公开状态</h1>
-        <p class="muted">读取和订阅后端已开放的数据。</p>
-      </div>
+      <h1>公开状态</h1>
       <KunChip variant="flat">只读 · {{ store.state.records.length }} 项</KunChip>
     </header>
     <KunInput
@@ -62,8 +58,7 @@ const selected = computed(
     </div>
     <div v-else class="state-empty">
       <Database :size="30" />
-      <h2>{{ filter ? '没有匹配的状态' : '这里将呈现运行中的状态' }}</h2>
-      <p>{{ filter ? '试试其他关键词。' : '后端连接就绪后，已开放的数据会在这里实时更新。' }}</p>
+      <h2>{{ filter ? '没有匹配的状态' : '暂无状态' }}</h2>
     </div>
   </section>
 </template>

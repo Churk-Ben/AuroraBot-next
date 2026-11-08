@@ -104,25 +104,10 @@ pre {
   box-shadow: 0 4px 12px #4b79ec22;
 }
 
-.brand-caption {
-  display: block;
-  margin-top: 2px;
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--panel-muted);
-  letter-spacing: 1px;
-}
-
-.rail-section {
-  padding: 46px 14px 14px;
-  font-size: 11px;
-  color: #8a93a5;
-  letter-spacing: 1px;
-}
-
 .rail-nav {
   display: grid;
   gap: 7px;
+  margin-top: 40px;
 }
 
 .rail-nav a {
@@ -147,47 +132,8 @@ pre {
   box-shadow: 0 3px 10px #2d488005;
 }
 
-.rail-note {
-  position: relative;
-  display: grid;
-  gap: 10px;
-  padding: 25px 16px;
-  margin: auto 0 28px;
-  color: #8995ae;
-}
-
-.rail-note::before {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  content: '';
-  background: radial-gradient(ellipse at 10% 50%, #dfe7ff80, transparent 75%);
-}
-
-.rail-note svg {
-  color: #a0afe0;
-}
-
-.rail-note strong {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.rail-note p {
-  font-size: 11px;
-  line-height: 1.9;
-}
-
 .rail-footer {
-  display: grid;
-  gap: 16px;
-}
-
-.edition {
-  font-size: 9px;
-  color: #a0a8b9;
-  text-align: center;
-  letter-spacing: 2px;
+  margin-top: auto;
 }
 
 .workspace-main {
@@ -259,12 +205,6 @@ pre {
   height: 34px;
   border: 1px solid #dde6ff;
   border-radius: 12px;
-}
-
-.context-note {
-  font-size: 11px;
-  color: #9ba2b2;
-  letter-spacing: 1px;
 }
 
 .workspace-notice {
@@ -349,76 +289,12 @@ pre {
   transform: rotate(6deg);
 }
 
-.eyebrow {
-  font-size: 10px;
-  font-weight: 500;
-  color: #8f9bb7;
-  letter-spacing: 3px;
-}
-
 .conversation-welcome h1 {
-  margin: 12px 0;
+  margin: 0 0 24px;
   font-size: clamp(23px, 2.5vw, 32px);
   font-weight: 600;
   color: #35425e;
   letter-spacing: 1px;
-}
-
-.conversation-welcome > p {
-  margin-bottom: 24px;
-  font-size: 12px;
-  line-height: 1.9;
-  color: #8993a8;
-}
-
-.starter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  width: 100%;
-  margin-top: 38px;
-}
-
-.starter-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 20px;
-  text-align: left;
-  background: white;
-  border: 1px solid #e8edf7;
-  border-radius: 16px;
-  transition:
-    border-color 150ms,
-    transform 150ms;
-}
-
-.starter-card:hover {
-  border-color: #afc3f5;
-  transform: translateY(-2px);
-}
-
-.starter-card svg {
-  margin-bottom: 5px;
-  color: #7393e3;
-}
-
-.starter-card:nth-child(2) svg {
-  color: #81a1f2;
-}
-
-.starter-card:nth-child(3) svg {
-  color: #ecbe4b;
-}
-
-.starter-card strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.starter-card span {
-  font-size: 11px;
-  color: #949dae;
 }
 
 .composer-dock {
@@ -471,13 +347,6 @@ pre {
 .composer-hint {
   font-size: 10px;
   color: #99a2b3;
-}
-
-.composer-footnote {
-  margin-top: 12px;
-  font-size: 10px;
-  color: #9da6b6;
-  text-align: center;
 }
 
 .running-bar {
@@ -607,11 +476,6 @@ pre {
   margin-bottom: 12px;
 }
 
-.connection-intro {
-  margin: 4px 0 28px;
-  line-height: 1.8;
-}
-
 .connection-form {
   display: grid;
   gap: 22px;
@@ -649,6 +513,10 @@ pre {
   border-radius: 12px;
 }
 
+.connection-origin summary {
+  cursor: pointer;
+}
+
 .connection-origin code {
   overflow-wrap: anywhere;
 }
@@ -672,10 +540,6 @@ pre {
   margin: 8px 0;
   font-size: 26px;
   font-weight: 600;
-}
-
-.state-heading p {
-  font-size: 12px;
 }
 
 .state-browser {
@@ -762,10 +626,6 @@ pre {
   color: #586780;
 }
 
-.state-empty p {
-  font-size: 12px;
-}
-
 @media (width >= 1500px) {
   .workspace-rail {
     flex-basis: 250px;
@@ -791,16 +651,8 @@ pre {
     padding: 0;
   }
 
-  .rail-nav {
-    margin-top: 40px;
-  }
-
   .rail-nav a {
     padding: 13px;
-  }
-
-  .rail-footer {
-    margin-top: auto;
   }
 
   .workspace-topbar {
@@ -854,10 +706,6 @@ pre {
     padding: 14px 14px 4px;
   }
 
-  .context-note {
-    display: none;
-  }
-
   .bot-picker {
     width: 100%;
   }
@@ -875,43 +723,11 @@ pre {
     line-height: 1.6;
   }
 
-  .conversation-welcome > p {
-    max-width: 240px;
-  }
-
   .welcome-symbol {
     width: 58px;
     height: 58px;
     margin-bottom: 22px;
     border-radius: 20px 20px 20px 8px;
-  }
-
-  .starter-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    margin-top: 24px;
-  }
-
-  .starter-card {
-    display: grid;
-    grid-template-columns: 22px 1fr;
-    gap: 4px 12px;
-    padding: 14px;
-    border-radius: 12px;
-  }
-
-  .starter-card svg {
-    grid-row: span 2;
-    align-self: center;
-    margin: 0;
-  }
-
-  .starter-card strong {
-    font-size: 12px;
-  }
-
-  .starter-card span {
-    font-size: 10px;
   }
 
   .composer-dock {
@@ -929,11 +745,6 @@ pre {
 
   .composer-hint span {
     display: none;
-  }
-
-  .composer-footnote {
-    font-size: 9px;
-    line-height: 1.7;
   }
 
   .workspace-notice {

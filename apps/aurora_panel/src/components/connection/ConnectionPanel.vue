@@ -48,8 +48,7 @@ async function connect() {
 </script>
 
 <template>
-  <KunDrawer v-model="connectionVisible" title="连接你的 Aurora" size="md">
-    <p class="muted connection-intro">连接一个正在运行的后端，开始你的工作。</p>
+  <KunDrawer v-model="connectionVisible" title="连接设置" size="md">
     <form class="connection-form" @submit.prevent="connect">
       <KunInput
         :model-value="endpoint"
@@ -66,23 +65,23 @@ async function connect() {
         label="访问令牌"
         type="password"
         :disabled="connecting"
-        placeholder="输入当前后端的访问令牌"
+        placeholder="输入令牌"
       />
-      <p class="credential-note"><ShieldCheck :size="17" />令牌仅用于本次连接，不会保存到浏览器。</p>
+      <p class="credential-note"><ShieldCheck :size="17" />令牌仅用于本次连接</p>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <div class="action-row">
         <KunButton type="submit" color="primary" :loading="connecting" :disabled="connecting">
-          <Link2 :size="17" />{{ connecting ? '正在连接…' : '连接工作台' }}
+          <Link2 :size="17" />{{ connecting ? '正在连接…' : '连接' }}
         </KunButton>
         <KunButton v-if="state.connection !== 'closed'" variant="light" @click="disconnect()">断开</KunButton>
       </div>
     </form>
     <p v-if="state.notice" class="workspace-notice" role="status">{{ state.notice }}</p>
-    <div class="connection-origin">
-      <strong>浏览器来源</strong>
-      <p>后端需允许当前来源：</p>
-      <code>{{ origin }}</code>
-      <p>localhost 和 127.0.0.1 是不同来源。</p>
-    </div>
+    <details class="connection-origin">
+      <summary>来源配置</summary>
+      <p>
+        后端需允许：<code>{{ origin }}</code>
+      </p>
+    </details>
   </KunDrawer>
 </template>
