@@ -165,6 +165,10 @@ try {
 
 ### 浏览器工作台（Panel）
 
+KunUI 对照版使用同一个开发服务器，访问 `http://127.0.0.1:5173/kun.html`；原版仍在 `/`。新版采用 KunUI + Lucide，聊天居中、工具活动折叠，强调色与对比色沿用 TUI 的蓝色 `#4B79EC` 和暖金 `#ECBE4B`。点击“连接你的 Aurora”填写下述后端地址与令牌。两版共用 client、service、store 与交流投影，但各浏览器页面分别持有连接；可以观察同一个 Bot，避免在两个页面重复提交任务。
+
+KunUI 界面位于 `src/kun`，复用下述启动、构建和测试命令。生产构建同时输出 `index.html` 和 `kun.html`，预览新版时访问 `http://127.0.0.1:4173/kun.html`。两版 CSS 入口独立，KunUI 的 Tailwind 样式不会进入原版页面。
+
 Panel 使用 Vue、Naive UI、Font Awesome、Pinia 和 Vue Router，提供连接、Bot 实例选择、交流和只读状态页，复用共享 client。页面路由为 `/#/conversation` 和 `/#/state`，可使用浏览器前进/后退，切页不重建订阅连接。先安装工作区依赖：
 
 ```powershell
