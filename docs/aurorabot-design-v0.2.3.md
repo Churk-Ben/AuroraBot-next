@@ -490,22 +490,22 @@ TUI 使用 OpenTUI，Panel 使用 Vue 生态；两者通过 client 交互，各�
 
 Panel 已提供 Vue/Vite 入口、显式令牌连接、实例选择、交流与只读状态页。页面通过共享 client 订阅并刷新 ctx，模型过程、工具活动与请求回执分开呈现；终态通过 conversation query 确认，不从残留状态推断完成。网络中断仅恢复观察，接纳结果不确定时保留原请求供核对或显式重试；宿主会话更换使旧请求失效。输入令牌在开始连接时从表单清空，不进入浏览器存储或构建产物；刷新页面不自动连接、重放或取消运行。当前 Panel 尚未提供配置/ctx 编辑与偏好持久化，完整多端操作验收留待后续。
 
-Panel 工程以 Naive UI 承担表单、选择器、导航、抽屉、反馈、折叠和表格，产品图标使用 Font Awesome 的 Vue 组件与按需导入。Vue Router 使用 Hash 路由并延迟加载交流/状态页，静态部署无需路径回退；KeepAlive 保留页面筛选与滚动，Pinia 保存跨页观察状态与按后端/实例区分的草稿。应用生命周期持有唯一订阅连接，页面切换不重连；连接令牌由表单临时解析，不作为 Pinia action 的值参数或持久状态保存。
+Panel 工程以 KunUI 提供按钮、输入、文本域、选择器、抽屉和状态标签，产品图标从 Lucide 的 `@lucide/vue` 按需导入。聊天居中、输入区固定，工具活动与已保存上下文通过原生 details 按需展开，公开状态作为只读页面浏览。Vue Router 使用 Hash 路由并延迟加载交流/状态页，静态部署无需路径回退；KeepAlive 保留页面筛选与滚动，Pinia 保存跨页观察状态与按后端/实例区分的草稿。应用生命周期持有唯一订阅连接，页面切换不重连；连接令牌由表单临时解析，不作为 Pinia action 的值参数或持久状态保存。
 
 `apps/aurora_panel/src` 按以下职责组织，不在界面复制后端调度或共享 client 的传输实现：
 
 | 路径 | 职责 |
 | --- | --- |
-| `App.vue`、`main.ts` | 注册 Pinia/Router、Naive UI 中文与主题提供者、应用关闭清理 |
+| `App.vue`、`main.ts` | 注册 Pinia/Router、装配全局样式、应用关闭清理 |
 | `router/`、`layouts/`、`views/` | 页面路由、工作台布局、交流/状态页面装配 |
-| `components/connection`、`conversation`、`state`、`common` | 连接表单、消息输入与运行展示、状态表格及 JSON 文本展示；展示组件通过 props/emits 交互 |
+| `components/connection`、`conversation` | 连接表单与消息展示；输入、运行分组和只读状态由对应页面装配 |
 | `stores/` | 跨页面共享观察状态、动作入口和内存草稿，不持久化凭证或隐式重发动作 |
-| `composables/` | 交流视图投影、跟随滚动、响应式布局；负责释放各自监听 |
+| `composables/` | 交流视图投影与跟随滚动；负责释放各自监听 |
 | `services/` | 无界面的工作台会话控制，复用共享 client 管理订阅、回执核对、重试和取消 |
 | `types/`、`constants/`、`utils/` | 工作台领域类型、公共状态 ID/标签、状态地址和值解析 |
-| `theme/`、`styles/` | Naive UI 主题和少量全局布局基础；组件布局使用 scoped 样式 |
+| `theme/`、`styles/` | KunUI 品牌 token、Tailwind 入口与工作台样式；CSS 媒体查询负责窄屏布局 |
 
-服务层保持可直接由 Node 跨进程验收，Vue/Pinia 不进入服务依赖。`vue-tsc` 启用严格模板检查，原生 `aria-*`、`data-*` 与 role 属性按组件透传处理。生产产物将页面和 Vue/Naive UI 依赖分块；主题及组件样式不集中在单一全局文件中。
+服务层保持可直接由 Node 跨进程验收，Vue/Pinia 不进入服务依赖。`vue-tsc` 启用严格模板检查，原生 `aria-*`、`data-*` 与 role 属性按组件透传处理。生产构建仅保留 `index.html` 一个入口，按页面和 Vue 依赖分块；品牌 token 独立于布局样式。
 
 当前 TUI 已提供交流/状态页签、底部多行输入、运行分组、工具折叠、指定运行取消、ctx 筛选与精确地址编辑，以及声明 TOML 文件编辑。切页保留交流草稿与滚动位置，向上翻阅时新内容不抢占位置；关闭界面只停止观察。运行终态通过回执查询确认，断线后核对原请求，宿主重启不自动重放。连接选择可显式保存；页面与工具展开偏好只保存在客户端。
 

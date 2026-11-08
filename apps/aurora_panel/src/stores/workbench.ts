@@ -11,7 +11,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const service = new PanelWorkbench();
   const state = shallowRef(service.state);
   const unlisten = service.listen(() => triggerRef(state));
-  const connectionVisible = ref(true);
+  const connectionVisible = ref(false);
   const connecting = ref(false);
   const drafts = reactive<Record<string, string>>({});
   const draft = computed({

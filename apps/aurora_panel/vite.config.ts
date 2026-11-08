@@ -1,17 +1,15 @@
+import tailwindcss from '@tailwindcss/vite';
 import Vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [Vue()],
+  plugins: [Vue(), tailwindcss()],
   build: {
     rolldownOptions: {
       output: {
         strictExecutionOrder: true,
         codeSplitting: {
-          groups: [
-            { name: 'vue-vendor', test: /node_modules[\\/](?:@vue[\\/]|vue[\\/]|vue-router[\\/]|pinia[\\/])/ },
-            { name: 'naive-ui', test: /node_modules[\\/]naive-ui[\\/]/, maxSize: 300_000 },
-          ],
+          groups: [{ name: 'vue-vendor', test: /node_modules[\\/](?:@vue[\\/]|vue[\\/]|vue-router[\\/]|pinia[\\/])/ }],
         },
       },
     },

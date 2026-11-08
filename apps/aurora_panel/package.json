@@ -11,17 +11,19 @@
   },
   "dependencies": {
     "@aurorabot/client": "workspace:*",
-    "@fortawesome/fontawesome-svg-core": "catalog:",
-    "@fortawesome/free-solid-svg-icons": "catalog:",
-    "@fortawesome/vue-fontawesome": "catalog:",
-    "naive-ui": "catalog:",
+    "@kungal/ui-core": "catalog:",
+    "@kungal/ui-tokens": "catalog:",
+    "@kungal/ui-vue": "catalog:",
+    "@lucide/vue": "catalog:",
     "pinia": "catalog:",
     "vue": "catalog:",
     "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "catalog:",
     "@vben/tsconfig": "workspace:*",
     "@vitejs/plugin-vue": "catalog:",
+    "tailwindcss": "catalog:",
     "vite": "catalog:",
     "vue-tsc": "catalog:"
   }

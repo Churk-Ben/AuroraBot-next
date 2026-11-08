@@ -1,13 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, ref } from 'vue';
 
-import { faComments, faStop } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { NButton, NCard, NCollapse, NCollapseItem, NEmpty, NText } from 'naive-ui';
+import { KunButton, KunTextarea } from '@kungal/ui-vue';
+import { ArrowUp, AudioLines, ChevronRight, History, Link2, Square, Wrench } from '@lucide/vue';
 
-import JsonViewer from '../components/common/JsonViewer.vue';
-import MessageComposer from '../components/conversation/MessageComposer.vue';
-import RunCard from '../components/conversation/RunCard.vue';
 import SubmissionMessage from '../components/conversation/SubmissionMessage.vue';
 import { useAutoScroll } from '../composables/useAutoScroll';
 import { useConversation } from '../composables/useConversation';
@@ -17,90 +13,108 @@ const store = useWorkbenchStore();
 const { busy, current, groups, history, pending } = useConversation();
 const feed = ref<HTMLElement>();
 const { follow, onScroll } = useAutoScroll(feed, () => groups.value);
-function submit() {
+async function submit() {
+  await nextTick();
   if (store.submit()) follow();
+}
+function keydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+    event.preventDefault();
+    submit();
+  }
 }
 </script>
 
 <template>
-  <section class="page-stack conversation-page" aria-label="交流工作区">
-    <header class="page-heading">
-      <div>
-        <h1>{{ store.state.instance || '交流' }}</h1>
-        <p>直接交流，观察模型与工具运行。</p>
-      </div>
-      <NButton
-        v-if="current?.status === 'running' && typeof current.run_id === 'string'"
-        type="warning"
-        secondary
-        :loading="store.state.cancelling"
-        :disabled="!store.state.ready || store.state.cancelling"
-        @click="store.cancel(String(current.run_id))"
-      >
-        <template #icon><FontAwesomeIcon :icon="faStop" /></template>停止运行
-      </NButton>
-    </header>
+  <section class="conversation-page" aria-label="交流工作区">
     <div ref="feed" class="conversation-feed" @scroll="onScroll">
-      <NCard v-if="history.length" size="small">
-        <NCollapse>
-          <NCollapseItem :title="`已保存的上下文 · ${history.length} 条`" name="history">
-            <NText depth="3">来自后端保存的历史，可能包含工具与环境输入。</NText><JsonViewer :value="history" />
-          </NCollapseItem>
-        </NCollapse>
-      </NCard>
-      <NCard v-if="!groups.length && !pending.length" class="empty-conversation">
-        <NEmpty description="告诉 Bot 你想做什么，运行与工具活动会在这里更新。">
-          <template #icon><FontAwesomeIcon :icon="faComments" /></template
-          ><template #extra>
-            <NButton v-if="!store.state.ready" type="primary" secondary @click="store.connectionVisible = true">
-              连接后端
-            </NButton>
-          </template>
-        </NEmpty>
-      </NCard>
-      <RunCard
-        v-for="group in groups"
-        :key="`${group.session}/${group.id}`"
-        :group="group"
-        :ready="store.state.ready"
-        :session="store.state.session"
-        :cancelling="store.state.cancelling"
-        @cancel="store.cancel"
-        @refresh="store.refresh"
-        @retry="store.retry"
-      />
-      <NCard v-for="message in pending" :key="message.request.request_id" size="small">
-        <SubmissionMessage
-          :message="message"
-          :ready="store.state.ready"
-          :session="store.state.session"
-          @refresh="store.refresh"
-          @retry="store.retry"
-        />
-      </NCard>
+      <div class="feed-inner">
+        <details v-if="history.length" class="activity-details saved-context">
+          <summary><History :size="16" />已保存的上下文 · {{ history.length }} 条</summary>
+          <pre>{{ JSON.stringify(history, null, 2) }}</pre>
+        </details>
+        <div v-if="!groups.length && !pending.length" class="conversation-welcome">
+          <div class="welcome-symbol"><AudioLines :size="34" :stroke-width="1.5" /></div>
+          <h1>开始对话</h1>
+          <KunButton v-if="!store.state.ready" color="primary" @click="store.connectionVisible = true">
+            <Link2 :size="17" />连接 Aurora<ChevronRight :size="16" />
+          </KunButton>
+        </div>
+        <section v-for="group in groups" :key="`${group.session}/${group.id}`" class="run-group" aria-label="运行记录">
+          <div class="run-divider">
+            <span>运行 {{ group.id.slice(0, 8) }}</span>
+            <KunButton
+              v-if="group.session === store.state.session && group.messages.some((item) => item.status === 'accepted')"
+              size="sm"
+              variant="light"
+              color="warning"
+              :disabled="!store.state.ready || store.state.cancelling"
+              @click="store.cancel(group.id)"
+            >
+              <Square :size="12" />停止
+            </KunButton>
+          </div>
+          <SubmissionMessage v-for="message in group.messages" :key="message.request.request_id" :message="message" />
+          <article v-for="activity in group.activities" :key="activity.execution" class="message assistant-message">
+            <span class="message-avatar bot-avatar"><AudioLines :size="18" /></span>
+            <div class="message-body">
+              <div class="message-byline"><strong>Aurora</strong></div>
+              <div v-if="activity.text" class="message-text">{{ activity.text }}</div>
+              <p v-else-if="!activity.tools.length" class="muted">等待模型输出…</p>
+              <details v-if="activity.tools.length" class="activity-details">
+                <summary>
+                  <Wrench :size="15" />工具活动 · {{ activity.tools.length }} 项<ChevronRight :size="14" />
+                </summary>
+                <h3>调用</h3>
+                <pre>{{ JSON.stringify(activity.tools, null, 2) }}</pre>
+                <h3>结果</h3>
+                <pre>{{ JSON.stringify(activity.results, null, 2) }}</pre>
+              </details>
+            </div>
+          </article>
+        </section>
+        <SubmissionMessage v-for="message in pending" :key="message.request.request_id" :message="message" />
+      </div>
     </div>
-    <MessageComposer v-model="store.draft" :ready="store.state.ready" :busy="busy" @submit="submit" />
-    <NText depth="3">接纳消息不代表运行完成；关闭页面只停止观察。</NText>
+    <div class="composer-dock">
+      <div v-if="current?.status === 'running' && typeof current.run_id === 'string'" class="running-bar">
+        <span>Aurora 正在运行</span>
+        <KunButton
+          size="sm"
+          variant="light"
+          color="warning"
+          :disabled="!store.state.ready || store.state.cancelling"
+          :loading="store.state.cancelling"
+          @click="store.cancel(String(current.run_id))"
+        >
+          <Square :size="13" />停止运行
+        </KunButton>
+      </div>
+      <form class="composer" @submit.prevent="submit" @keydown="keydown">
+        <KunTextarea
+          :key="`${store.state.url}/${store.state.instance}`"
+          v-model="store.draft"
+          label="发送给 Bot 的消息"
+          :rows="3"
+          resize="none"
+          auto-grow
+          max-height="200px"
+          :disabled="!store.state.ready"
+          :placeholder="store.state.ready ? '输入消息…' : '请先连接 Aurora'"
+        />
+        <div class="composer-bottom">
+          <span class="composer-hint">Enter 发送 <span>· Shift + Enter 换行</span></span>
+          <KunButton
+            color="primary"
+            type="submit"
+            is-icon-only
+            aria-label="发送消息"
+            :disabled="!store.state.ready || busy || !store.draft.trim()"
+          >
+            <ArrowUp :size="20" />
+          </KunButton>
+        </div>
+      </form>
+    </div>
   </section>
 </template>
-
-<style scoped>
-.conversation-feed {
-  display: grid;
-  gap: 16px;
-  align-content: start;
-  max-height: max(240px, calc(100dvh - 440px));
-  padding-right: 4px;
-  overflow: auto;
-}
-
-.empty-conversation {
-  padding-block: 48px;
-}
-
-@media (width <= 600px) {
-  .conversation-feed {
-    max-height: max(200px, calc(100dvh - 560px));
-  }
-}
-</style>
