@@ -1,12 +1,16 @@
 """直接交流的产品入口；回执只在当前插件会话保留，不承担运行调度。"""
 
+from copy import deepcopy
 from dataclasses import dataclass
+from typing import cast
 from uuid import uuid4
 
+from aurora_adapter.model import JsonValue
 from aurora_agent.react import AgentBusyError
 from aurora_agent.runtime import Submission
 from aurora_core import Id
 
+from .attachments import message_content
 from .conversation_contract import describe_conversation
 from .operations import RunOperations
 
@@ -22,14 +26,14 @@ class ConversationError(Exception):
 
 @dataclass(frozen=True)
 class Receipt:
-    text: str
+    payload: dict
     submission: Submission
 
 
 class ConversationEndpoint:
     """同一会话不淘汰回执；达到上限拒绝新消息，旧消息仍可查询和去重。
 
-    request_id 由客户端生成，作用域为 session_id/instance_id。只接受文本引导，
+    request_id 由客户端生成，作用域为 session_id/instance_id。接受文本和受限附件，
     不暴露任意 operation。回执不进入快照，重启后旧会话明确失效。
     """
 
@@ -62,11 +66,17 @@ class ConversationEndpoint:
             "conversationQuery": {"session_id", "instance_id", "request_id"},
             "conversationCancel": {"session_id", "instance_id", "run_id"},
         }
-        if action not in fields or not isinstance(data, dict) or set(data) != fields[action]:
+        if (
+            action not in fields
+            or not isinstance(data, dict)
+            or set(data) - ({"files"} if action == "conversationSubmit" else set()) != fields[action]
+        ):
             raise ConversationError(400, "invalid_request", "请求字段无效")
         for key, value in data.items():
+            if key == "files":
+                continue
             limit = 65536 if key == "text" else 256
-            if not isinstance(value, str) or not value.strip() or len(value) > limit:
+            if not isinstance(value, str) or (key != "text" and not value.strip()) or len(value) > limit:
                 raise ConversationError(400, "invalid_request", "字段须为长度受限的非空字符串")
         if action == "conversationInfo":
             return {"session_id": self.session_id, "instance_ids": list(self.operations.instances)}
@@ -78,15 +88,25 @@ class ConversationEndpoint:
             return {**data, "cancelled": cancelled}
         key = (instance_id, data["request_id"])
         if action == "conversationSubmit":
+            try:
+                content = message_content(data["text"], data.get("files", []))
+            except (TypeError, ValueError):
+                raise ConversationError(
+                    400,
+                    "invalid_request",
+                    "附件须为支持的图片、PDF 或 UTF-8 文本，最多 8 个、合计 10 MiB；消息不能为空",
+                ) from None
+            payload = {"text": data["text"], "files": data.get("files", [])}
             receipt = self._receipts.get(key)
             if receipt is not None:
-                if receipt.text != data["text"]:
+                if receipt.payload != payload:
                     raise ConversationError(409, "request_conflict", "request_id 已用于不同内容")
             else:
                 if len(self._receipts) >= self.receipt_limit:
                     raise ConversationError(429, "receipt_limit", "当前会话回执已满，新消息未接纳")
-                submission = self.operations.submit(data["text"], instance_id=instance_id)
-                receipt = Receipt(data["text"], submission)
+                guidance = content if isinstance(content, str) else {"kind": "model_input", "content": content}
+                submission = self.operations.submit(cast(JsonValue, guidance), instance_id=instance_id)
+                receipt = Receipt(deepcopy(payload), submission)
                 self._receipts[key] = receipt
         else:
             receipt = self._receipts[key]

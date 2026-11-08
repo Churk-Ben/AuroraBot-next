@@ -288,6 +288,36 @@
         }
       ]
     },
+    "ConversationAttachment": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "media_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/json"
+          ]
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 13981016
+        }
+      },
+      "required": ["name", "media_type", "data"],
+      "additionalProperties": false
+    },
     "ConversationInfoRequest": {
       "type": "object",
       "properties": {},
@@ -346,9 +376,14 @@
         },
         "text": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 65536,
-          "pattern": "\\S"
+          "maxLength": 65536
+        },
+        "files": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/ConversationAttachment"
+          }
         }
       },
       "required": ["session_id", "instance_id", "request_id", "text"],
@@ -745,7 +780,8 @@
       },
       "error": {
         "$ref": "#/$defs/ErrorResponse"
-      }
+      },
+      "max_body_bytes": 15728640
     },
     "conversationQuery": {
       "method": "POST",

@@ -40,6 +40,21 @@ export type ConfigurationSaveResponse = {
   };
 };
 
+export type ConversationAttachment = {
+  data: string;
+  media_type:
+    | 'application/json'
+    | 'application/pdf'
+    | 'image/gif'
+    | 'image/jpeg'
+    | 'image/png'
+    | 'image/webp'
+    | 'text/csv'
+    | 'text/markdown'
+    | 'text/plain';
+  name: string;
+};
+
 export type ConversationCancelRequest = {
   instance_id: string;
   run_id: string;
@@ -95,6 +110,7 @@ export type ConversationReceipt = {
 };
 
 export type ConversationSubmitRequest = {
+  files?: ConversationAttachment[];
   instance_id: string;
   request_id: string;
   session_id: string;

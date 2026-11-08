@@ -1,4 +1,4 @@
-import type { SubscriptionUpdate } from '@aurorabot/client';
+import type { ConversationAttachment, SubscriptionUpdate } from '@aurorabot/client';
 
 import type { PanelClient, PanelState, Submission } from '../types/workbench.ts';
 
@@ -6,6 +6,7 @@ import { CtxClient, RemoteError } from '@aurorabot/client';
 
 import { BOT } from '../constants/bot.ts';
 import { address, object } from '../utils/state.ts';
+import { attachmentBytes, MAX_FILE_BYTES } from './attachments.ts';
 
 /** 页面只持有观察与请求回执；关闭连接不取消 bot，也不重放消息。 */
 export class PanelWorkbench {
@@ -176,11 +177,20 @@ export class PanelWorkbench {
     this.changed();
   }
 
-  submit(text: string): boolean {
-    if (!this.state.ready || !text.trim() || this.state.submissions.some((item) => item.status === 'sending'))
+  submit(text: string, files: ConversationAttachment[] = []): boolean {
+    if (
+      !this.state.ready ||
+      (!text.trim() && files.length === 0) ||
+      this.state.submissions.some((item) => item.status === 'sending')
+    )
       return false;
     if ([...text].length > 65_536) {
       this.state.notice = '消息不能超过 65536 字。';
+      this.changed();
+      return false;
+    }
+    if (files.length > 8 || files.reduce((size, file) => size + attachmentBytes(file), 0) > MAX_FILE_BYTES) {
+      this.state.notice = '每条消息最多 8 个附件，合计不超过 10 MiB。';
       this.changed();
       return false;
     }
@@ -190,6 +200,7 @@ export class PanelWorkbench {
         instance_id: this.state.instance,
         request_id: crypto.randomUUID(),
         text,
+        ...(files.length > 0 ? { files: files.map((file) => ({ ...file })) } : {}),
       },
       status: 'sending',
     };
@@ -224,6 +235,7 @@ export class PanelWorkbench {
         this.state.activities.push(activity);
       }
       activity.text = typeof value.text === 'string' ? value.text : '';
+      activity.reasoning = typeof value.reasoning_content === 'string' ? value.reasoning_content : '';
       activity.tools = Array.isArray(value.tool_calls) ? value.tool_calls : [];
     }
     for (const record of this.state.records) {
