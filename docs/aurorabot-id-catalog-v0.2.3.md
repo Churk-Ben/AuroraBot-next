@@ -329,12 +329,12 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapter.mcp`，不再�
 | `org.aurora.world:configs/sources` | config | 可选配置插件登记，声明来源选择列表及包内 TOML 模板 |
 | `org.aurora.world:state/config` | state_key | 可选配置插件登记，全局来源配置，非持久化 |
 | `org.aurora.world:handlers/sources/configure` | hook_handler | 可选配置插件登记，加载配置后选择来源，prepare 前完成引用检查 |
-| `org.aurora.world:sources/environment/time` | source | 可选环境插件登记，按配置周期采集宿主本地时间 |
+| `org.aurora.world:sources/environment/time` | source | 可选环境插件登记，按截断正态随机间隔主动采集时间，ctx 变化时刷新 |
 | `org.aurora.world:sources/environment/weather` | source | 可选环境插件登记，按配置地点和周期采集 Open-Meteo 当前天气；失败形成不可用观察 |
 
-来源提供方用自身命名空间声明定义，并设置 `register_to=org.aurora.world:registries/sources`；插件依赖须显式启用 aurora_world。`WorldSources.add(definition_id, source_id=..., config=...)` 在准备前选择定义并固定实例身份，`component()` 返回宿主 LifecycleComponent。可选 `aurora_world.configuration` 插件要求显式启用 aurora_config 和 aurora_world，安装使用 `aurora-world[config]`；`aurora_world.configuration.configured_sources_component` 通过 config 阶段完成 TOML 装配，模板位于配置目录的 `org.aurora.world/config.toml`。默认 bot 在该配置定义已登记时装配来源组件。来源工厂只获得绑定身份的 emit 回调和配置，不获得原始 ctx。SourceInstance 提供 start/stop/aclose 及可选的托管 run 主循环；后台结束或失败封闭对应入口，失败不自动重启。来源运行状态、配置和资源不进入业务快照，后台错误只记录固定代码。只有所选来源进入对应 start 时才可提交，关闭后旧回调也会拒绝写入；W1 的低层记录接口仍独立可用。
+来源提供方用自身命名空间声明定义，并设置 `register_to=org.aurora.world:registries/sources`；插件依赖须显式启用 aurora_world。`WorldSources.add(definition_id, source_id=..., config=...)` 在准备前选择定义并固定实例身份，`component()` 返回宿主 LifecycleComponent。可选 `aurora_world.configuration` 插件要求显式启用 aurora_config 和 aurora_world，安装使用 `aurora-world[config]`；`aurora_world.configuration.configured_sources_component` 通过 config 阶段完成 TOML 装配，模板位于配置目录的 `org.aurora.world/config.toml`。默认 bot 在该配置定义已登记时装配来源组件。来源工厂只获得绑定身份的 emit 回调和配置，不获得原始 ctx。SourceInstance 提供 start/stop/aclose、可选的托管 run 主循环及同步 on_context_change 回调；所有者订阅有效 ctx 变化并在停止接纳时退订，来源自行合并重复更新，回调失败记为 context_update_failed；后台结束或失败封闭对应入口，失败不自动重启。来源运行状态、配置和资源不进入业务快照，后台错误只记录固定代码。只有所选来源进入对应 start 时才可提交，关闭后旧回调也会拒绝写入；W1 的低层记录接口仍独立可用。
 
-环境来源插件为 `aurora_world.environment`，要求显式启用 aurora_world，安装 extra 为 `aurora-world[environment]`，增加 config 和 httpx 包依赖。两个来源独立配置和停用；时间默认间隔 60 秒，天气默认 900 秒，地点标签及经纬度须在天气实例配置中给出。采样身份由启动会话与计数构成，重启只采集当前观察，不回放离线周期。天气失败是主循环仍可继续采样的不可用观察，区别于 source_status 的主循环失败；不增加事件总线或 agent 调度定义。
+环境来源插件为 `aurora_world.environment`，要求显式启用 aurora_world，安装 extra 为 `aurora-world[environment]`，增加 config 和 httpx 包依赖。两个来源独立配置和停用；时间主动间隔由 mean_seconds/deviation_seconds 配置，默认均值 1800 秒、标准差 300 秒并截断至三倍标准差内（15～45 分钟）；ctx 变化时另行刷新，同秒合并；天气默认查询间隔 900 秒，地点标签及经纬度须在天气实例配置中给出。采样身份由启动会话与计数构成，重启只采集当前观察，不回放离线周期。天气失败是主循环仍可继续采样的不可用观察，区别于 source_status 的主循环失败；不增加事件总线或 agent 调度定义。
 
 `WorldPosition(journal_id, sequence, record_id)` 表示数据库消费位置，sequence=0 时不含 record_id。普通事件逐条入库，去重覆盖完整历史，ctx 的一小时/字符预算不改变游标；环境观察使用独立身份，不占普通事件序号。来源只提交事件，WorldView 统一管理呈现，SourceInstance 不再提供 retention。v1/v2 日志须停机后显式执行 `python -m aurora_world.migrate --root <数据目录>`，保留备份、记录身份与原裁剪边界。记录服务需显式注入来源组件与 cadence；构造后通过 open 或生命周期 prepare 打开资源。详见[设计第 7.7 节](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。
 

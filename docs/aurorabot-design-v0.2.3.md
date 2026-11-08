@@ -359,11 +359,11 @@ ReActAgent 负责一次激活内的迭代、决策和终止，循环上限为正
 
 首版 cadence 对订阅范围内的世界消息原样转发：一条消息形成一条引导，保留内容与来源关联，暂不做语义聚类、合并或延迟调度。消息身份、重复识别、消费位置和转交回执用于可靠交付；来源消息、世界记录、引导、run_id 与 execution_id 分别管理。世界消息可能在一个已有运行中被接纳，不假设一条消息对应一个独立 run。
 
-cadence 另提供显式 `[decision]` 模式：受控随机时钟持续采样业务视图，类型化选择模型决定继续观察、关注近期事件或检查未归档笔记。默认间隔为 60–180 秒，判断串行且有超时，默认引导冷却为 600 秒；随机数只控制采样时机。ChoiceClient 和 LiteLLM 决策协议在 adapter.model 中，bot 持有独立决策客户端并管理生命周期，不新增 agent 调度所有者。模型只返回固定选项，bot 以固定模板携带观察材料形成引导，继续经原 AgentRuntime 投递。
+cadence 另提供显式 `[decision]` 模式：受控随机时钟持续采样业务视图，类型化选择模型决定继续观察、关注近期事件或检查未归档笔记。ctx 有效变化提高活动度，默认活跃下限 5 秒、静默中心 180 秒、活动半衰期 60 秒，间隔随机浮动 20%；内部反馈逐次减半，低于 0.01 后停止加速，外部刺激可重新增强。判断串行且有超时，不再设置固定引导冷却；随机数只控制采样时机。ChoiceClient 和 LiteLLM 决策协议在 adapter.model 中，bot 持有独立决策客户端并管理生命周期，不新增 agent 调度所有者。模型只返回固定选项，bot 以固定模板携带观察材料形成引导，继续经原 AgentRuntime 投递。
 
-决策视图只读取所选来源的近期事件、环境及已启用的本实例笔记和行动证据；不读取完整聊天历史、配置或凭证。完整 ChoiceRequest 有 JSON 字符预算，材料截短和省略沿用 BusinessContextView。决策观察是有界窗口，不承诺历史事件逐条补发。已投递批次的事件位置与笔记冷却分别抑制重复引导；observe 不消费事件或标记业务完成，无新事件时仍可判断是否检查笔记。
+决策视图只读取所选来源的近期事件、环境及已启用的本实例笔记和行动证据；不读取完整聊天历史、配置或凭证。完整 ChoiceRequest 有 JSON 字符预算，材料截短和省略沿用 BusinessContextView。决策观察是有界窗口，不承诺历史事件逐条补发。已投递批次的事件位置与环境锚点抑制重复材料引导，笔记复查由选择模型判断；observe 不消费事件或标记业务完成，无新事件时仍可判断是否检查笔记。
 
-决策模式复用 cadence 状态 ID，以 version=2 分开保存观察位置、最近判断、事件引导位置、最后投递时间、待核对引导及最近 64 条回执和材料引用。恢复 pending、投递不确定或回执保存失败均暂停，不自动重投；供应商错误和非法答案暂停为 DecisionFailed。原样转发使用 version=1；跨模式启动明确拒绝，用户数据不自动转换。两者的回执都由宿主异步快照保存，不保证崩溃下恰好一次。配置与试用边界见[决策 cadence 指南](../examples/START.md#决策-cadence受控随机时钟与类型化判断)。
+决策模式复用 cadence 状态 ID，以 version=4 分开保存观察位置、最近判断、事件引导位置、最后投递时间、待核对引导及最近 64 条回执和材料引用。恢复 pending、投递不确定或回执保存失败均暂停，不自动重投；供应商错误和非法答案暂停为 DecisionFailed。原样转发使用 version=3；跨模式启动明确拒绝，用户数据不自动转换。两者的回执都由宿主异步快照保存，不保证崩溃下恰好一次。配置与试用边界见[决策 cadence 指南](../examples/START.md#决策-cadence受控随机时钟与类型化判断)。
 
 world 的事件数据库与 ctx 变化通知配合使用，cadence 按数据库位置重新读取事件；瞬时通知不承担历史补发。来源插件只提交来源身份、消息身份与原始载荷，存储和 ctx 呈现由 world 统一管理。恢复状态不代表透明续跑或工具动作可重试。
 
@@ -421,18 +421,18 @@ M3.6 的直接交流不依赖 world/cadence。M4-W 已以模拟来源验证记�
 
 Bot 自身控制通过 `[self_control] enabled=true` 显式装配，默认关闭，不新增插件。bot_status 查询运行与自动活动，bot_autonomy 暂停/恢复普通 cadence 和计划唤醒，bot_finish 请求当前 run 在本轮全部工具和观察完成后正常结束；新输入保留给既有 AgentRuntime，结束请求不持久化、不跨运行继承。直接交流始终沿既有入口，不隐式解除暂停，也不提供宿主进程停止或重启工具。
 
-计划由 wake_schedule/wake_list/wake_cancel 管理，按 bot 实例保存到 state/self_control。SelfControl 仅持有等待到期的任务，复用唯一 AgentRuntime.submit，不要求 world 或 choice，不复制执行机制。到期提交不经过普通 cadence 的冷却；有效期内的计划在重启或解除暂停后可提交，过期计划保留 expired。先保存 pending 再提交，回执保留 guidance_id/sequence/run_id；恢复 pending 变为 uncertain，未知结果不自动重投。宿主异步快照不承诺崩溃下恰好一次。关闭先停止计划接纳并等待自有任务，再收束运行、工具和模型。工具参数、版本冲突与配置影响见[计划唤醒指南](../examples/START.md#bot-的计划唤醒与自身控制)。
+计划由 wake_schedule/wake_list/wake_cancel 管理，按 bot 实例保存到 state/self_control。SelfControl 仅持有等待到期的任务，复用唯一 AgentRuntime.submit，不要求 world 或 choice，不复制执行机制。到期提交不经过普通 cadence 的随机等待与选择判断；有效期内的计划在重启或解除暂停后可提交，过期计划保留 expired。先保存 pending 再提交，回执保留 guidance_id/sequence/run_id；恢复 pending 变为 uncertain，未知结果不自动重投。宿主异步快照不承诺崩溃下恰好一次。关闭先停止计划接纳并等待自有任务，再收束运行、工具和模型。工具参数、版本冲突与配置影响见[计划唤醒指南](../examples/START.md#bot-的计划唤醒与自身控制)。
 
 W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气环境周期，MCP 仍按以下边界继续实现：
 
 - world 已提供 SourceSpec、SourceInstance 和 WorldSources。第三方 `kind=source` 定义登记到 `org.aurora.world:registries/sources`；同一 ctx 的来源由一个 WorldSources 所有者装配，add 选择定义、固定唯一 source_id 和复制 JSON 配置，尊重当前登记接收方的拒绝规则。component 连接既有生命周期插槽，发现、登记与连接均不创建来源资源。
 - prepare 调用来源工厂，传入 source_id、`emit(message_id=..., payload=...)` 及配置副本；来源返回具有异步 start/stop/aclose 的 SourceInstance。回调不能更换 source_id，工厂不接收原始 ctx；定义替换不影响已经选定的工厂。同一来源定义可以装配多个不同身份的实例，启动后不再接受新的装配。
 - 进入某个实例 start 时开放其接纳入口，允许来源在启动动作中提交首条消息；prepare 期间拒绝投递。启动失败或取消会封闭全部入口，已经接纳的记录不撤销。stop_accepting 同步且永久封闭回调，连相同身份的重复投递也拒绝；重试清理不会重新开放。接口限宿主线程使用。
-- SourceInstance 可提供异步 run 主循环，所有者在 start 返回后创建和监督任务；正常返回封闭该来源并标记 completed，异常或非关闭期间的取消标记 failed，只封闭该来源，不自动重启，其他来源继续工作。被动回调来源可不提供 run；自行创建的其他任务仍须由实例 stop 收束。失败来源的剩余资源在宿主关闭时释放。
+- SourceInstance 可提供异步 run 主循环，所有者在 start 返回后创建和监督任务；正常返回封闭该来源并标记 completed，异常或非关闭期间的取消标记 failed，只封闭该来源，不自动重启，其他来源继续工作。被动回调来源可不提供 run；自行创建的其他任务仍须由实例 stop 收束。失败来源的剩余资源在宿主关闭时释放。SourceInstance 还可提供同步 on_context_change 回调，所有者通知有效 ctx 变化并在停止接纳时退订；允许写回，来源自行合并重复刷新使反馈收敛。回调异常封闭对应来源并记录 context_update_failed，剩余资源仍由原所有者收束。
 - `org.aurora.world:state/sources` 按 `location={"source_id": ...}` 提供 definition_id、status、accepting 和 error；运行状态不持久化，error 使用固定代码，不保存后台异常文本或配置。后台失败可通过 ctx 订阅观察。正常阶段依次为 preparing/prepared/starting/running、stopping/stopped/closed；completed 或 failed 表示运行结束，收尾更新阶段但保留 error。
 - stop 逆序调用实例 stop，再取消并等待托管主循环；clean 逆序释放已创建实例。关闭超时保留任务和资源供重试，不重复成功的 stop 或再次取消正在执行的 finally；全部任务退出后才释放资源和最终落盘。工厂返回前的失败/取消由工厂释放部分资源，返回后由所有者托管，接纳不意味着已经保存。
 - TOML 装配通过可选的 `aurora_world.configuration` 插件接入 aurora_config，安装 extra 为 `aurora-world[config]`；基础 world 仍仅依赖 core。宿主显式启用 aurora_world、aurora_config 和配置插件，并装配 configuration_component 与 configured_sources_component；后者依赖前者，在 config 阶段选择全部来源，prepare 才调用工厂。模板复制到配置目录的 `org.aurora.world/config.toml`，只补齐缺失文件，默认 sources 为空。每项声明 source 公共 ID、唯一 source_id 和 config 对象；通用结构及引用在创建前校验，来源专用参数由工厂校验。配置状态非持久化，改 ctx 不写回文件，也不热装配来源。
-- 环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。W2.3 的 `aurora_world.environment` 可选插件提供 time/weather 两个来源，`aurora-world[environment]` extra 引入 config/httpx，基础 world 保持仅依赖 core。时间按宿主本地时区采样；天气使用配置中的地点标签、经纬度和请求超时，经 [Open-Meteo](https://open-meteo.com/en/docs) 读取当前天气模型数据，记录提供方、有效时间、摄氏温度、WMO 天气代码与描述、km/h 风速。天气仅在首次、温差超过 temperature_change_c（默认 3°C）、天气代码或可用状态变化时发布，温差以最后已发布观察为基准；默认时间间隔 60 秒，天气查询间隔 900 秒；相对等待从本次观察完成后开始，不追赶错过的周期。
+- 环境周期负责产生观察，cadence 决定如何形成引导，AgentRuntime 负责执行。W2.3 的 `aurora_world.environment` 可选插件提供 time/weather 两个来源，`aurora-world[environment]` extra 引入 config/httpx，基础 world 保持仅依赖 core。时间按宿主本地时区采样；天气使用配置中的地点标签、经纬度和请求超时，经 [Open-Meteo](https://open-meteo.com/en/docs) 读取当前天气模型数据，记录提供方、有效时间、摄氏温度、WMO 天气代码与描述、km/h 风速。天气仅在首次、温差超过 temperature_change_c（默认 3°C）、天气代码或可用状态变化时发布，温差以最后已发布观察为基准；时间主动更新间隔服从均值 1800 秒、标准差 300 秒、范围为均值 ± 三倍标准差的截断正态分布；ctx 变化时另行刷新时间，同一秒合并，且不重置主动采样期限。时间 payload.trigger 标记 startup/context/rhythm；随 ctx 刷新的时间在决策模式中按衰减反馈参与节律，原样转发只投递主动时间观察。天气查询间隔 900 秒；相对等待从本次观察完成后开始，不追赶错过的周期。
 - 每次采样使用启动会话和计数作为 message_id，表示新的观察，不将轮询当成外部事件修订；重启不补发离线周期，也不将同一有效时间的天气误判为完整事件历史。天气超时、网络/HTTP 错误或无效数据形成不可用观察，不影响时间来源；当前请求不重试，下个周期重新采样。关闭取消在途请求并等待主循环退出，之后关闭 HTTP 客户端。来源参数不保存凭证，天气载荷保留来源归属。
 - 默认 bot 增加 world/config 的包依赖，但仍须显式启用 world 插件。登记 world 配置定义时，DefaultAssembly 连接一个来源所有者；配置选择先于所有 prepare，bot 及可选 cadence 就绪后开放环境输入，关闭时先收束来源再关闭转发、bot/模型。没有 world 配置定义时保持原装配行为；只有显式启用 cadence 并选择来源才自动形成引导。`scripts/bot.py` 默认启用完整产品插件并开放世界记录、来源状态、消费状态和暂停诊断，复用 TUI 状态页观察；来源由 world TOML 配置，cadence 接纳全部来源。
 - 可运行的程序及 TOML 装配恢复夹具见 [world_roundtrip.py](../tests/fixtures/world_roundtrip.py)，后者使用 `--configured`；环境来源的行为和宿主恢复分别由 [包级环境测试](../packages/aurora_world/tests/unit/test_world_environment.py) 与 [默认环境集成测试](../tests/e2e/test_default_environment.py) 验证，使用模拟天气传输。模拟来源、自研环境周期和 MCP 来源共用已有入口，不增加另一套来源事件总线。

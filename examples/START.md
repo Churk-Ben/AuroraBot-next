@@ -455,7 +455,8 @@ API 默认监听 `127.0.0.1:10270`，允许 `http://127.0.0.1:5173` 与 `http://
 source = "org.aurora.world:sources/environment/time"
 source_id = "environment/time"
 [sources.config]
-interval_seconds = 60
+mean_seconds = 1800.0
+deviation_seconds = 300.0
 
 [[sources]]
 source = "org.aurora.world:sources/environment/weather"
@@ -469,7 +470,9 @@ timeout_seconds = 10
 temperature_change_c = 3
 ```
 
-地点名称和经纬度须一起修改；时间使用宿主本地时区。每次启动立即采样，此后按各自间隔采样，不补发停机期间的周期。移除某个来源项可单独停用，`sources = []` 停用全部来源，修改后重启生效，模板不覆盖已有配置。时间间隔至少 1 秒，天气至少 60 秒，天气总请求超时至多 30 秒。 天气仍按周期查询，首次采样、相对上次已发布气温的绝对变化超过 temperature_change_c（默认 3°C）、天气代码或可用状态变化时才发布；恰好 3°C、仅时间戳或风速变化不发布，连续小幅温差累计比较。重复相同故障不重复发布，恢复时发布当前天气。
+地点名称和经纬度须一起修改；时间使用宿主本地时区。启动立即采样，主动看时间的间隔服从截断正态分布：均值 mean_seconds（默认 1800 秒）、标准差 deviation_seconds（默认 300 秒），范围为均值 ± 三倍标准差，默认 15～45 分钟；并非固定整点或半点。均值至少 60 秒且大于三倍标准差，标准差至少 1 秒。ctx 有效变化时刷新当前时间，同一秒合并，不重置主动采样的等待，不补发停机期间的周期。时间 payload.trigger 区分 startup/context/rhythm；原样转发模式只转交主动时间观察，决策模式也可评估随 ctx 刷新的时间。
+
+移除某个来源项可单独停用，`sources = []` 停用全部来源，修改后重启生效，模板不覆盖已有配置。旧时间配置须删除 interval_seconds，改用上述两个字段。天气查询间隔至少 60 秒，总请求超时至多 30 秒。天气仍按周期查询，首次采样、相对上次已发布气温的绝对变化超过 temperature_change_c（默认 3°C）、天气代码或可用状态变化时才发布；恰好 3°C、仅时间戳或风速变化不发布，连续小幅温差累计比较。重复相同故障不重复发布，恢复时发布当前天气。
 
 ```powershell
 uv run --locked aurora bot --edit-config
@@ -538,20 +541,23 @@ credential = "JEVMODEL_API_KEY"
 ```toml
 [decision]
 model_role = "cadence"
-min_seconds = 60.0
-max_seconds = 180.0
-cooldown_seconds = 600.0
+active_seconds = 5.0
+idle_seconds = 180.0
+half_life_seconds = 60.0
+jitter_ratio = 0.2
 timeout_seconds = 15.0
 max_chars = 12000
 ```
 
 所有世界来源的事件和环境变化均可参与决策，同时读取已启用的本实例工作笔记和行动证据。若需检查笔记，在 bot 的 config.toml 中设置 `[notes] enabled = true`。`review_work` 没有可见笔记、`attend_events` 没有未投递事件或环境变化时，不产生引导。决策模型不读取完整聊天历史、任意 ctx、配置或凭证。
 
-每次判断串行执行，结束后再等待下一随机间隔；默认每小时最多约 60 次判断，实际次数受随机间隔和调用耗时限制。引导之间至少间隔 cooldown_seconds，重启保留最后投递时间；冷却期间仍可评估并记录选择。时间回拨不会跳过冷却。超时、无效选项或调用失败暂停为 `DecisionFailed`，没有默认行动、自动重试或静默回退。
+ctx 的有效变化提高活动度，判断间隔随活动度在 active_seconds 和 idle_seconds 之间变化，再施加 jitter_ratio 的随机浮动；同值写入不产生刺激。默认一次外部变化将空闲等待提前到约 11～17 秒，连续变化可接近 5 秒，安静时活动度按 half_life_seconds 衰减，最终恢复约 144～216 秒的低频判断。连续输入只提前已有期限，不无限推迟判断；判断串行执行，开始时间至少相隔 active_seconds，推理期间的新刺激保留到下一轮。
+
+时间刷新、cadence 记账及 Bot 运行状态允许反馈，每次反馈强度减半，低于 0.01 后不再加速；新的外部变化重置反馈强度。运行中的其他 ctx 变化按反馈处理，但世界事件和主动环境变化仍是新刺激。时间自行写回会收到上下文通知，同秒合并使直接写回收敛。调度使用单调时钟，墙钟只用于观察时间；节律不持久化，恢复后从当前上下文重新起步。旧 min_seconds/max_seconds/cooldown_seconds 配置须删除，不再有十分钟引导冷却，last_guided_at 仍作为历史事实保留。超时、无效选项或调用失败暂停为 `DecisionFailed`，没有默认行动、自动重试或静默回退。
 
 视图复用 BusinessContextView，读取全部世界来源并隔离实例笔记。max_chars 限制统一 ChoiceRequest 的完整 JSON 字符数，包括 state、instructions 和 criteria，不是供应商 token 或实际 HTTP 大小；视图单独预留信封空间，必要材料仍超限时暂停。`observe` 仅更新观察，不表示事件完成；窗口内未投递材料可以再次评估。超过窗口或预算的事件不会逐条补发，要求历史事件可靠逐条转交时继续使用原样转发模式。
 
-`attend_events` 和 `review_work` 由固定模板形成带决策身份、观察时间和业务视图的引导，经原 AgentRuntime 提交；Bot 忙碌时可接纳新引导，取消收尾期间被明确拒绝的投递留待下一次判断。Bot 可以判断无需行动。事件全局位置与每个环境来源的独立锚点抑制旧材料重复引导；笔记可以在冷却期后再次检查，笔记内容和投递回执均不证明业务完成。
+`attend_events` 和 `review_work` 由固定模板形成带决策身份、观察时间和业务视图的引导，经原 AgentRuntime 提交；Bot 忙碌时可接纳新引导，取消收尾期间被明确拒绝的投递留待下一次判断。Bot 可以判断无需行动。事件全局位置与每个环境来源的独立锚点抑制旧材料重复引导；笔记是否再次检查由选择模型判断，笔记内容和投递回执均不证明业务完成。
 
 `org.aurora.bot:state/cadence` 的决策快照为 version=4，分别保存观察 position/observation、事件引导位置 event_position、环境引导位置 environment_positions、last_guided_at、pending 和最近 64 条 receipts。回执保留决策结果、材料引用、guidance_id、sequence 和 run_id，旧回执裁剪不回退事件位置；这不是完整审计日志。pending 保留待核对的具体引导；未知投递及回执保存失败暂停为 `TransferUncertain`，恢复不重投。快照由宿主异步保存，不承诺崩溃下恰好一次投递。
 
