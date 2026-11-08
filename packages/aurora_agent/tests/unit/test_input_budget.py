@@ -1,10 +1,45 @@
 """验证完整请求预算、完整交流边界及原历史保留。"""
 
+import base64
 from copy import deepcopy
 
 import pytest
 from aurora_agent.input_budget import ModelInputBudget, ModelInputBudgetExceeded
 from aurora_core.json_data import encode_json
+
+
+def test_file_budget_removes_whole_old_exchange_and_keeps_current_binary():
+    data = base64.b64encode(b"x" * (6 * 1024 * 1024)).decode()
+    file = {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}}
+    request = {
+        "messages": [
+            {"role": "user", "content": [file]},
+            {"role": "assistant", "content": "旧附件处理完成", "reasoning_content": "旧思考"},
+            {"role": "user", "content": [file]},
+        ]
+    }
+    result = ModelInputBudget(1024).apply(request, history_start=0, exchange_ends=[2])
+    assert result["messages"][-1] == request["messages"][-1]
+    assert len(result["messages"]) == 2 and len(request["messages"]) == 3
+    assert result["messages"][-1]["content"][0]["image_url"]["url"].endswith(data)
+
+
+def test_single_file_does_not_consume_text_budget():
+    data = base64.b64encode(b"x" * 4096).decode()
+    request = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {"file_data": f"data:application/pdf;base64,{data}", "filename": "file.pdf"},
+                    }
+                ],
+            }
+        ]
+    }
+    assert ModelInputBudget(1024).apply(request, history_start=0) == request
 
 
 def test_exact_budget_includes_system_tools_metadata_and_escaped_unicode():

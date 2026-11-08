@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import NotRequired, TypedDict, cast
 
 from aurora_adapter.model import Message, ModelProtocolError, ModelRequest, ToolCall
+from aurora_adapter.model.content import validate_content
 from aurora_control import ExecutionLink, ExecutionPlug, ExecutionRequest, InstanceStateBinding, component_entries
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
@@ -41,7 +42,7 @@ class ReActDefaults:
     """将已有 agent、ModelCall 与 ToolExecutor 连接成可使用的默认流程。
 
     context_state 是实例级 ReActContext，prepare 原子保存消息与已接纳的引导位置。
-    引导 payload 为字符串时直接作为 user 内容，其他 JSON 编码后作为环境输入。
+    字符串与 kind=model_input 的结构化引导作为 user 内容，其他 JSON 编码为环境输入。
     模型文本保留在上下文中，不自动发布为用户消息；无工具请求即允许结束。
     工具请求与全部结果一起回填，普通工具失败仍作为 tool 消息进入下一次推理。
     context_view 在每次 prepare 同步生成临时 user 观察，置于历史之前，不写入 context。
@@ -168,9 +169,12 @@ class ReActDefaults:
         for item in cast(list[Guidance], batch):
             if item["sequence"] > context["guidance_sequence"]:
                 payload = item["payload"]
-                context["messages"].append(
-                    {"role": "user", "content": payload if isinstance(payload, str) else encode_json(payload)}
-                )
+                content = payload if isinstance(payload, str) else encode_json(payload)
+                if isinstance(payload, dict) and payload.get("kind") == "model_input":
+                    if set(payload) != {"kind", "content"}:
+                        raise ValueError("模型输入引导字段无效")
+                    content = validate_content(payload["content"])
+                context["messages"].append({"role": "user", "content": content})
                 context["guidance_sequence"] = item["sequence"]
         self.context_state.set(self.ctx, request, context)
         messages = list(context["messages"])
@@ -213,11 +217,15 @@ class ReActDefaults:
         if context["pending"] is not None:
             raise ValueError("上一工具轮次尚未接纳")
         message: Message = {"role": "assistant", "content": response["text"]}
+        if "reasoning_content" in response:
+            message["reasoning_content"] = response["reasoning_content"]
+        if "thinking_blocks" in response:
+            message["thinking_blocks"] = response["thinking_blocks"]
         if calls:
             message["tool_calls"] = calls
             context["pending"] = {"run_id": request.run_id, "turn_id": batch["turn_id"], "message": message}
         else:
-            if response["text"]:
+            if response["text"] or response.get("reasoning_content") or response.get("thinking_blocks"):
                 context["messages"].append(message)
             end = len(context["messages"])
             ends = context["exchange_ends"]

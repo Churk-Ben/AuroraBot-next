@@ -88,6 +88,7 @@ async def run(args: argparse.Namespace) -> None:
                 ),
             )
         tool_message = next(message for message in reversed(model_request["messages"]) if message["role"] == "tool")
+        assert isinstance(tool_message["content"], str)
         result = json.loads(tool_message["content"])
         return (
             FakeReply(("计算结果：", str(result["value"])))

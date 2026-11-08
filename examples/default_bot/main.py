@@ -44,6 +44,8 @@ async def create_model(config: ModelConfig, *, api_key: str | None = None) -> Fa
         if not request["messages"]:
             return FakeReply()
         latest = request["messages"][-1]
+        if not isinstance(latest["content"], str):
+            return FakeReply(("此离线回显示例只处理文本。",))
         if latest["role"] == "user":
             return FakeReply(
                 tool_calls=({"id": uuid4().hex, "name": "echo", "arguments": {"text": latest["content"]}},)

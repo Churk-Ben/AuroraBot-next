@@ -6,7 +6,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 
-from .models import FinishReason, ModelCapabilities, ModelChunk, ModelRequest, ModelResponse, ToolCall
+from .models import FinishReason, ModelCapabilities, ModelChunk, ModelRequest, ModelResponse, ReasoningBlock, ToolCall
 from .protocols import ModelError, collect_response, require_capabilities
 
 
@@ -18,6 +18,8 @@ class FakeReply:
     tool_calls: tuple[ToolCall, ...] = ()
     finish_reason: FinishReason | None = None
     error: ModelError | None = None
+    reasoning: tuple[str, ...] = ()
+    thinking_blocks: tuple[ReasoningBlock, ...] = ()
 
 
 class FakeModel:
@@ -42,6 +44,11 @@ class FakeModel:
 
     async def _chunks(self, request: ModelRequest) -> AsyncIterator[ModelChunk]:
         reply = self.respond(request)
+        for text in reply.reasoning:
+            await asyncio.sleep(self.delay)
+            yield {"type": "reasoning", "text": text}
+        for block in reply.thinking_blocks:
+            yield {"type": "thinking_block", "block": deepcopy(block)}
         for text in reply.texts:
             await asyncio.sleep(self.delay)
             yield {"type": "text", "text": text}

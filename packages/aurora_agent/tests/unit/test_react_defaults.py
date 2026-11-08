@@ -131,6 +131,34 @@ def tool_call(
     return {"id": identity, "name": name, "arguments": {"n": 3} if arguments is None else arguments}
 
 
+def test_file_guidance_and_thinking_survive_tool_roundtrip_and_context_restore(factory):
+    signed = {"type": "thinking", "thinking": "检查附件", "signature": "opaque-signature"}
+    calls_seen = []
+
+    def respond(request):
+        calls_seen.append(request)
+        return (
+            FakeReply(tool_calls=(tool_call(),), reasoning=("检查", "附件"), thinking_blocks=(signed,))
+            if len(calls_seen) == 1
+            else FakeReply(("完成",), reasoning=("确认结果",))
+        )
+
+    ctx, agent, defaults, _client, _, _, _ = factory(respond)
+    request = ExecutionRequest("files")
+    content = [{"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}}]
+    agent.inbox.set(
+        ctx, request, [{"id": "input-1", "sequence": 1, "payload": {"kind": "model_input", "content": content}}]
+    )
+    asyncio.run(agent.execute(request))
+    assert calls_seen[0]["messages"][-1]["content"] == content
+    assistant = next(item for item in calls_seen[1]["messages"] if item["role"] == "assistant")
+    assert assistant["reasoning_content"] == "检查附件" and assistant["thinking_blocks"] == [signed]
+    restored = json.loads(json.dumps(defaults._context(request)))
+    assert restored["messages"][0]["content"] == content
+    assert restored["messages"][1]["thinking_blocks"] == [signed]
+    assert restored["messages"][-1]["reasoning_content"] == "确认结果"
+
+
 @pytest.mark.parametrize("outcome", ["success", "fail", "unknown", "invalid"])
 def test_tools_and_failures_return_to_model_as_observations(factory, outcome):
     def respond(request):

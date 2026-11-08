@@ -1,13 +1,62 @@
 """浏览器来源的认证覆盖默认装配、直接交流和显式取消。"""
 
 import asyncio
+import base64
 
 from aiohttp import ClientSession
+from aurora_adapter.model.fake import FakeReply
 from aurora_api.access import AccessPolicy
 from aurora_api.server import serve
 from aurora_bot.conversation import CONVERSATION
 from aurora_config import CONFIGURATION
+from aurora_control import ExecutionRequest
 from test_default_assembly import seed, setup
+
+
+def test_browser_file_larger_than_default_body_limit_reaches_model(tmp_path):
+    async def scenario():
+        host, assembly, ctx, registry, clients, _, _, _ = setup(tmp_path)
+        await host.start(configure=lambda: seed(ctx))
+        clients[0].respond = lambda _: FakeReply(("已读取",), reasoning=("分析附件",))
+        try:
+            async with serve(registry, keys=[], endpoints=[CONVERSATION], port=0) as url, ClientSession() as http:
+                async with http.post(url + "/conversation/info", json={}) as response:
+                    info = (await response.json())["result"]
+                data = base64.b64encode(b"x" * (1024 * 1024)).decode()
+                message = {
+                    "session_id": info["session_id"],
+                    "instance_id": "main",
+                    "request_id": "file",
+                    "text": "",
+                    "files": [{"name": "large.pdf", "media_type": "application/pdf", "data": data}],
+                }
+                async with http.post(url + "/conversation/submit", json=message) as response:
+                    assert response.status == 200, await response.text()
+                if assembly.runtime.current:
+                    await assembly.runtime.current.wait()
+                content = clients[0].requests[0]["messages"][-1]["content"]
+                assert content[0]["file"]["file_data"] == f"data:application/pdf;base64,{data}"
+                async with http.post(
+                    url + "/conversation/info", data='"' + data + '"', headers={"Content-Type": "application/json"}
+                ) as response:
+                    assert response.status == 413
+        finally:
+            await host.stop()
+
+        restarted, restored, _, _, clients, _, _, _ = setup(tmp_path)
+        await restarted.start()
+        try:
+            assert restored.defaults is not None
+            context = restored.defaults._context(ExecutionRequest("inspect"))
+            content = context["messages"][0]["content"]
+            assert isinstance(content, list) and content[0]["type"] == "file"
+            assert content[0]["file"].get("file_data", "").endswith(data)
+            assert context["messages"][-1].get("reasoning_content") == "分析附件"
+            assert clients[0].requests == []
+        finally:
+            await restarted.stop()
+
+    asyncio.run(scenario())
 
 
 def test_authenticated_browser_conversation_and_configuration(tmp_path):

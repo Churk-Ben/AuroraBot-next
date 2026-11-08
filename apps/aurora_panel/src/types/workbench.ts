@@ -25,6 +25,7 @@ export interface Activity {
   results: JsonValue[];
   session: string;
   text: string;
+  reasoning?: string;
   tools: JsonValue[];
 }
 

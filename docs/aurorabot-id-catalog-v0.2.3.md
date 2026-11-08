@@ -159,8 +159,8 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.adapter:adapters/model/litellm_choice` | `adapter` | 已实现 | LiteLLM choice 工厂，登记到 choice_adapters，按需导入决策 SDK |
 | `org.aurora.adapter:schemas/model/request` | `schema` | 已实现 | 统一模型请求 |
 | `org.aurora.adapter:schemas/model/response` | `schema` | 已实现 | 统一模型响应 |
-| `org.aurora.adapter:schemas/model/chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
-| `org.aurora.adapter:schemas/model/capabilities` | `schema` | 已实现 | streaming、tool_calls 能力声明 |
+| `org.aurora.adapter:schemas/model/chunk` | `schema` | 已实现 | 文本与思考增量、完整签名思考块、工具请求和结束片段 |
+| `org.aurora.adapter:schemas/model/capabilities` | `schema` | 已实现 | streaming、tool_calls、file_input 能力声明 |
 | `org.aurora.adapter:configs/model/profiles` | `config` | 已实现 | profile 模板、结构与状态关系 |
 | `org.aurora.adapter:configs/model/bindings` | `config` | 已实现 | 角色绑定模板、结构与 profile 引用校验 |
 | `org.aurora.adapter:state/model/config` | `state_key` | 已实现 | 适配器选择与连接配置；来源为包内 TOML 模板 |
@@ -170,7 +170,7 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 
 ChoiceClient 沿用 `aurora-adapter[litellm]`，复用 model/profiles.toml 与 model/bindings.toml，`resolve_choice` 只解析 choice_adapters，`resolve_model` 只解析聊天 adapters。新增定义无独立插件或持久状态，不改写已有配置或快照。`typesafe/jev-latest` 通过 SDK 转换为 SystemOne，`base_url` 可指向兼容服务根地址；凭证通过 profile 的环境变量引用在运行期解析。工厂使用锁定 SDK 的决策转换和底层 handler 注入独立连接池；升级 SDK 时须复验此边界。仅消费声明选项，概率不作为随机行动概率；错误和重定向明确失败，不自动重试。
 
-模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
+模型 complete 返回完整响应，stream 通过异步上下文消费文本与思考增量、完整思考块、ToolCall 与唯一结束片段。Message.content 支持 text/image_url/file 内容块；reasoning_content 与 thinking_blocks 保留到 assistant 历史及工具往返。file_input 默认 true，profile 支持 thinking 开关与 reasoning_effort；已有纯文本快照保持可读，新字段不改变公共 ID。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 
 ## 6. 控制、Agent、Bot 与世界定义
 
@@ -441,6 +441,8 @@ core 负责进程内事件和 ctx 变化订阅，client 封装界面所需订阅
 | `org.aurora.bot:endpoints/conversation` | `endpoint` | 已由 aurora_bot.assembly 登记；由 API 显式开放，复用既有 run/submit 与 run/cancel 操作 |
 
 此 ID 属于 bot 命名空间，登记至 `org.aurora.api:registries/endpoints`。M3.6 提供 POST `/conversation/info`、`/conversation/submit`、`/conversation/query`、`/conversation/cancel`，回执关联 session_id、instance_id、request_id、guidance_id、sequence、run_id；查询区分接纳与运行终态。重复请求和重启边界见[设计第 10.2 节](aurorabot-design-v0.2.3.md#102-界面动作边界)。该路径不依赖 world/cadence；API 缺席时适用可选接收方约定，不阻断进程内运行。没有新增持久状态或改写既有 ID、配置和快照。
+
+submit 支持可选 files，每项为 name、media_type、base64 data；最多 8 个、合计 10 MiB，存在附件时 text 可为空。图片与 PDF 进入原生模型内容块，UTF-8 文本附件解码为文本块；文件随消息持久化，不增加独立文件状态 ID。重复身份同时比较文本与附件。生成的 ConversationAttachment 与 ConversationSubmitRequest 随后端契约同步。
 
 API 传输实际需要的 bot/core 事件时保留原事件类型 ID，可添加传输信封，不另建同义业务事件身份。
 

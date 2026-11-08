@@ -19,6 +19,32 @@ afterEach(async () => {
 });
 
 describe('浏览器工作台的运行与连接边界', () => {
+  it('文件单独发送且重试保留原附件，思考与回答分别更新', async () => {
+    const { client, model } = await setup();
+    client.loseRequest = true;
+    const files = [{ name: 'sample.pdf', media_type: 'application/pdf' as const, data: 'eA==' }];
+    expect(model.submit('', files)).toBe(true);
+    const original = files[0];
+    if (!original) throw new Error('附件缺失');
+    original.data = 'eQ==';
+    await settle();
+    await model.refresh();
+    const submission = model.state.submissions[0];
+    if (!submission) throw new Error('请求缺失');
+    expect(submission.request.files?.[0]?.data).toBe('eA==');
+    client.loseRequest = false;
+    model.retry(submission);
+    await settle();
+    expect(client.sent[0]).toEqual(client.sent[1]);
+    client.emit({
+      id: BOT.work,
+      location: { instance_id: 'main', run_id: 'run-one', part: 'model_output' },
+      value: { execution_id: 'thought', reasoning_content: '分析文件', text: '' },
+    });
+    expect(model.state.activities[0]?.reasoning).toBe('分析文件');
+    expect(model.state.activities[0]?.text).toBe('');
+  });
+
   it('接纳后仍须查询回执，不能从 ctx 残留终态推断完成', async () => {
     const { client, model } = await setup();
     model.submit('开始');

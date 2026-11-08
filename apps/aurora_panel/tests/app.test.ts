@@ -122,6 +122,40 @@ describe('浏览器工作台页面交互', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('附件可移除、切换实例独立保存，并支持仅附件提交与折叠思考', async () => {
+    const client = await connect();
+    const store = useWorkbenchStore(pinia);
+    store.files = [{ name: '图片.png', media_type: 'image/png', data: 'eA==' }];
+    await nextTick();
+    expect(element('[aria-label="待发送附件"]').textContent).toContain('图片.png');
+    element<HTMLButtonElement>('button[aria-label="移除附件 图片.png"]').click();
+    await nextTick();
+    expect(store.files).toEqual([]);
+    store.files = [{ name: '资料.pdf', media_type: 'application/pdf', data: 'eA==' }];
+    const original = store.state.instance;
+    store.state.instances.push('second');
+    store.select('second');
+    expect(store.files).toEqual([]);
+    store.select(original);
+    await nextTick();
+    expect(element<HTMLButtonElement>('button[aria-label="发送消息"]').disabled).toBe(false);
+    element('form.composer').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await settle();
+    await nextTick();
+    expect(client.sent[0]?.files?.[0]?.name).toBe('资料.pdf');
+    expect(store.files).toEqual([]);
+    client.emit({
+      id: 'org.aurora.bot:state/react_work',
+      location: { instance_id: original, run_id: 'run-one', part: 'model_output' },
+      value: { execution_id: 'thinking', text: '回答', reasoning_content: '思考内容' },
+    });
+    await nextTick();
+    const thought = [...document.querySelectorAll('details')].find((node) => node.textContent?.includes('思考内容'));
+    expect(thought?.open).toBe(false);
+    expect(thought?.textContent).toContain('思考过程');
+    expect(localStorage.length).toBe(0);
+  });
+
   it('打开页面自动连接本地后端，凭证不进入页面、存储或 Pinia 动作', async () => {
     app?.unmount();
     disposePinia(pinia);

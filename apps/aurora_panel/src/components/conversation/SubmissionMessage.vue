@@ -18,7 +18,10 @@ const store = useWorkbenchStore();
       <div class="message-byline">
         <strong>你</strong><span>{{ statusNames[message.status] }}</span>
       </div>
-      <div class="message-text user-bubble">{{ message.request.text }}</div>
+      <div v-if="message.request.text" class="message-text user-bubble">{{ message.request.text }}</div>
+      <ul v-if="message.request.files?.length" aria-label="已发送附件">
+        <li v-for="(file, index) in message.request.files" :key="index">{{ file.name }}</li>
+      </ul>
       <p v-if="message.error" class="form-error" role="status">{{ message.error }}</p>
       <div v-if="['uncertain', 'missing'].includes(message.status)" class="action-row">
         <KunButton size="sm" variant="light" :disabled="!store.state.ready" @click="store.refresh()">

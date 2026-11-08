@@ -65,7 +65,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
         value = json.loads(request.content)
         if provider == "deepseek":
             assert request.url.host == "api.deepseek.com"
-            assert value["thinking"] == {"type": "disabled"}
+            assert "thinking" not in value
         if provider in ("compatible", "xiaomi_mimo"):
             assert request.url.host == "profile.test" and request.url.path == "/v1/chat/completions"
             assert value["model"] == ("Qwen/custom-model" if provider == "compatible" else "mimo-v2.5-pro")

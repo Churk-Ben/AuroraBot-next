@@ -1,5 +1,7 @@
 """直接交流的显式 JSON 契约；导出不创建资源或加载传输实现。"""
 
+from .attachments import MEDIA_TYPES
+
 
 def describe_conversation() -> dict:
     def ref(name):
@@ -20,13 +22,18 @@ def describe_conversation() -> dict:
         "accepted": {"const": True},
     }
     definitions = {
+        "ConversationAttachment": obj(
+            {
+                "name": {"type": "string", "minLength": 1, "maxLength": 256},
+                "media_type": {"enum": list(MEDIA_TYPES)},
+                "data": {"type": "string", "minLength": 1, "maxLength": 13981016},
+            }
+        ),
         "ConversationInfoRequest": obj({}),
         "ConversationInfoResponse": obj(
             {"result": obj({"session_id": identity, "instance_ids": {"type": "array", "items": identity}})}
         ),
-        "ConversationSubmitRequest": obj(
-            {**message, "text": {"type": "string", "minLength": 1, "maxLength": 65536, "pattern": r"\S"}}
-        ),
+        "ConversationSubmitRequest": obj({**message, "text": {"type": "string", "maxLength": 65536}}),
         "ConversationSubmitResponse": obj({"result": ref("ConversationReceipt")}),
         "ConversationQueryRequest": obj(message),
         "ConversationQueryResponse": obj(
@@ -44,6 +51,11 @@ def describe_conversation() -> dict:
         "ConversationCancelResponse": obj({"result": obj({**run, "cancelled": {"type": "boolean"}})}),
         "ConversationReceipt": obj(receipt),
     }
+    definitions["ConversationSubmitRequest"]["properties"]["files"] = {
+        "type": "array",
+        "maxItems": 8,
+        "items": ref("ConversationAttachment"),
+    }
     return {
         "$defs": definitions,
         "http": {
@@ -54,6 +66,7 @@ def describe_conversation() -> dict:
                 "request": ref(f"Conversation{action}Request"),
                 "response": ref(f"Conversation{action}Response"),
                 "error": ref("ErrorResponse"),
+                **({"max_body_bytes": 15 * 1024 * 1024} if action == "Submit" else {}),
             }
             for action, operation in (("Info", None), ("Submit", "submit"), ("Query", None), ("Cancel", "cancel"))
         },

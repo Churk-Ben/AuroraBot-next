@@ -169,6 +169,8 @@ def create_application(
     async def product(endpoint: Endpoint, action: str, request: web.Request) -> web.Response:
         if request.content_type != "application/json":
             return web.json_response(error_data("invalid_request", "请求需要 application/json"), status=415)
+        limit = endpoint.http[action].get("max_body_bytes", request.client_max_size)
+        request = request.clone(client_max_size=limit)
         status, body = await endpoint.handle(action, decode_json(await request.text()))
         return web.Response(text=encode_json(body), content_type="application/json", status=status)
 

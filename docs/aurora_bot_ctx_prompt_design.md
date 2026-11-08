@@ -190,7 +190,7 @@ bot 的 `[actions] enabled=true` 启用行动记录和 actions_read，默认 fal
 
 ### 已实现的完整请求字符预算
 
-bot 的 `[input_budget] enabled=true` 显式启用，默认 false；max_chars 默认 128000、最小 1024。计数对象是统一 ModelRequest 经 encode_json 编码后的完整 JSON，包含 system、临时业务视图、历史 user/assistant/tool、工具定义、字段名、标点和转义。计数单位为 Unicode 字符，不是 token、UTF-8 字节或供应商实际 HTTP 请求长度；不承诺符合某个模型上下文窗口，也不预留输出 token。
+bot 的 `[input_budget] enabled=true` 显式启用，默认 false；max_chars 默认 128000、最小 1024。计数对象是统一 ModelRequest 的文本 JSON，包含 system、临时业务视图、历史 user/assistant/tool、思考、工具定义、字段名、标点和转义。内嵌图片/PDF 的 base64 以保留 MIME 的占位符计数，并对整个请求另设 10 MiB 二进制预算；任一预算超限都按完整交流段裁剪，当前交流放不下则失败。文本附件解码后的正文完整计入字符预算。计数单位为 Unicode 字符，不是 token、UTF-8 字节或供应商实际 HTTP 请求长度；不承诺符合某个模型上下文窗口，也不预留输出 token。
 
 预算策略由 agent 的 ModelInputBudget 提供，ReActDefaults 在每次 prepare 完成引导接纳、恢复工具观察及业务视图刷新后调用，bot 仅负责配置注入。请求未超限时保持原样；超限时按从旧到新的顺序移除最少数量的完整交流段。段结束由 ReActContext.exchange_ends 显式记录正常 stop 时的历史消息数，不依赖回复正文是否为空；空回复不补成 assistant 消息。至少保留最新一段及其后的所有引导、工具请求和结果，工具请求与结果不拆开。以二分查找选择满足预算的最早边界。
 

@@ -1,10 +1,65 @@
 """验证直接交流回执在真实调度结束边界与取消清理期间的关联。"""
 
 import asyncio
+import base64
 
 import pytest
 from aurora_bot.conversation import ConversationEndpoint
 from aurora_bot.operations import RunOperations
+
+
+def test_attachment_only_submission_deduplication_and_validation(standalone):
+    async def scenario():
+        async def infer():
+            pass
+
+        with standalone(infer) as (_, runtime, _, received):
+            operations = RunOperations()
+            operations.bind("main", runtime)
+            endpoint = ConversationEndpoint(operations)
+            request = {
+                "session_id": endpoint.session_id,
+                "instance_id": "main",
+                "request_id": "files",
+                "text": "",
+                "files": [{"name": "photo.png", "media_type": "image/png", "data": "eA=="}],
+            }
+            runtime.start()
+            try:
+                status, receipt = await endpoint.handle("conversationSubmit", request)
+                assert status == 200
+                assert await endpoint.handle("conversationSubmit", request) == (status, receipt)
+                if runtime.current:
+                    await runtime.current.wait()
+                assert len(received) == 1 and received[0]["payload"]["content"][0]["type"] == "image_url"
+                different = {**request, "files": [{**request["files"][0], "data": "eQ=="}]}
+                assert (await endpoint.handle("conversationSubmit", different))[0] == 409
+                for files in (
+                    [],
+                    [{**request["files"][0], "data": "%%%"}],
+                    [{**request["files"][0], "media_type": "text/html"}],
+                    request["files"] * 9,
+                ):
+                    assert (
+                        await endpoint.handle("conversationSubmit", {**request, "request_id": "bad", "files": files})
+                    )[0] == 400
+                text_file = {
+                    "name": "note.txt",
+                    "media_type": "text/plain",
+                    "data": base64.b64encode("说明".encode()).decode(),
+                }
+                assert (
+                    await endpoint.handle(
+                        "conversationSubmit", {**request, "request_id": "text-file", "files": [text_file]}
+                    )
+                )[0] == 200
+                if runtime.current:
+                    await runtime.current.wait()
+                assert received[-1]["payload"]["content"] == [{"type": "text", "text": "附件：note.txt\n说明"}]
+            finally:
+                await runtime.close()
+
+    asyncio.run(scenario())
 
 
 def test_receipts_follow_finish_boundary_and_cleanup_without_background_observers(standalone):
