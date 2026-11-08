@@ -3,11 +3,13 @@
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from types import SimpleNamespace
 from typing import cast
 
 import httpx2
 import pytest
 from aurora_adapter.mcp import CLIENT_STATUS, CONFIG_STATE, MCPClientError, MCPClients, transports
+from aurora_adapter.mcp import clients as clients_module
 from aurora_adapter.mcp.configuration import PROTOCOL_VERSION
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import Context
@@ -22,27 +24,29 @@ SECRET = "do-not-log-remote-payload"
 
 
 @pytest.mark.parametrize("cancel", [False, True])
-def test_auto_fallback_shares_budget_and_external_cancel_is_not_retry(host, cancel):
+def test_auto_fallback_shares_budget_and_external_cancel_is_not_retry(host, startup_timeouts, cancel):
     create, observed = host
 
     async def scenario():
         entered, finished = asyncio.Event(), asyncio.Event()
+        deadline = None
 
         async def first(method):
-            await asyncio.sleep(0.6)
+            nonlocal deadline
+            assert len(startup_timeouts) == 1
+            deadline = startup_timeouts[0].when()
             return {"code": -32603, "message": SECRET}
 
         async def stuck(method):
+            assert len(startup_timeouts) == 1
+            assert startup_timeouts[0].when() == deadline
             entered.set()
             try:
-                if cancel:
-                    await asyncio.Event().wait()
-                await asyncio.sleep(0.6)
-                return initialize()
+                await asyncio.Event().wait()
             finally:
                 finished.set()
 
-        owner, status = create("auto", [first, stuck], startup=1)
+        owner, status = create("auto", [first, stuck], startup=10)
         task = asyncio.create_task(owner.prepare())
         try:
             await asyncio.wait_for(entered.wait(), 2)
@@ -51,6 +55,7 @@ def test_auto_fallback_shares_budget_and_external_cancel_is_not_retry(host, canc
                 with pytest.raises(asyncio.CancelledError):
                     await task
             else:
+                startup_timeouts[0].reschedule(asyncio.get_running_loop().time())
                 with pytest.raises(MCPClientError, match="connect_timeout"):
                     await task
         finally:
@@ -60,6 +65,22 @@ def test_auto_fallback_shares_budget_and_external_cancel_is_not_retry(host, canc
         assert status()["negotiated_protocol"] is None
 
     asyncio.run(scenario())
+
+
+@pytest.fixture
+def startup_timeouts(monkeypatch):
+    """保留真实超时取消语义，由握手事件决定预算到期时刻。"""
+    timeouts = []
+
+    def timeout(delay):
+        if not timeouts:
+            assert delay == 10
+        timer = asyncio.timeout(delay)
+        timeouts.append(timer)
+        return timer
+
+    monkeypatch.setattr(clients_module, "asyncio", SimpleNamespace(**(vars(asyncio) | {"timeout": timeout})))
+    return timeouts
 
 
 @pytest.mark.parametrize("resume", [False, True])
@@ -316,7 +337,7 @@ def test_errors_do_not_fabricate_a_version_or_retry_auth(host, mode, replies, co
 
 
 @pytest.mark.parametrize("mode", ["legacy", "auto", PROTOCOL_VERSION])
-def test_one_startup_budget_and_cancellation_close_transport(host, mode):
+def test_one_startup_budget_and_cancellation_close_transport(host, startup_timeouts, mode):
     create, observed = host
 
     async def scenario():
@@ -325,11 +346,13 @@ def test_one_startup_budget_and_cancellation_close_transport(host, mode):
         async def stuck(method):
             entered.set()
             try:
+                assert len(startup_timeouts) == 1
+                startup_timeouts[0].reschedule(asyncio.get_running_loop().time())
                 await asyncio.Event().wait()
             finally:
                 finished.set()
 
-        owner, status = create(mode, [stuck], startup=0.02)
+        owner, status = create(mode, [stuck], startup=10)
         try:
             with pytest.raises(MCPClientError, match="connect_timeout"):
                 await owner.prepare()
