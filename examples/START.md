@@ -188,7 +188,9 @@ $env:AURORA_API_TOKEN = uv run --locked python -c "import secrets; print(secrets
 uv run --locked python examples/default_bot/main.py --data-dir build/panel-demo --serve --port 10270 --token-env AURORA_API_TOKEN --allowed-origin http://127.0.0.1:5173
 ```
 
-另开终端，在仓库根目录执行 `pnpm panel`，访问 `http://127.0.0.1:5173`。填写 API 地址 `http://127.0.0.1:10270`，令牌使用 `.env` 中的 `AURORA_API_TOKEN`；离线示例则使用该终端生成的令牌。开发服务器固定回环地址与端口，端口占用时明确退出；若自行换端口，须同步后端 Origin 白名单。已有配置的产品宿主也可通过 `scripts/bot.py` 开放相同来源，详情见下节。
+另开终端，在仓库根目录执行 `pnpm panel` 或 `uv run --locked aurora panel`，访问 `http://127.0.0.1:5173`。开发服务器从仓库根目录加载 `.env`，页面使用其中的 `AURORA_API_TOKEN` 自动连接 `http://127.0.0.1:10270`；可用 `AURORA_API_URL` 指定后端地址，已有进程环境变量优先。根目录的 `.env.local` 和对应 Vite 模式文件也遵循 Vite 的加载优先级。修改环境文件后须重启 Panel 开发服务器。未配置令牌或连接失败时，可在连接设置中手动填写地址和令牌；离线示例可使用示例终端生成的令牌。开发服务器固定回环地址与端口，端口占用时明确退出；若自行换端口，须同步后端 Origin 白名单。已有配置的产品宿主也可通过 `scripts/bot.py` 开放相同来源，详情见下节。
+
+自动连接配置仅通过本机同源 POST 接口在运行时提供，不写入浏览器存储、页面状态或静态构建产物。页面启动时尝试一次，手动连接、断开或关闭页面会取消尚未完成的默认配置请求；不会自动启动后端或提交消息。生产构建与 `preview` 保持手动连接。
 
 连接后选择目标 Bot，Enter 发送、Shift+Enter 换行；中文输入法确认候选词不会发送消息。运行中可追加引导，模型过程及工具参数/结果按运行显示；接纳状态与完成回执分开，停止操作指定运行并等待收尾。接纳结果不确定时先核对，只有点击“用原请求重试”才再次提交相同身份；后端重启后旧请求失效，不自动重发。
 
@@ -415,7 +417,7 @@ API 默认监听 `127.0.0.1:10270`，允许 `http://127.0.0.1:5173` 与 `http://
 
 另开终端，在仓库根目录运行 `pnpm tui`，自动加载根目录 `.env` 并读取 `AURORA_API_TOKEN`，已有环境变量优先。令牌只需在 `.env` 中配置一次；该命令只启动 TUI，后端需保持运行。连接地址沿用本地偏好，未保存偏好时默认为 `http://127.0.0.1:10270`；可用 `pnpm tui --connect http://127.0.0.1:10270 --instance main` 显式指定，也可用 `--token-env NAME` 指定其他令牌变量。离线无认证示例继续使用 `pnpm --filter @aurorabot/tui start`。
 
-浏览器界面运行 `pnpm panel`，连接时填写 `.env` 中的 `AURORA_API_TOKEN`。后端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一数据目录。
+浏览器界面运行 `pnpm panel` 或 `uv run --locked aurora panel`，打开页面后自动使用根目录 `.env` 中的 `AURORA_API_TOKEN` 连接已有后端，默认地址为 `http://127.0.0.1:10270`，可通过 `AURORA_API_URL` 修改；仍保留手动连接入口。后端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一数据目录。
 
 ### 在默认装配中观察时间和天气
 

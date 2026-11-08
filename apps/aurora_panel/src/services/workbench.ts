@@ -23,6 +23,8 @@ export class PanelWorkbench {
     url: '',
   };
   private client?: PanelClient;
+  private defaultConnection?: AbortController;
+  private defaultConnectionAttempted = false;
   private epoch = 0;
   private readonly factory: (url: string, token: string) => PanelClient;
   private readonly listeners = new Set<() => void>();
@@ -95,7 +97,39 @@ export class PanelWorkbench {
     if (epoch === this.epoch) this.changed();
   }
 
+  /** 默认连接只尝试一次；手动操作和关闭优先于尚未返回的凭证请求。 */
+  async connectDefault(): Promise<void> {
+    if (this.defaultConnectionAttempted || this.state.connection !== 'closed') return;
+    this.defaultConnectionAttempted = true;
+    const controller = new AbortController();
+    this.defaultConnection = controller;
+    const epoch = this.epoch;
+    try {
+      const response = await fetch('/__aurora/connection', {
+        method: 'POST',
+        headers: { 'X-Aurora-Panel': '1' },
+        cache: 'no-store',
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+      });
+      if (response.status === 204) return;
+      if (!response.ok) throw new Error('configuration_unavailable');
+      const config: unknown = await response.json();
+      if (epoch !== this.epoch || controller.signal.aborted) return;
+      const value = object(config);
+      if (typeof value?.url !== 'string' || typeof value.token !== 'string') throw new Error('invalid_configuration');
+      await this.connect(value.url, value.token);
+    } catch {
+      if (epoch !== this.epoch || controller.signal.aborted) return;
+      this.state.notice = '无法读取本地连接配置，请检查 .env 或手动连接。';
+      this.changed();
+    } finally {
+      if (this.defaultConnection === controller) this.defaultConnection = undefined;
+    }
+  }
+
   async disconnect(): Promise<void> {
+    this.defaultConnection?.abort();
+    this.defaultConnection = undefined;
     this.epoch++;
     clearInterval(this.timer);
     const client = this.client;

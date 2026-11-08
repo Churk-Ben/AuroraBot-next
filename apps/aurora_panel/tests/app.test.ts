@@ -16,6 +16,7 @@ import { FakeClient, settle } from './fake-client.ts';
 
 const clients: FakeClient[] = [];
 const prepared: FakeClient[] = [];
+let defaultConnection: object | undefined;
 function createClient() {
   const client = prepared.shift() ?? new FakeClient();
   clients.push(client);
@@ -67,6 +68,10 @@ async function navigate(selector: string) {
 
 describe('浏览器工作台页面交互', () => {
   beforeEach(async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => (defaultConnection ? Response.json(defaultConnection) : new Response(null, { status: 204 }))),
+    );
     pinia = createPinia();
     router = createPanelRouter(createMemoryHistory());
     await router.push('/state');
@@ -88,9 +93,11 @@ describe('浏览器工作台页面交互', () => {
     await settle();
     clients.length = 0;
     prepared.length = 0;
+    defaultConnection = undefined;
     // 开发工具及组件过渡计时器结束后，页面轮询必须已停止。
     await vi.advanceTimersByTimeAsync(3000);
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it('连接后清空令牌且不写入浏览器存储，页面卸载释放连接', async () => {
@@ -113,6 +120,32 @@ describe('浏览器工作台页面交互', () => {
     await vi.advanceTimersByTimeAsync(3000);
     expect(clients.every((client) => client.closed)).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('打开页面自动连接本地后端，凭证不进入页面、存储或 Pinia 动作', async () => {
+    app?.unmount();
+    disposePinia(pinia);
+    pinia = createPinia();
+    const actionArguments: unknown[] = [];
+    useWorkbenchStore(pinia).$onAction(({ args }) => actionArguments.push(args));
+    defaultConnection = { url: 'http://127.0.0.1:10271', token: 'test-panel-runtime-token-1234567890' };
+    app = createApp(App).use(pinia).use(router);
+    app.mount('#test-app');
+    await settle();
+    await nextTick();
+    expect(useWorkbenchStore(pinia).state.ready).toBe(true);
+    expect(useWorkbenchStore(pinia).state.url).toBe('http://127.0.0.1:10271');
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    expect(document.documentElement.innerHTML).not.toContain('test-panel-runtime-token');
+    expect(JSON.stringify(pinia.state.value)).not.toContain('test-panel-runtime-token');
+    expect(JSON.stringify(actionArguments)).not.toContain('test-panel-runtime-token');
+    element<HTMLButtonElement>('button[aria-label="连接设置"]').click();
+    await nextTick();
+    expect(element<HTMLInputElement>('input[data-testid=endpoint]').value).toBe('http://127.0.0.1:10271');
+    window.dispatchEvent(new Event('pagehide'));
+    await settle();
+    expect(clients.every((client) => client.closed)).toBe(true);
   });
 
   it('中文组字与换行不提交，Enter 只发送一次并清空草稿', async () => {

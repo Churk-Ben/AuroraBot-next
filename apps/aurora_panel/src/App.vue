@@ -8,7 +8,10 @@ const store = useWorkbenchStore();
 const leave = () => {
   void store.disconnect();
 };
-onMounted(() => window.addEventListener('pagehide', leave));
+onMounted(() => {
+  window.addEventListener('pagehide', leave);
+  if (import.meta.env.DEV) void store.connectDefault();
+});
 onBeforeUnmount(() => {
   window.removeEventListener('pagehide', leave);
   leave();
