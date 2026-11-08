@@ -24,6 +24,7 @@ from ..assembly_config import CONFIG as BOT_CONFIG
 from ..context_view import BusinessContextView
 from ..self_control_state import SELF_CONTROL
 from .decision_state import CHOICES, initial_state
+from .inputs import model_guidance
 from .rhythm import CadenceRhythm
 from .state import CADENCE_CONFIG, CHECKPOINT, CONFIG_STATE, position, upgrade_checkpoint
 from .timing import CadenceTiming
@@ -215,9 +216,10 @@ class Cadence:
                         "message_id": record.message_id,
                         "payload": record.payload,
                     }
+                    guidance = model_guidance(record.payload, (record,))
                     self._save(pending=message)
                     try:
-                        receipt = self.runtime.submit(cast(JsonValue, record.payload))
+                        receipt = self.runtime.submit(guidance)
                     except AgentBusyError:
                         self._save(pending=None)
                         current = self.runtime.current
@@ -426,6 +428,10 @@ class Cadence:
                 environmental[item["source_id"]] = {
                     name: item[name] for name in ("journal_id", "sequence", "record_id")
                 }
+        model_input = model_guidance(
+            guidance,
+            (self.records.get_by_id(item["record_id"]) for item in events) if choice == "attend_events" else (),
+        )
         self._save(
             observation=decision,
             pending={
@@ -436,7 +442,7 @@ class Cadence:
             },
         )
         try:
-            receipt = self.runtime.submit(cast(JsonValue, guidance))
+            receipt = self.runtime.submit(model_input)
         except AgentBusyError:
             self._save(pending=None, observation={**decision, "disposition": "busy"})
             return

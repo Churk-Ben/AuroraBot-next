@@ -217,7 +217,9 @@ file_input = true
 
 未填写 thinking 或 reasoning_effort 时沿用供应商默认，不再强制关闭 DeepSeek 思考。支持开关的服务可用 `type="disabled"`；Anthropic 显式启用时可在 thinking 表内设置 `budget_tokens=4096`。OpenAI 推理模型使用其支持的 reasoning_effort，不添加不支持的 thinking 开关；SDK/供应商拒绝的参数不会自动降级。思考文本、签名及隐藏思考块在完整响应、流式响应和工具往返中保留，签名及隐藏数据不展示为回答。旧文本快照可继续读取，不补造旧思考内容；此更新不新增公共 ID。
 
-程序内通过 `runtime.submit({"kind": "model_input", "content": [...]})` 提交结构化引导；content 使用 `{"type":"text","text":"说明"}`、`{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}` 或 `{"type":"file","file":{"filename":"报告.pdf","file_data":"data:application/pdf;base64,..."}}`。图片也支持 HTTPS URL，文件可改用 file_id 指定供应商文件 ID 或其支持的 HTTPS URL；不接受宿主本地路径。普通字符串和其他业务 JSON 引导继续保持原语义，不会自动将 QQ 附件 JSON 识别为模型文件。
+程序内通过 `runtime.submit({"kind": "model_input", "content": [...]})` 提交结构化引导；content 使用 `{"type":"text","text":"说明"}`、`{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}` 或 `{"type":"file","file":{"filename":"报告.pdf","file_data":"data:application/pdf;base64,..."}}`。图片也支持 HTTPS URL，文件可改用 file_id 指定供应商文件 ID 或其支持的 HTTPS URL；不接受宿主本地路径。普通字符串和其他业务 JSON 引导继续保持原语义。
+
+QQ 世界消息经 cadence 原样转发或 `attend_events` 决策转交时，会从完整事件的 OneBot `image` 段提取图片，转换为上述结构化输入；原始引导文本、事件来源、会话、消息 ID 和图片段序号一并保留。决策视图即使截短正文，也按记录 ID 从归档读取图片来源。支持 `data.url` 或 `data.file` 中的 HTTPS URL、图片 data URI；仅有文件名、本地路径或 HTTP URL 时明确提示图片未送入视觉输入，不自动下载或改写地址。每次引导最多附带 15 张图片，内嵌文件合计最多 10 MiB，超限部分明确提示；主模型须支持图片输入。`observe`、`review_work` 不额外提取图片，已消费事件不因升级重放，旧快照不补写图片块。
 
 状态页仅浏览后端已经开放的状态，可按 ID 或 location 筛选，值作为文本显示。切页保留草稿，各实例与 API 地址的草稿分开；这些草稿、令牌和连接设置都不写浏览器存储。刷新后重新连接，通过“已保存的上下文”查看后端历史；本页观察的过程不是持久日志。刷新、断开或关闭页面仅停止观察，不取消后端任务。连接尚未完成时也可点击“断开”。
 
