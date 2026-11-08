@@ -15,11 +15,14 @@ def run_process(command: list[str], *, root: Path, output: TextIO) -> int:
         try:
             return process.wait()
         except KeyboardInterrupt:
-            # 等子进程结束后再交回调用方，避免文件回滚与工具写入并行。
-            process.terminate()
+            # 首次中断等待宿主清理和落盘，再次中断才升级为强制结束。
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
                 process.wait()
+            except KeyboardInterrupt:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
             raise

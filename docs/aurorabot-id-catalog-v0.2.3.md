@@ -129,6 +129,9 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.cli:commands/help` | `command` | 展示命令帮助 |
 | `org.aurora.cli:commands/about` | `command` | 展示工作区与环境信息 |
 | `org.aurora.cli:commands/check` | `command` | 运行工作区检查 |
+| `org.aurora.cli:commands/bot` | `command` | 通过工作区 scripts 快速启动完整 Bot 后端 |
+| `org.aurora.cli:commands/panel` | `command` | 通过工作区 scripts 快速启动 Panel 开发服务器 |
+| `org.aurora.cli:commands/tui` | `command` | 通过工作区 scripts 快速启动 TUI |
 | `org.aurora.cli:commands/donk/show` | `command` | 展示 Python 工作区版本 |
 | `org.aurora.cli:commands/donk/major` | `command` | 升级主版本 |
 | `org.aurora.cli:commands/donk/minor` | `command` | 升级次版本 |
