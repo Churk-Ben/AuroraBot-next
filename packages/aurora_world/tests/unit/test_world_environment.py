@@ -80,6 +80,8 @@ def test_clock_configuration_rejects_invalid_parameters(config):
         {"timeout_seconds": 0},
         {"timeout_seconds": 31},
         {"api_key": "secret"},
+        {"temperature_change_c": -1},
+        {"temperature_change_c": True},
     ],
 )
 def test_weather_configuration_rejects_invalid_parameters(change):
@@ -216,14 +218,20 @@ def test_pending_weather_request_is_bounded_and_cancelled_before_transport_close
     asyncio.run(scenario())
 
 
-def test_weather_keeps_four_samples_within_one_hour_and_prunes_on_prepare():
+def test_weather_keeps_recent_changes_and_latest_known_state():
     async def scenario():
         clock = Schedule()
+
+        def respond(request):
+            payload = weather_data()
+            payload["current"]["temperature_2m"] += (clock.current.hour * 4 + clock.current.minute) * 4
+            return httpx.Response(200, json=payload)
+
         factory = partial(
             create_weather,
             now=clock.now,
             sleep=clock.sleep,
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=weather_data())),
+            transport=httpx.MockTransport(respond),
         )
         ctx, hooks, sources = environment(factory, LOCATION)
         records = sources.records
@@ -238,7 +246,7 @@ def test_weather_keeps_four_samples_within_one_hour_and_prunes_on_prepare():
         )
         clock.current += timedelta(hours=2)
         await sources.prepare()
-        assert records.observations() == ()
+        assert records.observations()[0].message_id == "old"
         await sources.start()
         await clock.waiting.get()
         for _ in range(4):
@@ -262,7 +270,69 @@ def test_weather_keeps_four_samples_within_one_hour_and_prunes_on_prepare():
     asyncio.run(scenario())
 
 
-def test_time_updates_expire_weather_without_an_extra_weather_request():
+def test_weather_publishes_only_meaningful_changes_against_last_published_sample():
+    async def scenario():
+        clock = Schedule()
+        temperature, code, failed = 18.5, 2, False
+        requests = []
+
+        def respond(request):
+            requests.append(request)
+            if failed:
+                return httpx.Response(503)
+            payload = weather_data()
+            payload["current"].update(temperature_2m=temperature, weather_code=code)
+            payload["current"]["time"] += len(requests) * 900
+            payload["current"]["wind_speed_10m"] += len(requests)
+            return httpx.Response(200, json=payload)
+
+        ctx, hooks, sources = environment(
+            partial(create_weather, now=clock.now, sleep=clock.sleep, transport=httpx.MockTransport(respond)), LOCATION
+        )
+        try:
+            await sources.prepare()
+            await sources.start()
+            await clock.waiting.get()
+            assert sources.records.observations()[-1].position.sequence == 1
+
+            async def sample(expected):
+                clock.advance(900)
+                await clock.waiting.get()
+                assert sources.records.observations()[-1].position.sequence == expected
+
+            await sample(1)
+            temperature = 20
+            await sample(1)
+            temperature = 21.5
+            await sample(1)
+            temperature = 21.6
+            await sample(2)
+            code = 61
+            await sample(3)
+            temperature = 18.5
+            await sample(4)
+            failed = True
+            await sample(5)
+            await sample(5)
+            failed = False
+            await sample(6)
+            assert len(requests) == 10
+            observed = sources.records.observations()[-1]
+            clock.advance(7200)
+            await clock.waiting.get()
+            sources.records.refresh()
+            assert sources.records.observations() == (observed,)
+        finally:
+            await sources.stop()
+            await sources.clean()
+            sources.records.close()
+            hooks.close()
+            ctx.close()
+
+    asyncio.run(scenario())
+
+
+def test_time_updates_preserve_latest_weather_without_an_extra_weather_request():
     async def scenario():
         weather_clock, time_clock = Schedule(), Schedule()
         requests = []
@@ -296,7 +366,7 @@ def test_time_updates_expire_weather_without_an_extra_weather_request():
         time_clock.advance(3600)
         await time_clock.waiting.get()
         assert len(requests) == 1
-        assert [record.source_id for record in sources.records.observations()] == ["time"]
+        assert [record.source_id for record in sources.records.observations()] == ["environment/test", "time"]
         await sources.stop()
         await sources.clean()
         sources.records.close()

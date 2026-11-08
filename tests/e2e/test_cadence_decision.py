@@ -71,7 +71,7 @@ class Decisions:
         self.closed = True
 
 
-def configured(root, *, sources=("selected",), decision_config=None):
+def configured(root, *, decision_config=None):
     clock, decisions = Clock(), Decisions()
     path = root / "config/org.aurora.bot/cadence.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,7 +79,6 @@ def configured(root, *, sources=("selected",), decision_config=None):
         path.write_text(
             tomli_w.dumps(
                 {
-                    "source_ids": list(sources),
                     "decision": {
                         "model_role": "cadence",
                         "min_seconds": 30,
@@ -139,14 +138,14 @@ def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_
         await host.start(configure=configure)
         try:
             first = append(assembly)
-            append(assembly, "private", source="other", payload="不应暴露的其他来源")
+            other = append(assembly, "other-source", source="other", payload="其他来源也参与决策")
             note(ctx, "other", text="不应暴露的其他实例笔记")
             for _ in range(3):
                 await tick(clock, ctx)
-                assert state(ctx)["position"] == asdict(first.record.position)
+                assert state(ctx)["position"] == asdict(other.record.position)
                 assert state(ctx)["event_position"] is None and state(ctx)["receipts"] == []
                 records = decisions.requests[-1]["state"]["business"]["events"]["records"]
-                assert [record["record_id"] for record in records] == [first.record.record_id]
+                assert [record["record_id"] for record in records] == [first.record.record_id, other.record.record_id]
                 assert "不应暴露" not in encode_json(decisions.requests[-1])
             assert clients[0].requests == []
             assert all(30 <= delay <= 60 for delay in clock.delays)
@@ -154,7 +153,7 @@ def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_
             decisions.choice = "attend_events"
             await tick(clock, ctx)
             assert len(state(ctx)["receipts"]) == 1
-            assert state(ctx)["event_position"] == asdict(first.record.position)
+            assert state(ctx)["event_position"] == asdict(other.record.position)
             await until(lambda: assembly.runtime.current is None)
             assert clients[0].requests
             clock.now += 200
@@ -168,10 +167,57 @@ def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("with_events", [False, True])
+def test_selected_environment_sources_enter_decisions_without_becoming_archived_events(tmp_path, with_events):
+    async def scenario():
+        host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path)
+        records = assembly.world_records
+        assert records is not None
+        records.select("environment/time", "time")
+        records.select("environment/weather", "weather")
+        await host.start(configure=configure)
+        try:
+            records.append(source_id="environment/time", message_id="time-1", payload="当前时间")
+            records.append(source_id="environment/weather", message_id="weather-1", payload="南京天气")
+            event = append(assembly) if with_events else None
+            await tick(clock, ctx)
+            business = decisions.requests[-1]["state"]["business"]
+            assert {item["source_id"] for item in business["environment"]["records"]} == {
+                "environment/time",
+                "environment/weather",
+            }
+            assert len(business["events"]["records"]) == int(with_events)
+            assert len(records.read()) == int(with_events)
+            assert state(ctx)["error"] is None and state(ctx)["receipts"] == []
+            assert clients[0].requests == []
+            decisions.choice = "attend_events"
+            await tick(clock, ctx)
+            if event is not None:
+                assert state(ctx)["event_position"] == asdict(event.record.position)
+                assert len(state(ctx)["receipts"]) == 1
+                await until(lambda: assembly.runtime.current is None)
+            else:
+                assert state(ctx)["observation"]["disposition"] == "submitted"
+                assert state(ctx)["event_position"] is None and len(state(ctx)["receipts"]) == 1
+                await until(lambda: assembly.runtime.current is None)
+            assert set(state(ctx)["environment_positions"]) == {"environment/time", "environment/weather"}
+            clock.now += 200
+            await tick(clock, ctx)
+            assert len(state(ctx)["receipts"]) == 1
+            assert state(ctx)["observation"]["disposition"] == "no_material"
+            assert records.presentation("environment/time") == "time"
+            assert records.presentation("environment/weather") == "weather"
+        finally:
+            await host.stop()
+        assert decisions.closed and clients[0].closed
+
+    asyncio.run(scenario())
+
+
 def test_no_event_ticks_review_notes_with_cooldown_and_restart(tmp_path):
     async def scenario():
         for restart in (False, True):
-            host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path, sources=())
+            host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path)
             decisions.choice = "review_work"
             await host.start(configure=configure)
             try:
@@ -354,7 +400,7 @@ def test_mode_change_requires_explicit_handling_of_existing_snapshot(tmp_path):
         await until(lambda: bool(state(ctx)["receipts"]))
         await host.stop()
         path = tmp_path / "config/org.aurora.bot/cadence.toml"
-        path.write_text('source_ids = ["selected"]\n[decision]\nmodel_role = "cadence"\n', encoding="utf-8")
+        path.write_text('[decision]\nmodel_role = "cadence"\n', encoding="utf-8")
         snapshot = (tmp_path / "framework/ctx.json").read_bytes()
         restarted, _, _, _, _, _, configure, events = configured(tmp_path)
         with pytest.raises(ValueError, match="模式与已有快照不一致"):

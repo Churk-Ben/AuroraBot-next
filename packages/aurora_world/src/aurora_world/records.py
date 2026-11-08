@@ -438,7 +438,8 @@ class WorldRecords:
     def _retain_environment(self, value: dict, now: float) -> dict:
         items = value["records"]
         if value["kind"] == "weather":
-            items = [item for item in items if item["received_at"] > now - self.view.weather_seconds]
+            # 最新天气保留原始观测时间；稳定天气没有新消息时仍可查询最后已知状态。
+            items = [item for item in items[:-1] if item["received_at"] > now - self.view.weather_seconds] + items[-1:]
         count = self.view.time_count if value["kind"] == "time" else self.view.weather_count
         return {**value, "records": items[-count:]}
 

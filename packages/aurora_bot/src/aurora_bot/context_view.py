@@ -45,12 +45,10 @@ class BusinessContextView:
         notes: WorkNotes | None = None,
         archive_enabled: bool = False,
         actions: ActionEvidence | None = None,
-        source_ids: frozenset[str] | None = None,
     ) -> None:
         self.records, self.config, self.notes = records, config, notes
         self.archive_enabled = archive_enabled
         self.actions = actions
-        self.source_ids = source_ids
 
     def __call__(self, request: ExecutionRequest) -> str:
         enabled = {
@@ -68,11 +66,7 @@ class BusinessContextView:
             ctx = self.records.ctx
             if enabled["events"] and ctx.list(key=RECORDS, location={}):
                 value = cast(dict, ctx.get(RECORDS))
-                events = [
-                    {**item, "journal_id": value["journal_id"]}
-                    for item in value["records"]
-                    if self.source_ids is None or item["source_id"] in self.source_ids
-                ]
+                events = [{**item, "journal_id": value["journal_id"]} for item in value["records"]]
             if enabled["environment"]:
                 for address in ctx.list(key=ENVIRONMENT):
                     value = cast(dict, ctx.get(ENVIRONMENT, location=dict(address.location)))

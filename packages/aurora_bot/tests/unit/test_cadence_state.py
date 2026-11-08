@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 from aurora_bot.cadence.decision_state import initial_state
-from aurora_bot.cadence.state import CADENCE_CONFIG, validate_checkpoint
+from aurora_bot.cadence.state import CADENCE_CONFIG, upgrade_checkpoint, validate_checkpoint
 from aurora_core.discovery import load_plugins
 
 
@@ -12,13 +12,13 @@ from aurora_core.discovery import load_plugins
     "value",
     [{"extra": True}, {"source_ids": [""]}, {"source_ids": [" "]}, {"source_ids": [1]}, {"source_ids": ["a", "a"]}],
 )
-def test_invalid_source_selection(value):
+def test_removed_source_selection_and_unknown_configuration_are_rejected(value):
     with pytest.raises(ValueError):
         CADENCE_CONFIG.parse(value)
 
 
-def test_empty_selection_is_inert_and_plugin_dependencies_are_explicit():
-    assert CADENCE_CONFIG.parse({}) == {"source_ids": []}
+def test_configuration_has_no_source_filter_and_plugin_dependencies_are_explicit():
+    assert CADENCE_CONFIG.parse({}) == {}
     with pytest.raises(ValueError, match="依赖"):
         load_plugins(enabled=["aurora_bot.cadence"])
 
@@ -91,12 +91,12 @@ def test_invalid_decision_configuration(decision):
 
 
 def test_decision_defaults_are_explicit_and_separate_from_forwarding():
-    assert CADENCE_CONFIG.parse({}) == {"source_ids": []}
+    assert CADENCE_CONFIG.parse({}) == {}
     parsed = CADENCE_CONFIG.parse({"decision": {"model_role": "cadence"}})
     assert isinstance(parsed, dict)
-    assert parsed["source_ids"] == [] and parsed["decision"]["min_seconds"] == 60
+    assert parsed["decision"]["min_seconds"] == 60
     assert parsed["decision"]["max_seconds"] == 180
-    validate_checkpoint(initial_state([]))
+    validate_checkpoint(initial_state())
 
 
 @pytest.mark.parametrize(
@@ -114,7 +114,37 @@ def test_decision_defaults_are_explicit_and_separate_from_forwarding():
     ],
 )
 def test_corrupt_decision_state_is_not_ignored(field, value):
-    state = initial_state(["source"])
+    state = initial_state()
     state[field] = value
     with pytest.raises((ValueError, TypeError)):
         validate_checkpoint(state)
+
+
+@pytest.mark.parametrize("error", [None, "SelectionChanged", "TransferUncertain", "CursorInvalid"])
+def test_legacy_forwarding_upgrade_preserves_progress_and_uncertainty(error):
+    old = checkpoint()
+    old["error"] = error
+    original = deepcopy(old)
+    validate_checkpoint(old)
+    upgraded = upgrade_checkpoint(old)
+    validate_checkpoint(upgraded)
+    assert old == original
+    assert upgraded["version"] == 3 and "source_ids" not in upgraded
+    assert upgraded["environment_positions"] == {}
+    assert upgraded["position"] == old["position"]
+    assert upgraded["receipts"][0]["message"] == {**old["receipts"][0]["message"], "kind": "event"}
+    assert upgraded["error"] == (None if error == "SelectionChanged" else error)
+
+
+def test_legacy_decision_upgrade_keeps_event_cursor_and_rejects_unknown_fields():
+    old = initial_state()
+    old.pop("environment_positions")
+    old.update(version=2, source_ids=["qq/events"], error="SelectionChanged")
+    anchor = {"journal_id": "j", "sequence": 7, "record_id": "r"}
+    old.update(position=anchor, event_position=anchor)
+    upgraded = upgrade_checkpoint(old)
+    validate_checkpoint(upgraded)
+    assert upgraded["version"] == 4 and upgraded["error"] is None
+    assert upgraded["position"] == upgraded["event_position"] == anchor
+    with pytest.raises(ValueError):
+        validate_checkpoint({**old, "unknown": True})

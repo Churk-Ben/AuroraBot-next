@@ -207,7 +207,7 @@ class DefaultAssembly:
         api_key = None if resolved.credential is None else self.credential_resolver(resolved.credential)
         return await resolved.factory(resolved.config, api_key=api_key)
 
-    def _decision_view(self, config: dict, source_ids: list[str]) -> BusinessContextView:
+    def _decision_view(self, config: dict) -> BusinessContextView:
         assert self.config is not None
         return BusinessContextView(
             self.world_records,
@@ -219,7 +219,6 @@ class DefaultAssembly:
                 "actions": True,
                 "max_chars": config["max_chars"] - 2048,
             },
-            source_ids=frozenset(source_ids),
             notes=WorkNotes(self.ctx, self.config["instance_id"]) if self.config["notes"]["enabled"] else None,
             actions=self.action_evidence,
             archive_enabled=self.config["archive"]["enabled"],
