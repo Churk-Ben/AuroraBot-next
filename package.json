@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "tui": "node --env-file-if-exists=.env --experimental-ffi apps/aurora_tui/src/main.ts --token-env AURORA_API_TOKEN",
+    "bot": "uv run --locked python scripts/bot.py",
+    "panel": "uv run --locked python scripts/panel.py",
+    "tui": "uv run --locked python scripts/tui.py",
     "check": "node scripts/check.ts",
     "typecheck": "pnpm typecheck:python && pnpm typecheck:typescript",
     "lint": "pnpm lint:oxlint && pnpm lint:eslint && pnpm lint:style",

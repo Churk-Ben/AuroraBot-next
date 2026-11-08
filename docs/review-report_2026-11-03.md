@@ -74,7 +74,7 @@
 
 **判断：成立。优先级：高，数据完整性缺陷。**
 
-- 当时的 `scripts/serve_bot.py` 在 --world 模式把 RECORDS、SOURCE_STATUS 放入 --keys（现入口为 [bot.py](../bot.py)，相关状态已改为只读）；[server.py](../packages/aurora_api/src/aurora_api/server.py) 对同一集合开放 get/list/set/delete。
+- 当时的 `scripts/serve_bot.py` 在 --world 模式把 RECORDS、SOURCE_STATUS 放入 --keys（现入口为 [scripts/bot.py](../scripts/bot.py)，相关状态已改为只读）；[server.py](../packages/aurora_api/src/aurora_api/server.py) 对同一集合开放 get/list/set/delete。
 - 世界记录要求通过 WorldRecords 追加、去重和裁剪，结构校验无法保证写入经过该入口。最小复核中，删除 RECORDS 返回 HTTP 200、result=true，记录地址随即消失。
 - 当前监听范围是本机回环，不能将此问题扩大为已经存在的远程攻击面。CLIENT_STATUS 只读是同类设计建议，并非该启动脚本已经暴露它的证据。
 

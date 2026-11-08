@@ -58,7 +58,7 @@ include = [
     "packages/*/tests",
     "tests",
     "conftest.py",
-    "bot.py",
+    "scripts",
     "examples",
 ]
 exclude = ["**/__pycache__", "**/node_modules", ".venv", "build", "dist"]

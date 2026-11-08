@@ -14,7 +14,7 @@ import tomli_w
 from aurora_cli.commander import run_cli
 from test_mcp_product import fake_plugin, seed, service
 
-import bot
+from scripts import bot
 
 TOKEN = "test-root-product-token-1234567890"
 TOKEN_ENV = "AURORA_TEST_ROOT_TOKEN"
@@ -22,7 +22,7 @@ TOKEN_ENV = "AURORA_TEST_ROOT_TOKEN"
 
 def test_help_does_not_load_environment_or_start_host(tmp_path):
     result = subprocess.run(
-        [sys.executable, str(bot.ROOT / "bot.py"), "--help"],
+        [sys.executable, str(bot.ROOT / "scripts/bot.py"), "--help"],
         cwd=tmp_path,
         capture_output=True,
         timeout=15,

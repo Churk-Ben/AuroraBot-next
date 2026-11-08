@@ -23,7 +23,7 @@ from aurora_logging import configure_logging
 from aurora_world import ENVIRONMENT, RECORDS, SOURCE_STATUS
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 PLUGINS = (
     *MCP_PLUGINS,
     "aurora_control",
