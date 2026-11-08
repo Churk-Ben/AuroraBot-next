@@ -174,8 +174,7 @@ pnpm install --frozen-lockfile
 已有完整框架配置时，在仓库根目录加载 `.env` 启动后端。文件应包含 `AURORA_API_TOKEN` 以及配置引用的模型和 MCP 凭证变量：
 
 ```powershell
-Remove-Item Env:AURORA_API_TOKEN -ErrorAction SilentlyContinue
-uv run --locked --env-file .env python scripts/serve_bot.py --data-dir data --port 10270 --token-env AURORA_API_TOKEN --allowed-origin http://127.0.0.1:5173
+uv run --locked python bot.py
 ```
 
 也可以用离线默认 Bot 验证界面，不需要真实模型密钥：
@@ -185,7 +184,7 @@ $env:AURORA_API_TOKEN = uv run --locked python -c "import secrets; print(secrets
 uv run --locked python examples/default_bot/main.py --data-dir build/panel-demo --serve --port 10270 --token-env AURORA_API_TOKEN --allowed-origin http://127.0.0.1:5173
 ```
 
-另开终端，在仓库根目录执行 `pnpm --filter @aurorabot/panel dev`，访问 `http://127.0.0.1:5173`。填写 API 地址 `http://127.0.0.1:10270`，令牌使用 `.env` 中的 `AURORA_API_TOKEN`；离线示例则使用该终端生成的令牌。开发服务器固定回环地址与端口，端口占用时明确退出；若自行换端口，须同步后端 Origin 白名单。已有配置的产品宿主也可通过 `scripts/serve_bot.py` 开放相同来源，详情见下节。
+另开终端，在仓库根目录执行 `pnpm --filter @aurorabot/panel dev`，访问 `http://127.0.0.1:5173`。填写 API 地址 `http://127.0.0.1:10270`，令牌使用 `.env` 中的 `AURORA_API_TOKEN`；离线示例则使用该终端生成的令牌。开发服务器固定回环地址与端口，端口占用时明确退出；若自行换端口，须同步后端 Origin 白名单。已有配置的产品宿主也可通过 `bot.py` 开放相同来源，详情见下节。
 
 连接后选择目标 Bot，Enter 发送、Shift+Enter 换行；中文输入法确认候选词不会发送消息。运行中可追加引导，模型过程及工具参数/结果按运行显示；接纳状态与完成回执分开，停止操作指定运行并等待收尾。接纳结果不确定时先核对，只有点击“用原请求重试”才再次提交相同身份；后端重启后旧请求失效，不自动重发。
 
@@ -212,7 +211,7 @@ pnpm --filter @aurorabot/panel preview
 
 ```powershell
 $env:AURORA_API_TOKEN = uv run --locked python -c "import secrets; print(secrets.token_urlsafe(32))"
-uv run --locked python scripts/serve_bot.py --data-dir data --token-env AURORA_API_TOKEN --allowed-origin http://localhost:5173
+uv run --locked python bot.py --data-dir data --token-env AURORA_API_TOKEN --allowed-origin http://localhost:5173
 ```
 
 `--allowed-origin` 可重复，要求精确的 `协议://主机[:端口]`，不含路径、尾斜杠、通配符或 `null`。`localhost` 和 `127.0.0.1` 是不同来源，端口也参与匹配。`--allowed-host` 可重复，指定小写 ASCII 域名或 IPv4 地址，不含端口；默认只允许 localhost 和 127.0.0.1，显式提供时替换默认列表。这些参数不扩大 `--keys`、`--read-only-keys` 或 `--endpoints` 的开放范围。
@@ -298,7 +297,7 @@ notes_write 创建示例参数：
 
 更新时携带最近读取到的 revision，并完整提供正文、状态和引用。冲突返回 note_conflict，原文保持不变。active 笔记在下一轮视图中可见且不会随时间过期；status=archived 将其移出当前视图，仍可通过 notes_read 或 notes_list 的 status=all 读取。notes_list 返回 200 字符预览和 next_after，每页最多 50 条；notes_read 返回全文。每实例最多 128 条，单条正文最多 16000 字符，达到容量后仍可更新已有笔记，归档不释放容量。
 
-笔记由宿主快照保存，正常关闭后恢复；关闭 `[notes]` 不删除已有内容，恢复也不自动执行计划。笔记和引用本身不证明工具动作成功。`scripts/serve_bot.py` 将笔记作为只读状态开放，可用 ctx get 读取 `org.aurora.bot:state/notes`、location 为目标 instance_id；`[context_view] notes=false` 只关闭视图展示，工具仍可使用。具体数据边界见[主动上下文设计](../docs/aurora_bot_ctx_prompt_design.md#已实现的持久工作笔记)。离线巡检示例不模拟模型自主写笔记，工具往返、取消与恢复由 `tests/e2e/test_work_notes_integration.py` 验证。
+笔记由宿主快照保存，正常关闭后恢复；关闭 `[notes]` 不删除已有内容，恢复也不自动执行计划。笔记和引用本身不证明工具动作成功。`bot.py` 将笔记作为只读状态开放，可用 ctx get 读取 `org.aurora.bot:state/notes`、location 为目标 instance_id；`[context_view] notes=false` 只关闭视图展示，工具仍可使用。具体数据边界见[主动上下文设计](../docs/aurora_bot_ctx_prompt_design.md#已实现的持久工作笔记)。离线巡检示例不模拟模型自主写笔记，工具往返、取消与恢复由 `tests/e2e/test_work_notes_integration.py` 验证。
 
 需要按视图或笔记中的 world_event 引用读取事件原文时，在同一个 bot 配置文件中启用：
 
@@ -381,21 +380,28 @@ assembly = "org.aurora.bot:assemblies/default"
 
 模型与 MCP 统一安装包为 `aurora-adapter`，模块分别为 `aurora_adapter.model` 和 `aurora_adapter.mcp`。独立模型配置插件安装 `[model]`，LiteLLM 安装 `[litellm]`；默认 bot 已依赖后者。模型配置位于 `<data-dir>/config/org.aurora.adapter/model/profiles.toml` 与 `model/bindings.toml`，MCP 配置位于同一命名空间下的 `mcp.toml`。旧包、插件名、配置路径和公共 ID 的迁移见[变更记录](../docs/CHAGELOG.md#2026-11-04)，宿主不自动迁移旧数据。
 
-已有 `data/config/` 配置时，使用正式 CLI 宿主启动。`data/config/host.toml` 的插件列表须包含默认 bot 所需插件及 `aurora_api`，并选择 `org.aurora.bot:assemblies/default`。模型由 `profiles.toml` 与 `bindings.toml` 决定；profile 的 `credential` 保存环境变量名，凭证由 uv 从根目录 `.env` 加载。
+项目根目录的 `bot.py` 是完整产品入口，复用现有 CLI 宿主、配置服务和 MCP 产品装配：
 
 ```powershell
-uv run --locked --env-file .env python scripts/serve_bot.py
+uv sync --locked --all-packages
+uv run --locked python bot.py
 ```
 
-脚本默认使用 `--data-dir data --port 10270`，可显式覆盖。它在 Python 内构造四项 bot 状态和直接交流端点的 JSON 参数，再交给正式 CLI 宿主，避免 Windows PowerShell 的原生参数传递移除 JSON 双引号；不加载另一套配置或装配实现。
+入口显式启用模型、ReAct、工具、控制组件、MCP 客户端及工具/世界桥、world 配置、环境来源、cadence 和 API，选择 `org.aurora.adapter:assemblies/mcp/default_bot`。`host.toml` 中的额外插件继续加载并校验；该入口的产品装配选择优先于文件中的 `assembly`，不改写原文件。需要完全由 `host.toml` 选择装配与插件时使用 `aurora` CLI。
 
-需要从 TUI 编辑 TOML 时，在上述命令末尾加 `--edit-config`，显式开放 `org.aurora.config:endpoints/configuration`。已有宿主需先正常关闭再用该参数启动；保存配置后再次正常重启生效。未加此参数时，F7 会提示配置入口未开放，直接交流与 ctx 访问仍可用。
+默认读取项目根目录的 `.env` 和 `data/`，不受当前终端目录影响；显式传入的相对路径按当前终端目录解析。进程中已有的环境变量优先于 `.env`，可用 `--env-file` 指定其他文件。访问令牌默认读取 `AURORA_API_TOKEN`（32 至 256 位 URL 安全字符）；凭证仅供运行期解析，不写入配置、状态或日志。未设置令牌或访问策略无效时，在创建模型与外部连接之前退出。
 
-另一个终端运行 `pnpm --filter @aurorabot/tui start`。此后端按现有配置连接真实供应商，启动本身不激活 bot；TUI 发送消息才触发模型调用。工具是否可用由 bot 配置的 `tools` 决定。后端终端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一 `data` 目录。
+API 默认监听 `127.0.0.1:10270`，允许 `http://127.0.0.1:5173` 与 `http://localhost:5173` 的 Panel 访问。可用 `--port`、`--data-dir`、`--token-env` 覆盖默认值；重复的 `--allowed-origin` 或 `--allowed-host` 分别替换对应白名单。Bot、笔记、世界、cadence 和 MCP 诊断状态默认只读开放，交流走产品端点，无需再加 `--world` 或 `--cadence`。
+
+需要从 TUI 编辑 TOML 时加 `--edit-config`，开放 `org.aurora.config:endpoints/configuration`。配置保存后正常重启生效；未加此参数时，F7 会提示配置入口未开放。
+
+模型由 `profiles.toml` 与 `bindings.toml` 选择；MCP 服务、世界来源和 cadence 消费范围分别由对应 TOML 决定，缺失文件只补模板。新模板中的 MCP 服务、世界来源和 cadence 来源均为空，不自动接入外部服务或启动模型任务。已有配置选中了外部连接或自动转交来源时，启动会按配置建立连接并处理事件；笔记、归档、行动证据等能力仍由 Bot 配置开关决定。
+
+另开终端运行 `pnpm --filter @aurorabot/tui start` 或 `pnpm --filter @aurorabot/panel dev`，API 令牌使用 `.env` 中的 `AURORA_API_TOKEN`。后端按 Ctrl+C 关闭并落盘；不要同时启动多个宿主使用同一数据目录。
 
 ### 在默认装配中观察时间和天气
 
-工作区统一安装已包含环境来源；独立安装使用 `aurora-world[environment]`。在现有 host.toml 的 plugins 列表中显式加入 `aurora_world`、`aurora_world.configuration`、`aurora_world.environment`，保留原来的 bot、模型和 API 插件。默认装配会托管 world 配置选中的来源；没有启用 world 配置插件时保持原来的装配行为。
+工作区统一安装和 `bot.py` 已包含环境来源，无需修改宿主插件清单。独立安装使用 `aurora-world[environment]`；使用通用 CLI 时，在 host.toml 的 plugins 列表中显式加入 `aurora_world`、`aurora_world.configuration`、`aurora_world.environment`，保留原来的 bot、模型和 API 插件。默认装配会托管 world 配置选中的来源；没有启用 world 配置插件时保持原来的装配行为。
 
 编辑 `<data-dir>/config/org.aurora.world/config.toml`。缺失文件的模板默认为空列表，启用以下来源时移除 `sources = []`，不要保留两个同名声明：
 
@@ -420,11 +426,11 @@ timeout_seconds = 10
 地点名称和经纬度须一起修改；时间使用宿主本地时区。每次启动立即采样，此后按各自间隔采样，不补发停机期间的周期。移除某个来源项可单独停用，`sources = []` 停用全部来源，修改后重启生效，模板不覆盖已有配置。时间间隔至少 1 秒，天气至少 60 秒，天气总请求超时至多 30 秒。
 
 ```powershell
-uv run --locked --env-file .env python scripts/serve_bot.py --world --edit-config
+uv run --locked python bot.py --edit-config
 pnpm --filter @aurorabot/tui start
 ```
 
-两个命令分别在两个终端运行。`--world` 开放近期事件、环境观察与来源状态，TUI 状态页筛选 `org.aurora.world` 即可读取，F7 可编辑 TOML。观察包含采样时间、地点、温度、天气描述及数据有效时间；天气来自 [Open-Meteo 当前天气接口](https://open-meteo.com/en/docs)，属于天气模型数据，载荷保留提供方归属。超时、网络失败或无效响应写入 `status=unavailable` 和固定错误代码，不伪造天气；时间来源继续运行，下一个天气周期会重新采样。
+两个命令分别在两个终端运行。`bot.py` 默认开放近期事件、环境观察与来源状态，TUI 状态页筛选 `org.aurora.world` 即可读取，F7 可编辑 TOML。观察包含采样时间、地点、温度、天气描述及数据有效时间；天气来自 [Open-Meteo 当前天气接口](https://open-meteo.com/en/docs)，属于天气模型数据，载荷保留提供方归属。超时、网络失败或无效响应写入 `status=unavailable` 和固定错误代码，不伪造天气；时间来源继续运行，下一个天气周期会重新采样。
 
 环境采样只更新 `org.aurora.world:state/environment`，按 source_id 区分，不进入普通事件数据库或自动触发 cadence。时间默认保留最新 1 条，天气按宿主接收时间保留一小时内最多 4 条；world 在接纳时、启动时和每 30 秒统一刷新，无新输入也会过期。普通事件保存于 `namespaces/ns-org.aurora.world/events.sqlite3`，`state/records` 只提供近期文本视图，历史与去重不因呈现裁剪丢失。
 
@@ -447,7 +453,7 @@ refresh_seconds = 30
 
 ### 最小 cadence：原样转发世界记录
 
-在默认 bot 的 `host.toml` 插件清单中显式加入 `aurora_world`、`aurora_bot.cadence`，保留已有的 bot、模型和配置依赖。来源按前节另行配置；只接收程序写入的世界记录时，无需启用 world 配置或环境插件。MCP 默认 bot 装配同样复用这一路径。
+`bot.py` 已启用 cadence。使用通用 CLI 时，在默认 bot 的 `host.toml` 插件清单中显式加入 `aurora_world`、`aurora_bot.cadence`，保留已有的 bot、模型和配置依赖。来源按前节另行配置；只接收程序写入的世界记录时，无需启用 world 配置或环境插件。MCP 默认 bot 装配同样复用这一路径。
 
 首次启动只补齐缺失的 `<data-dir>/config/org.aurora.bot/cadence.toml`，默认 `source_ids = []` 不转发。选择实际来源实例后重启，例如只关注外部消息：
 
@@ -458,10 +464,10 @@ source_ids = ["external/resources"]
 首次选择从数据库可用历史开始。每条选定世界记录的 payload 原样形成一条引导，空闲时可启动运行，运行中继续接纳；环境观察默认不进入事件序列；需要归档并转发的来源须在对应 [[sources]] 下显式配置 presentation = "events"。cadence 选择了仍按环境观察呈现的来源时会明确拒绝启动，避免配置看似生效却没有转交。来源及世界消息身份保存在转交关联中，不给模型载荷加包装；回执表示已提交引导，不表示业务完成。直接交流继续使用同一 AgentRuntime。
 
 ```powershell
-uv run --locked --env-file .env python scripts/serve_bot.py --world --cadence --edit-config
+uv run --locked python bot.py --edit-config
 ```
 
-`--cadence` 仅开放观察状态，不启用插件。TUI 状态页读取 `org.aurora.bot:state/cadence`，location 的 instance_id 与 bot 配置一致；其中 position 为扫描位置，pending 为尚无确定回执的原消息，receipts 保存消息、guidance_id、sequence 和 run_id。F7 可编辑来源选择，正常关闭后重启生效。已有消费状态绑定了原来源集合，改变集合会暂停，不能通过改配置悄悄改变消费范围。
+`bot.py` 默认启用 cadence 并开放观察状态。TUI 状态页读取 `org.aurora.bot:state/cadence`，location 的 instance_id 与 bot 配置一致；其中 position 为扫描位置，pending 为尚无确定回执的原消息，receipts 保存消息、guidance_id、sequence 和 run_id。F7 可编辑来源选择，正常关闭后重启生效。已有消费状态绑定了原来源集合，改变集合会暂停，不能通过改配置悄悄改变消费范围。
 
 `error=TransferUncertain` 表示须核对 pending 是否已经进入 agent；`CursorInvalid` 表示日志换代、缺失或裁剪缺口；`SelectionChanged` 表示来源范围不一致。暂停不阻断直接交流，也不会因重启自动解除。核对时先停止宿主并保留完整快照，对照 world、pending、receipts 与 agent 数据；不能仅凭文本相同认定已投递。首版没有自动核对或重置命令，须由宿主明确决定修复后的消费状态，不能直接删除游标来重放。
 

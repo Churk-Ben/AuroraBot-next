@@ -443,15 +443,16 @@ name = "aurorabot-ai"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aurora-adapter", extra = ["mcp-bot"] },
     { name = "aurora-api" },
     { name = "aurora-bot" },
     { name = "aurora-cli" },
     { name = "aurora-world", extra = ["environment"] },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "aurora-adapter", extra = ["mcp-tools", "mcp-world"] },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -460,15 +461,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aurora-adapter", extras = ["mcp-bot"], editable = "packages/aurora_adapter" },
     { name = "aurora-api", editable = "packages/aurora_api" },
     { name = "aurora-bot", editable = "packages/aurora_bot" },
     { name = "aurora-cli", editable = "packages/aurora_cli" },
     { name = "aurora-world", extras = ["environment"], editable = "packages/aurora_world" },
+    { name = "python-dotenv", specifier = ">=1.2,<2" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aurora-adapter", extras = ["mcp-world", "mcp-tools"], editable = "packages/aurora_adapter" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.9" },
