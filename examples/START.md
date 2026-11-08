@@ -165,6 +165,8 @@ try {
 
 ### 浏览器工作台（Panel）
 
+Windows 可直接双击仓库根目录的 `start-panel-naive.cmd`（原版）或 `start-panel-kun.cmd`（KunUI 版）。脚本自动打开浏览器，窗口显示需要填写的 API 地址与临时令牌；按 Ctrl+C 等待服务退出。首次使用先安装下述 pnpm 依赖。两版分别使用前端 5173/5174、后端 10271/10272 和 `build/panel-demo-naive/data`、`build/panel-demo-kun/data`，可以同时体验，使用离线回显模型，不读取产品 `data/` 或调用供应商。端口占用时明确报错，不停止已有进程。
+
 KunUI 对照版使用同一个开发服务器，访问 `http://127.0.0.1:5173/kun.html`；原版仍在 `/`。新版采用 KunUI + Lucide，聊天居中、工具活动折叠，强调色与对比色沿用 TUI 的蓝色 `#4B79EC` 和暖金 `#ECBE4B`。点击“连接你的 Aurora”填写下述后端地址与令牌。两版共用 client、service、store 与交流投影，但各浏览器页面分别持有连接；可以观察同一个 Bot，避免在两个页面重复提交任务。
 
 KunUI 界面位于 `src/kun`，复用下述启动、构建和测试命令。生产构建同时输出 `index.html` 和 `kun.html`，预览新版时访问 `http://127.0.0.1:4173/kun.html`。两版 CSS 入口独立，KunUI 的 Tailwind 样式不会进入原版页面。
