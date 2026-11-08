@@ -1,8 +1,7 @@
-"""按原样转发或随机时钟决策模式，向默认 bot 的既有运行所有者提交引导。"""
+"""按原样转发或上下文节律决策，向默认 bot 的既有运行所有者提交引导。"""
 
 import asyncio
 import logging
-import math
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from typing import cast
@@ -20,10 +19,12 @@ from aurora_core.json_data import decode_json, encode_json
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
 from aurora_world import ENVIRONMENT, RECORDS, CursorError, WorldRecords
 
+from ..assembly_config import AGENTS, MESSAGES, RUN, WORK
 from ..assembly_config import CONFIG as BOT_CONFIG
 from ..context_view import BusinessContextView
 from ..self_control_state import SELF_CONTROL
 from .decision_state import CHOICES, initial_state
+from .rhythm import CadenceRhythm
 from .state import CADENCE_CONFIG, CHECKPOINT, CONFIG_STATE, position, upgrade_checkpoint
 from .timing import CadenceTiming
 
@@ -68,6 +69,7 @@ class Cadence:
         self._decision_config: dict | None = None
         self._decision_client: ChoiceClient | None = None
         self._decision_view: BusinessContextView | None = None
+        self._rhythm: CadenceRhythm | None = None
 
     def component(self, *, depends_on: tuple[str, ...]) -> LifecycleComponent:
         links = []
@@ -143,6 +145,8 @@ class Cadence:
             return
         self._accepting = True
         if self._decision_config is not None:
+            self._rhythm = CadenceRhythm(self._decision_config, self._timing.monotonic(), self._timing.uniform)
+            self._subscription = self.ctx.subscribe(self._context_changed)
             self._worker = asyncio.create_task(self._decide(), name=f"cadence-decision-{self.instance_id}")
             return
         self._subscription = self.ctx.subscribe(self._notify, key=RECORDS, location={})
@@ -153,6 +157,34 @@ class Cadence:
 
     def _notify(self, change: StateChange) -> None:
         self._changed.set()
+
+    def _context_changed(self, change: StateChange) -> None:
+        if change.existed and change.action == "set" and change.value == change.previous:
+            return
+        feedback = change.address.key in (CHECKPOINT, AGENTS, MESSAGES, RUN, WORK) or self.runtime.current is not None
+        if change.address.key in (RECORDS, ENVIRONMENT):
+            feedback = False
+        value = change.value if change.action == "set" else change.previous
+        if change.address.key == ENVIRONMENT and isinstance(value, dict) and value.get("kind") == "time":
+            records = value.get("records", [])
+            feedback = not records or self._passive_time(
+                dict(change.address.location).get("source_id", ""), records[-1]["payload"]
+            )
+        elif change.address.key == RECORDS and isinstance(value, dict) and value["records"]:
+            record = value["records"][-1]
+            if not record["abridged"]:
+                payload = self.records.get_by_id(record["record_id"]).payload
+                feedback = self._passive_time(record["source_id"], payload)
+        assert self._rhythm is not None
+        if self._rhythm.stimulate(self._timing.monotonic(), feedback=feedback) or change.address.key == SELF_CONTROL:
+            self._changed.set()
+
+    def _passive_time(self, source_id: str, payload: object) -> bool:
+        return (
+            isinstance(payload, dict)
+            and (self.records.presentation(source_id) == "time" or payload.get("kind") == "time")
+            and payload.get("trigger") == "context"
+        )
 
     async def _forward(self) -> None:
         try:
@@ -166,12 +198,16 @@ class Cadence:
                         record
                         for record in observations
                         if self._new_environment(record.source_id, asdict(record.position))
+                        and not self._passive_time(record.source_id, record.payload)
                     ]
                     if not batch and not fresh:
                         break
                     record = batch[0] if batch else fresh[0]
                     kind = "event" if batch else "environment"
                     anchor = asdict(record.position)
+                    if kind == "event" and self._passive_time(record.source_id, record.payload):
+                        self._save(position=anchor)
+                        continue
                     message = {
                         "kind": kind,
                         "position": anchor,
@@ -271,16 +307,30 @@ class Cadence:
             self._decision_client = None
 
     async def _decide(self) -> None:
-        assert self._decision_config is not None
-        config = self._decision_config
+        assert self._rhythm is not None
         try:
             while self._accepting:
-                delay = self._timing.uniform(config["min_seconds"], config["max_seconds"])
-                if not math.isfinite(delay) or not config["min_seconds"] <= delay <= config["max_seconds"]:
-                    raise ValueError("随机间隔超出配置范围")
-                await self._timing.sleep(delay)
-                if self._accepting and not self._paused():
-                    await self._evaluate()
+                self._changed.clear()
+                if self._paused():
+                    await self._changed.wait()
+                    continue
+                delay = self._rhythm.deadline - self._timing.monotonic()
+                if delay > 0:
+                    timer = asyncio.create_task(self._timing.sleep(delay))
+                    changed = asyncio.create_task(self._changed.wait())
+                    try:
+                        await asyncio.wait((timer, changed), return_when=asyncio.FIRST_COMPLETED)
+                        if timer.done():
+                            await timer
+                    finally:
+                        for task in (timer, changed):
+                            if not task.done():
+                                task.cancel()
+                        await asyncio.gather(timer, changed, return_exceptions=True)
+                    continue
+                self._rhythm.begin(self._timing.monotonic())
+                await self._evaluate()
+                self._rhythm.finish(self._timing.monotonic())
         except asyncio.CancelledError:
             return
         except CursorError:
@@ -350,10 +400,6 @@ class Cadence:
             choice == "review_work" and not business["notes"]["records"]
         ):
             self._save(observation={**decision, "disposition": "no_material"})
-            return
-        last = self._state["last_guided_at"]
-        if last is not None and evaluated_at - last < config["cooldown_seconds"]:
-            self._save(observation={**decision, "disposition": "cooldown"})
             return
         guidance = {
             "kind": "cadence_decision",

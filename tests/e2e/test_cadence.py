@@ -101,6 +101,31 @@ def test_forwarding_preserves_payload_and_accepts_during_same_run(tmp_path):
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("presentation", ["time", "events"])
+def test_context_time_refresh_does_not_loop_in_raw_forwarding(tmp_path, presentation):
+    async def scenario():
+        host, assembly, ctx, _, _, _, _, _ = configured(tmp_path)
+        assert assembly.world_records is not None
+        assembly.world_records.select("clock", presentation)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        try:
+            for index, trigger in enumerate(("startup", "context", "rhythm")):
+                append(assembly, str(index), source="clock", payload={"kind": "time", "trigger": trigger})
+                if trigger != "context":
+                    await until(lambda index=index: len(state(ctx)["receipts"]) == (1 if index == 0 else 2))
+                    await until(lambda: assembly.runtime.current is None)
+                else:
+                    for _ in range(5):
+                        await asyncio.sleep(0)
+                    assert len(state(ctx)["receipts"]) == 1
+            assert [item["message"]["payload"]["trigger"] for item in state(ctx)["receipts"]] == ["startup", "rhythm"]
+            assert len(assembly.world_records.read()) == (3 if presentation == "events" else 0)
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
 def test_start_reads_backlog_and_restart_does_not_replay_receipts(tmp_path):
     async def scenario():
         for restart in (False, True):

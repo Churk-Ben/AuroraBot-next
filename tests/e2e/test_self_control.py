@@ -335,12 +335,12 @@ def test_pause_stops_inflight_decision_and_resume_preserves_event(tmp_path):
             command(assembly, "autonomy", paused=True)
             decisions.release.set()
             await until(lambda: decisions.cleaned)
-            await clock.tick()
-            await asyncio.sleep(0)
+            clock.now += 600
+            for _ in range(5):
+                await asyncio.sleep(0)
             assert state(ctx)["receipts"] == [] and clients[0].requests == []
             assert len(decisions.requests) == 1
             command(assembly, "autonomy", paused=False)
-            await clock.tick()
             await until(lambda: len(state(ctx)["receipts"]) == 1)
         finally:
             await host.stop()
