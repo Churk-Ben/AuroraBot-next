@@ -25,8 +25,8 @@ class ChoiceFactory(Protocol):
     async def __call__(self, config: ModelConfig, *, api_key: str | None) -> ChoiceClient: ...
 
 
-async def create_jev(config: ModelConfig, *, api_key: str | None) -> ChoiceClient:
-    """仅实例化时导入 Jev 的可选 HTTP 依赖。"""
-    from .adapters.jev import JevChoiceClient
+async def create_litellm_choice(config: ModelConfig, *, api_key: str | None) -> ChoiceClient:
+    """仅实例化时导入 LiteLLM 决策 SDK。"""
+    from .adapters.litellm_choice import LiteLLMChoiceClient
 
-    return JevChoiceClient(config, api_key=api_key)
+    return LiteLLMChoiceClient(config, api_key=api_key)

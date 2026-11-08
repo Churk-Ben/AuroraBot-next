@@ -8,7 +8,7 @@ from aurora_core.registry import RegistryEntry
 
 from .adapters import create_litellm
 from .configuration import BINDINGS, BINDINGS_SCHEMA, CONFIG, PROFILE_SCHEMA, check_bindings
-from .decisions import ChoiceClient, create_jev
+from .decisions import ChoiceClient, create_litellm_choice
 from .models import ModelCapabilities, ModelChunk, ModelRequest, ModelResponse
 from .protocols import ModelClient
 
@@ -55,9 +55,9 @@ def plugin() -> Plugin:
                 provider="aurora_adapter.model",
             ),
             RegistryEntry(
-                Id("org.aurora.adapter:adapters/model/jev"),
+                Id("org.aurora.adapter:adapters/model/litellm_choice"),
                 "adapter",
-                create_jev,
+                create_litellm_choice,
                 "aurora_adapter.model",
                 register_to=Id("org.aurora.adapter:registries/model/choice_adapters"),
             ),

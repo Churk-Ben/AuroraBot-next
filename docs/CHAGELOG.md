@@ -2,11 +2,11 @@
 
 ## 2026-11-08
 
-### 提供类型化选择模型与 Jev 适配
+### 提供类型化选择模型与 LiteLLM 决策适配
 
-- 在 adapter.model 增加 ChoiceClient/ChoiceFactory 单题选择契约和独立 choice_adapters 注册表，复用现有 profile、角色绑定与运行期凭证；聊天工厂和选择工厂不能混用。Jev 工厂仅实例化时导入 HTTP 依赖，插件发现不创建客户端。
-- 增加 jev extra，由 bot 显式声明依赖；基础 adapter 仍只依赖 core。Jev 请求使用 SystemOne 的 state 与 choice 问题，响应只能选择已声明项；不把概率当作随机投递概率，不自动重试或跟随重定向，错误不暴露响应正文和凭证。
-- 15 项模拟传输及解析验证通过，覆盖请求契约、HTTP 错误、畸形回答、取消清理和工厂边界；未调用真实供应商。新增公共定义无独立插件、配置文件或持久状态，已有 TOML 与快照不变。
+- 在 adapter.model 增加 ChoiceClient/ChoiceFactory 单题选择契约和独立 choice_adapters 注册表，复用现有 profile、角色绑定与运行期凭证；聊天工厂和选择工厂不能混用。litellm_choice 工厂仅实例化时导入 SDK，插件发现不创建客户端。
+- 复用锁定版本 LiteLLM 1.106.6 的决策转换和 HTTP handler，显式注入自有客户端，不使用全局连接池或修改 SDK 全局配置；沿用既有 litellm extra，没有新增依赖。通过 typesafe/jev-latest 选择 Jev，base_url 可指向 SystemOne 兼容服务。响应只能选择已声明项；不把概率当作随机投递概率，不自动重试或跟随重定向，错误不暴露响应正文和凭证。
+- 模拟传输验证覆盖 Jev 请求契约、HTTP 错误、畸形回答、取消清理和工厂边界；未调用真实供应商。新增公共定义无独立插件、配置文件或持久状态，已有 TOML 与快照不变。底层 SDK 入口的升级须重新验证客户端注入和供应商转换。
 
 ### 默认快速边界检查与显式完整测试
 

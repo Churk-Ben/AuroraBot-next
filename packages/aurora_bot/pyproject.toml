@@ -7,7 +7,7 @@ dependencies = [
     "aurora-agent>=0.1.0",
     "aurora-core>=0.1.0", "aurora-config>=0.1.0",
     "aurora-control>=0.1.0",
-    "aurora-adapter[litellm,jev]>=0.1.0",
+    "aurora-adapter[litellm]>=0.1.0",
     "aurora-world[config]>=0.1.0",
 ]
 
