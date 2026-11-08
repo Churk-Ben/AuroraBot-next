@@ -8,6 +8,8 @@ dependencies = [
     "aurora-cli>=0.1.0",
     "aurora-api>=0.1.0",
     "aurora-world[environment]>=0.1.0",
+    "aurora-adapter[mcp-bot]>=0.1.0",
+    "python-dotenv>=1.2,<2",
 ]
 
 [build-system]
@@ -23,7 +25,6 @@ dev = [
     "pytest-cov>=6",
     "ruff>=0.9",
     "tomli-w>=1.2,<2",
-    "aurora-adapter[mcp-world,mcp-tools]>=0.1.0",
 ]
 
 [tool.coverage.run]
@@ -57,6 +58,7 @@ include = [
     "packages/*/tests",
     "tests",
     "conftest.py",
+    "bot.py",
     "examples",
 ]
 exclude = ["**/__pycache__", "**/node_modules", ".venv", "build", "dist"]
