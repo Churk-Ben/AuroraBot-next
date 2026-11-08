@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { nextTick, ref } from 'vue';
 
 import { KunButton, KunTextarea } from '@kungal/ui-vue';
 import {
@@ -38,7 +38,8 @@ function choose(text: string) {
   store.draft = text;
   composer.value?.focus();
 }
-function submit() {
+async function submit() {
+  await nextTick();
   if (store.submit()) follow();
 }
 function keydown(event: KeyboardEvent) {
@@ -132,6 +133,7 @@ function keydown(event: KeyboardEvent) {
       </div>
       <form class="composer" @submit.prevent="submit" @keydown="keydown">
         <KunTextarea
+          :key="`${store.state.url}/${store.state.instance}`"
           ref="composer"
           v-model="store.draft"
           label="发送给 Bot 的消息"

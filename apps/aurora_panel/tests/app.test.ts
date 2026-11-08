@@ -39,15 +39,14 @@ function element<T extends HTMLElement>(selector: string): T {
   if (!node) throw new Error(`缺少元素：${selector}`);
   return node;
 }
-async function input(selector: string, value: string) {
+function input(selector: string, value: string) {
   const node = element<HTMLInputElement | HTMLTextAreaElement>(selector);
   node.value = value;
   node.dispatchEvent(new Event('input', { bubbles: true }));
-  await nextTick();
 }
 async function connect() {
-  await input('#endpoint, input[data-testid=endpoint]', 'http://localhost:10270');
-  await input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
+  input('#endpoint, input[data-testid=endpoint]', 'http://localhost:10270');
+  input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
   element('form.connection-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await settle();
   await nextTick();
@@ -123,7 +122,7 @@ describe.each([
 
   it('中文组字与换行不提交，Enter 只发送一次并清空草稿', async () => {
     const client = await connect();
-    await input('.composer textarea', '中文消息');
+    input('.composer textarea', '中文消息');
     const textarea = element<HTMLTextAreaElement>('.composer textarea');
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }));
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true }));
@@ -140,14 +139,14 @@ describe.each([
 
   it('切页保留草稿，公开状态按地址筛选并将内容作为文本显示', async () => {
     const client = await connect();
-    await input('.composer textarea', '还没发送的草稿');
+    input('.composer textarea', '还没发送的草稿');
     client.emit({
       id: 'dev.panel:state/example',
       location: { instance_id: 'main' },
       value: '<img src=x onerror=alert(1)>',
     });
     await navigate('[data-testid=nav-state]');
-    await input('#state-filter', 'dev.panel');
+    input('#state-filter', 'dev.panel');
     await nextTick();
     expect(element('.state-detail').textContent).toContain('<img src=x onerror=alert(1)>');
     expect(document.querySelector('.state-detail img')).toBeNull();
@@ -160,9 +159,9 @@ describe.each([
 
   it('路由前进后退保留筛选和草稿，仍使用同一个订阅连接', async () => {
     const client = await connect();
-    await input('.composer textarea', '跨路由草稿');
+    input('.composer textarea', '跨路由草稿');
     await navigate('[data-testid=nav-state]');
-    await input('#state-filter', 'instance_id');
+    input('#state-filter', 'instance_id');
     await nextTick();
     const back = new Promise<void>((resolve) => {
       const stop = router.afterEach(() => {
@@ -192,11 +191,11 @@ describe.each([
   it('不同实例与后端的草稿互不覆盖，重连不提交草稿', async () => {
     const client = await connect();
     const store = useWorkbenchStore(pinia);
-    await input('.composer textarea', 'main 的草稿');
+    input('.composer textarea', 'main 的草稿');
     store.select('other');
     await nextTick();
     expect(element<HTMLTextAreaElement>('.composer textarea').value).toBe('');
-    await input('.composer textarea', 'other 的草稿');
+    input('.composer textarea', 'other 的草稿');
     store.select('main');
     await nextTick();
     expect(element<HTMLTextAreaElement>('.composer textarea').value).toBe('main 的草稿');
@@ -208,8 +207,8 @@ describe.each([
   });
 
   it('非法 API 地址在表单中反馈，不建立订阅连接', async () => {
-    await input('#endpoint, input[data-testid=endpoint]', 'localhost:10270');
-    await input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
+    input('#endpoint, input[data-testid=endpoint]', 'localhost:10270');
+    input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
     element('form.connection-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
     await nextTick();
@@ -226,8 +225,8 @@ describe.each([
       pending.reject(new Error('已关闭'));
     };
     prepared.push(client);
-    await input('#endpoint, input[data-testid=endpoint]', 'http://localhost:10270');
-    await input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
+    input('#endpoint, input[data-testid=endpoint]', 'http://localhost:10270');
+    input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
     element('form.connection-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
     await nextTick();
