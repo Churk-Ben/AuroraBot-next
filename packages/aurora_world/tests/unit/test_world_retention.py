@@ -80,7 +80,7 @@ def test_environment_is_bounded_without_advancing_event_journal(world):
     assert records.read(after=event.position) == ()
     clock[0] += 3600
     records.refresh()
-    assert records.observations(source_id="weather") == ()
+    assert [item.payload for item in records.observations(source_id="weather")] == [{"temperature": 5}]
     assert len(ctx.list(key=ENVIRONMENT)) == 2
     assert records.observations(source_id="clock")[0].payload == {"time": 5}
 

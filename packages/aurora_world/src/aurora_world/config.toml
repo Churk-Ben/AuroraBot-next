@@ -18,6 +18,7 @@ sources = []
 # longitude = 118.7778
 # interval_seconds = 900
 # timeout_seconds = 10
+# temperature_change_c = 3
 
 # world 统一管理呈现；来源配置只包含采样和连接参数。
 [view]

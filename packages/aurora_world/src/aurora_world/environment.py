@@ -67,6 +67,7 @@ WEATHER_CONFIG = ConfigSchema(
             "longitude": {"type": "number", "minimum": -180, "maximum": 180},
             "interval_seconds": {"type": "number", "minimum": 60, "maximum": 86400, "default": 900},
             "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 10},
+            "temperature_change_c": {"type": "number", "minimum": 0, "maximum": 50, "default": 3},
         },
     }
 )
@@ -87,15 +88,19 @@ def _periodic(
     sleep: Callable[[float], Awaitable[None]],
     *,
     aclose: Callable[[], Awaitable[None]] = _noop,
+    changed: Callable[[dict[str, object], dict[str, object]], bool] | None = None,
 ) -> SourceInstance:
     session = uuid4().hex
 
     async def run() -> None:
         sequence = 0
+        previous = None
         while True:
             payload = await observe()
-            sequence += 1
-            emit(message_id=f"{session}/{sequence}", payload=payload)
+            if previous is None or changed is None or changed(previous, payload):
+                sequence += 1
+                emit(message_id=f"{session}/{sequence}", payload=payload)
+                previous = payload
             await sleep(interval)
 
     return SourceInstance(_noop, _noop, aclose, run)
@@ -153,7 +158,7 @@ async def create_weather(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> SourceInstance:
-    """有界请求当前天气；失败形成明确观察，下个周期再采样，不重试本次请求。"""
+    """周期查询，仅发布显著温差、天气类型或可用状态变化；比较上次已发布观察。"""
     values = cast(dict, WEATHER_CONFIG.parse(config))
     client = httpx.AsyncClient(transport=transport, timeout=values["timeout_seconds"], follow_redirects=False)
 
@@ -194,12 +199,23 @@ async def create_weather(
             return {**payload, "status": "available", **weather}
         return {**payload, "status": "unavailable", "error": error}
 
+    def changed(previous: dict[str, object], current: dict[str, object]) -> bool:
+        if previous["status"] != current["status"]:
+            return True
+        if current["status"] == "unavailable":
+            return previous["error"] != current["error"]
+        return previous["weather_code"] != current["weather_code"] or (
+            abs(cast(float, current["temperature_c"]) - cast(float, previous["temperature_c"]))
+            > values["temperature_change_c"]
+        )
+
     return _periodic(
         emit,
         observe,
         values["interval_seconds"],
         sleep,
         aclose=client.aclose,
+        changed=changed,
     )
 
 
