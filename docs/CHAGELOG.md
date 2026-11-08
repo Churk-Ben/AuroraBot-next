@@ -2,6 +2,14 @@
 
 ## 2026-11-08
 
+### 统一 Panel 为 KunUI 并清理双版本实现
+
+- 将 KunUI 设为唯一 Panel，正式入口为 `/`。界面移入现有 `layouts/views/components`，应用根组件保留连接生命周期，路由仍为交流与公开状态；移除 `kun.html`、对照导航、重复组件和不再使用的窄屏 composable，不保留旧入口转发。
+- 删除 Naive UI、Font Awesome 的四项直接依赖与 catalog 项，刷新锁文件，安装依赖减少 23 个包。保留 KunUI、Lucide、Pinia、Vue Router 与 Tailwind；移除旧供应商分块，品牌 token 集中到 `src/theme/index.css`，继续沿用 TUI 蓝金配色。
+- 按用户确认移除两个离线演示启动脚本及其公共启动器，启动指南以根目录 `.env`、现有完整宿主和 `pnpm --filter @aurorabot/panel dev` 为入口，同时保留默认 Bot 示例的独立离线验证命令。同步架构说明，不改动用户配置、凭证、业务快照或数据库。
+- 真实组件验收合并为唯一 Panel 的 14 项服务/页面测试，保留全部场景与断言，删除的仅是旧界面的重复执行参数。类型检查、生产构建、固定锁文件安装通过；Chrome 验证根入口的连接、发送、工具活动、状态筛选、草稿、重连、刷新不重放且不取消、明确停止运行及 1440px/390px 布局，使用假模型与本地工具。
+- 工作区验收：1216 项 Python、114 项 TypeScript、5 项终端测试通过；首次完整检查发现的两处导入排序和文档换行格式问题已修正，随后 `pnpm check --lint` 全部通过。三份更新文档的 64 处本地链接与 Git 差异检查通过。
+
 ### 迁移本机旧适配包配置
 
 - 经用户确认，备份本机 `data/config` 后，将旧 `aurora_model_adapter`、`aurora_adapters.mcp*` 插件名更新为当前入口，迁移模型与 MCP 配置路径，并同步装配、模型适配器、世界来源及配置路径引用。用户配置与备份均保持在 Git 忽略目录中。
