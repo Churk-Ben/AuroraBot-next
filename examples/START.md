@@ -491,6 +491,56 @@ uv run --locked aurora bot --edit-config
 
 完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重覆盖数据库历史，呈现窗口外的同身份重投仍返回原记录。离线回归为 `uv run --locked pytest packages/aurora_bot/tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 已完成正式替换，双路径与恢复验收见 `tests/e2e/test_live_workshop.py`。
 
+### 决策 cadence：受控随机时钟与类型化判断
+
+在独立数据目录中配置决策模式。省略 `[decision]` 仍使用上节的原样转发；添加该段后，cadence 每次等待一个有上下限的随机间隔，再让 choice 模型选择 `observe`、`attend_events` 或 `review_work`。随机数只决定判断时机，不参与模型选项或概率的抽样。第一次判断也等待间隔，重启不补发离线期间的判断。
+
+在 `<data-dir>/config/org.aurora.adapter/model/profiles.toml` 中增加决策 profile，保留原聊天 profile：
+
+```toml
+[decision]
+adapter = "org.aurora.adapter:adapters/model/litellm_choice"
+model = "typesafe/jev-latest"
+base_url = "https://jevmodel.org"
+credential = "JEVMODEL_API_KEY"
+```
+
+`base_url` 为你选择的 SystemOne 兼容服务根地址。以上对应 [jevmodel.org 接入文档](https://jevmodel.org/zh/docs/)，该服务与 TypeSafe 官方服务的账户及凭证不能互换；使用 TypeSafe 官方服务时按其接入方式配置地址和凭证。协议转换复用 [LiteLLM Decisions](https://docs.litellm.ai/docs/decisions)，现有锁定版本已支持，不需要增加代理进程或另装 SDK。真实调用需要服务账户；普通回归只使用假模型与模拟传输。
+
+在同目录的 `bindings.toml` 中增加 `cadence = "decision"`，保留原 `reasoning` 等绑定。凭证值通过运行环境注入，不写入 TOML。决策 profile 不接受聊天模型的 `capabilities`；聊天和 choice 工厂不能混用。
+
+`<data-dir>/config/org.aurora.bot/cadence.toml` 示例：
+
+```toml
+source_ids = []
+
+[decision]
+model_role = "cadence"
+min_seconds = 60.0
+max_seconds = 180.0
+cooldown_seconds = 600.0
+timeout_seconds = 15.0
+max_chars = 12000
+```
+
+`source_ids` 精确选择事件来源；空列表不观察普通事件，但仍可读取环境和已启用的本实例工作笔记、行动证据。若需在没有新事件时检查笔记，在 bot 的 `config.toml` 中设置 `[notes] enabled = true`。`review_work` 没有可见笔记、`attend_events` 没有可见新事件时，不产生引导。决策模型不读取完整聊天历史、任意 ctx、配置或凭证。
+
+每次判断串行执行，结束后再等待下一随机间隔；默认每小时最多约 60 次判断，实际次数受随机间隔和调用耗时限制。引导之间至少间隔 cooldown_seconds，重启保留最后投递时间；冷却期间仍可评估并记录选择。时间回拨不会跳过冷却。超时、无效选项或调用失败暂停为 `DecisionFailed`，没有默认行动、自动重试或静默回退。
+
+视图复用 BusinessContextView，按来源过滤事件并隔离实例笔记。max_chars 限制统一 ChoiceRequest 的完整 JSON 字符数，包括 state、instructions 和 criteria，不是供应商 token 或实际 HTTP 大小；视图单独预留信封空间，必要材料仍超限时暂停。`observe` 仅更新观察，不表示事件完成；窗口内未投递材料可以再次评估。超过窗口或预算的事件不会逐条补发，要求历史事件可靠逐条转交时继续使用原样转发模式。
+
+`attend_events` 和 `review_work` 由固定模板形成带决策身份、观察时间和业务视图的引导，经原 AgentRuntime 提交；Bot 忙碌时可接纳新引导，取消收尾期间被明确拒绝的投递留待下一次判断。Bot 可以判断无需行动。已投递事件批次的最新位置用于抑制旧窗口重复引导；笔记可以在冷却期后再次检查，笔记内容和投递回执均不证明业务完成。
+
+`org.aurora.bot:state/cadence` 的决策快照为 version=2，分别保存观察 position/observation、事件引导位置 event_position、last_guided_at、pending 和最近 64 条 receipts。回执保留决策结果、材料引用、guidance_id、sequence 和 run_id，旧回执裁剪不回退事件位置；这不是完整审计日志。pending 保留待核对的具体引导；未知投递及回执保存失败暂停为 `TransferUncertain`，恢复不重投。快照由宿主异步保存，不承诺崩溃下恰好一次投递。
+
+两种模式的快照不可互换；检测到已有另一模式的状态会拒绝启动，不自动改写或删除用户数据。首次试用使用独立数据目录；当前不提供跨模式迁移或暂停状态的自动修复。已有来源选择改变仍暂停。关闭时先取消并等待判断，再关闭决策连接，Bot 的执行与工具继续由原所有者收尾。
+
+离线回归：
+
+```powershell
+uv run --locked pytest packages/aurora_adapter/tests/contract/test_litellm_choice.py packages/aurora_bot/tests/unit/test_cadence_state.py tests/e2e/test_cadence_decision.py -q
+```
+
 ## MCP 独立客户端验收
 
 M4.B1 提供 `aurora-adapter[mcp]`；工作区开发依赖已包含该 extra，统一产品安装不自动启用 MCP。通过现有测试夹具启动并关闭一个本机 MCP 服务和独立宿主：

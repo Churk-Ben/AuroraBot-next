@@ -189,4 +189,4 @@ def test_factory_creates_independent_instances_and_plugin_registers_existing_ids
     admissions = inspect_admissions(registry)
     assert {item.source for item in admissions if item.status != AdmissionStatus.ACCEPTED} == {CONFIGURATION}
     assert next(item.status for item in admissions if item.source == CONFIGURATION) == AdmissionStatus.UNCONNECTED
-    assert len([item for item in registry.entries() if item.id.namespace == "org.aurora.adapter"]) == 11
+    assert len([item for item in registry.entries() if item.id.namespace == "org.aurora.adapter"]) == 14
