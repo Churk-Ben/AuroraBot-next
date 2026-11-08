@@ -14,8 +14,16 @@ try {
   assert.equal(model.state.ready, true, model.state.notice);
   assert.equal(model.submit('浏览器工作台的完整工具往返'), true);
   const deadline = Date.now() + 10_000;
-  while (model.state.submissions[0]?.status !== 'completed') {
-    assert.ok(Date.now() < deadline, model.state.notice || JSON.stringify(model.state.submissions));
+  while (
+    model.state.submissions[0]?.status !== 'completed' ||
+    !model.state.activities.some((activity) => activity.text === 'first') ||
+    !model.state.activities.some((activity) => activity.tools.length > 0 && activity.results.length > 0)
+  ) {
+    assert.ok(
+      Date.now() < deadline,
+      model.state.notice ||
+        JSON.stringify({ submissions: model.state.submissions, activities: model.state.activities }),
+    );
     await setTimeout(20);
   }
   assert.ok(model.state.activities.some((activity) => activity.text === 'first'));

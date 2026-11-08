@@ -85,7 +85,10 @@ def test_help_preserves_plugin_description_as_literal_text():
     assert "dev.test:commands/demo" in result
 
 
-def test_check_dispatches_flags_and_preserves_failure_status(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "flags", [[], ["--lint", "--fix", "--check"], ["--test"], ["--test", "--full"], ["--coverage"]]
+)
+def test_check_dispatches_flags_and_preserves_failure_status(tmp_path, monkeypatch, flags):
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "check.ts").touch()
     (tmp_path / "package.json").write_text("{}")
@@ -96,6 +99,6 @@ def test_check_dispatches_flags_and_preserves_failure_status(tmp_path, monkeypat
         return 7
 
     monkeypatch.setattr(check, "run_process", execute)
-    status = asyncio.run(run_cli(["--root", str(tmp_path), "check", "--lint", "--fix", "--check"]))
+    status = asyncio.run(run_cli(["--root", str(tmp_path), "check", *flags]))
     assert status == 7
-    assert calls == [(["pnpm", "run", "check", "--lint", "--fix", "--check"], tmp_path)]
+    assert calls == [(["pnpm", "run", "check", *flags], tmp_path)]

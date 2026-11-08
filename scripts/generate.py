@@ -43,9 +43,7 @@ def _type(schema: dict) -> str:
 
 def render_typescript(contract: dict) -> str:
     """仅转换 ctx 描述使用的类型结构；字段约束由 JSON 描述和服务端校验保留。"""
-    parts = [
-        "// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api、aurora_bot 与 aurora_config 的显式传输契约。"
-    ]
+    parts = ["// 由 scripts/generate.py 生成，来源为 aurora_api、aurora_bot 与 aurora_config 的显式传输契约。"]
     for name, schema in sorted(contract["$defs"].items()):
         parts.append(f"export type {name} = {_type(schema)};")
     for name, field in (("HttpRequests", "request"), ("HttpResponses", "response")):

@@ -128,7 +128,7 @@ def test_live_http_and_websocket_match_exported_contract():
 
 
 def test_generator_is_reproducible_and_check_does_not_write(tmp_path):
-    command = [sys.executable, str(ROOT / "scripts/generate_ctx_contract.py")]
+    command = [sys.executable, str(ROOT / "scripts/generate.py")]
 
     def run(*args):
         return subprocess.run([*command, *args], cwd=ROOT, capture_output=True, timeout=15, check=False)
