@@ -2,6 +2,16 @@
 
 ## 2026-11-08
 
+### 默认快速边界检查与显式完整测试
+
+- `uv run --locked aurora check` 保留全部格式、lint、Python/TypeScript 类型和客户端入口检查，默认测试限定为 `tests/contract`、共享 TypeScript 客户端和检查计划契约；不收集 Python 插件包内测试，不启动完整前端、原生终端或长耗时集成测试。
+- `aurora check --test` 只运行快速边界测试；`aurora check --full` 运行静态检查与全部测试；`aurora check --test --full` 只运行全部测试。`--coverage` 使用完整测试范围，直接运行 pytest 的默认发现范围保持不变。CLI 帮助及检查输出说明当前范围。
+- 将包依赖、公共命名空间、插件入口和模板归属断言移入跨包契约目录，独立进程安装边界用例仍保留在 e2e；不删除原有测试或断言。
+- MCP 超时测试在模拟握手就绪后驱动真实超时取消，并确认协议回退共用同一个预算，替代固定等待和 20 毫秒启动窗口。Panel 完成断言同时等待 HTTP 完成回执与 WebSocket 活动到达，保持原有超时上限与内容断言。
+- 将检查计划与执行入口合并到 `scripts/check.ts`，导入时只提供计划函数，通过 `import.meta.main` 限制命令执行；生成脚本统一为 `scripts/generate.py`，同步测试、生成产物来源和文档引用，不保留旧入口。
+- 基线：1246 项 Python 测试耗时 239.29 秒，其中 3 项 TUI 用例因系统 Node 不支持 FFI 失败；使用 pnpm 提供的仓库指定 Node 后，包含这些用例的 85 项定向回归全部通过，耗时 7.58 秒。
+- 验收：默认检查包含 30 项 Python 边界测试、60 项 TypeScript 契约及全部静态检查，总耗时 16.04 秒；仅快速测试耗时 4.52 秒。显式完整测试的 1250 项 Python、115 项 TypeScript 和 5 项终端测试全部通过，总耗时 238.44 秒，保留已有 Pydantic ReadOnly 提示；MCP 的 5 项超时/取消场景与 Panel 场景各重复 20 轮通过。合并检查脚本与生成入口改名后，默认检查及生成一致性复验通过。迁移前后包边界测试函数的 AST 完全相同，未修改模型、公共 ID、配置或快照格式，未调用真实供应商。
+
 ### 统一 Bot、Panel 与 TUI 快捷启动
 
 - 增加 `aurora bot/panel/tui` 与根目录 `pnpm bot/panel/tui` 两组等价快捷命令，全部委托 `scripts/bot.py`、`scripts/panel.py`、`scripts/tui.py`；无参数即可使用项目默认配置，附加参数原样透传。CLI 只登记非宿主工具命令，不导入产品装配，也不隐式启动后端。
@@ -623,7 +633,7 @@ try {
 ### M3.4：本机 ctx 传输契约按需生成
 
 - `aurora_api.contract.describe_contract()` 描述现有四个 HTTP ctx 请求及响应、错误、WS 握手与事件信封，显式绑定 URL、方法、既有 core 操作及事件 ID。JSON Schema Draft 2020-12 保留必填、可选、空值与 location 结构；业务状态值仅描述为 JSON，不读取配置、登记表或运行期资源，不引入新公共 ID。
-- `uv run --locked python scripts/generate_ctx_contract.py` 生成 `packages/aurora_client/src/generated/ctx-contract.json` 和 `ctx-contract.ts`，TS 类型与绑定常量由 `@aurorabot/client` 导出。需要已安装 Python 工作区及 Node/pnpm 开发依赖，格式化复用工作区 Prettier。`--check` 不写文件，产物缺失或过期时返回非零；`--output <目录>` 可指定输出位置。生成一致性已纳入 pytest 回归。
+- `uv run --locked python scripts/generate.py` 生成 `packages/aurora_client/src/generated/ctx-contract.json` 和 `ctx-contract.ts`，TS 类型与绑定常量由 `@aurorabot/client` 导出。需要已安装 Python 工作区及 Node/pnpm 开发依赖，格式化复用工作区 Prettier。`--check` 不写文件，产物缺失或过期时返回非零；`--output <目录>` 可指定输出位置。生成一致性已纳入 pytest 回归。
 - 描述中的 `aurora-id` 格式使用 core 的 Id 语法；JSON Schema 的格式、字符串和数值约束不全部体现在 TS 类型中，服务端继续负责校验。TS 使用 JavaScript number，不提供任意精度整数转换。合法 UTF-8、有限数值、重复对象键等编码约束继续由共用 JSON 编解码实施。
 - WS 保持每连接一个订阅，关闭即取消，revision 作用域为当前宿主 ctx；断线后需重新订阅并读取状态，无历史补发。当前接口仍仅开放本机回环及显式状态键，拒绝浏览器 Origin 与非本机 Host。M3.4 完成当前传输范围，M3.5 的共享访问与重连、远程及浏览器访问、D10 界面运行关联仍待实现。计划和公共文档据代码修正为 M3 进行中。
 - 新增 17 项契约测试，覆盖真实 HTTP/WS 载荷、必填与空值边界、访问拒绝、慢消费者错误、重复生成及只读过期检查；与已有 API 测试合计 30 项通过。配置、快照和已有 ID 未变化，无需数据迁移，未调用真实模型服务。

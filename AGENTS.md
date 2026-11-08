@@ -86,15 +86,17 @@ Python 使用 uv workspace，版本要求见各包 pyproject.toml；Node 与 pnp
 ```powershell
 # 安装 Python 工作区
 uv sync --locked --all-packages
-# 完整检查：格式、lint、Python/TypeScript 类型与测试
+# 日常检查：格式、lint、Python/TypeScript 类型与快速边界测试
 uv run --locked aurora check
+# 完整检查：另含包内单测、前端、原生终端与长耗时集成测试
+uv run --locked aurora check --full
 # 按影响范围先运行针对性测试
 uv run --locked pytest packages/aurora_agent/tests/unit/test_agent_runtime.py tests/e2e/test_package_boundaries.py -q
 # 验证分发包与资源
 uv build --all-packages --wheel --out-dir build/wheels
 ```
 
-- 根据改动选择有意义的验证。纯文档修改检查链接与差异，不为此运行无关测试；涉及跨包契约、生命周期或配置行为时完成相关回归和完整检查。
+- 根据改动选择有意义的验证。日常 `aurora check` 只收集快速边界测试，`--test` 跳过静态检查，`--full` 显式启用完整测试，`--coverage` 也使用完整测试范围。纯文档修改检查链接与差异，不为此运行无关测试；涉及跨包契约、生命周期或配置行为时完成相关回归和 `aurora check --full`。
 - 拆包、依赖或分发内容变更还需验证 wheel；在干净环境中确认 control 无需 agent/模型包，agent 无需 bot/CLI/API。工作区可导入不能代替安装验收。
 - 包级单元测试和协议测试分别位于 `packages/<包>/tests/unit`、`packages/<包>/tests/contract`；跨包契约测试位于根目录 `tests/contract`，工作区、真实进程及跨包集成测试位于根目录 `tests/e2e`。不通过删除有效断言或扩大容错来掩盖失败。
 - 示例保留 `core_counter`、`control_flow`、`react_agent`、`default_bot`、`live_workshop` 五条职责清晰的路径。示例和配套测试、启动指南同步维护，移除重复或过时入口。

@@ -1,4 +1,4 @@
-// 由 scripts/generate_ctx_contract.py 生成，来源为 aurora_api、aurora_bot 与 aurora_config 的显式传输契约。
+// 由 scripts/generate.py 生成，来源为 aurora_api、aurora_bot 与 aurora_config 的显式传输契约。
 
 export type ApiError = {
   code: string;

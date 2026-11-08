@@ -529,7 +529,7 @@ M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式
 
 跨语言实际使用的数据结构以维护的后端公开描述为来源，可以从 Python 类型、Pydantic、OpenAPI 或 WS 描述生成 TS 类型与 ID 常量。只导出需要且可传输的部分，不要求将全部 Python 登记项导出给客户端，也不强制每个局部接口加入生成链路。
 
-当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，直接交流由 [bot 契约](../packages/aurora_bot/src/aurora_bot/conversation_contract.py) 描述，声明 TOML 编辑由 [config 契约](../packages/aurora_config/src/aurora_config/editor_contract.py) 描述。`uv run --locked python scripts/generate_ctx_contract.py` 显式合并三者，生成 client 的 JSON 描述、TS 类型和绑定常量；增加 `--check` 可只读检查产物。API 独立导出仍只包含 ctx，不要求安装 bot 或 config。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 CtxClient 提供 ctx 访问、订阅、conversation.info/submit/query/cancel 与 configuration.list/get/save；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
+当前本机 ctx 协议由 [aurora_api.contract](../packages/aurora_api/src/aurora_api/contract.py) 描述，直接交流由 [bot 契约](../packages/aurora_bot/src/aurora_bot/conversation_contract.py) 描述，声明 TOML 编辑由 [config 契约](../packages/aurora_config/src/aurora_config/editor_contract.py) 描述。`uv run --locked python scripts/generate.py` 显式合并三者，生成 client 的 JSON 描述、TS 类型和绑定常量；增加 `--check` 可只读检查产物。API 独立导出仍只包含 ctx，不要求安装 bot 或 config。生成不启动宿主，不导出业务配置或模型 SDK 类型。共享 CtxClient 提供 ctx 访问、订阅、conversation.info/submit/query/cancel 与 configuration.list/get/save；重连先订阅再重新读取状态，刷新期间有界缓存变化，界面可观察连接及刷新状态。多次 HTTP 读取不构成原子快照，客户端不重放 HTTP 动作，也不将本地关闭解释为取消 agent。
 
 开发时可使用 Vite 代理 API，生产环境优先同源部署。认证采用运行期令牌和显式来源/Host 白名单，部署方式见浏览器访问指南。同源安排不代替访问控制。docsite 与 landing 独立构建。
 

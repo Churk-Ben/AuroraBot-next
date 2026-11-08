@@ -12,9 +12,13 @@ uv sync --locked --all-packages
 pnpm install --frozen-lockfile
 pnpm exec node --version
 pnpm exec uv run --locked aurora check
+# 完整测试包含插件包内测试、原生终端和长耗时集成测试
+pnpm exec uv run --locked aurora check --full
 ```
 
 项目支持的 Node 范围为 `>=26.4.0 <27`，`.node-version` 也固定为 26.13.0。终端里的裸 `node` 仍可能指向系统版本；通过 `pnpm exec` 或 pnpm 脚本使用项目运行时。OpenTUI 原生渲染需要 `--experimental-ffi`，TUI 启动脚本已包含该参数。
+
+`aurora check` 默认执行全部静态检查与快速边界测试；`--test` 只运行快速边界测试，`--test --full` 只运行完整测试，`--coverage` 使用完整测试范围。
 
 以下五个示例使用本地数据和假模型，无需模型密钥、外部模型服务或前端。每个示例使用独立数据目录。
 

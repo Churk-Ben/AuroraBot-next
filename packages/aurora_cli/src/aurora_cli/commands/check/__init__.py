@@ -6,10 +6,10 @@ from typing import TextIO
 from ...declarations import CommandContext, command_plugin
 from ...utils.process import run_process
 
-FLAGS = ("lint", "test", "coverage", "fix", "unsafe_fixes", "check")
+FLAGS = ("lint", "test", "full", "coverage", "fix", "unsafe_fixes", "check")
 DEFINITIONS = {
     "check": {
-        "help": "运行质量检查；可选择 lint、test、coverage 或显式修复",
+        "help": "默认运行静态检查与快速边界测试；--full 运行完整测试，--coverage 统计完整覆盖率",
         "arguments": [{"name": name, "type": "flag", "option": True} for name in FLAGS],
     }
 }

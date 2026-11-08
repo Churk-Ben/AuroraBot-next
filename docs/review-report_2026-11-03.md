@@ -64,7 +64,7 @@
 
 5. **公共 ID 与插件发现总体一致。** 初次审查基线导出的 108 个定义全部能在 ID 目录中找到；该导出范围内未发现“代码已登记、文档完全没有”的 ID。插件 `requires` 只校验显式启用的依赖，不隐式加载。
 
-6. **生成契约可重复检查。** `scripts/generate_ctx_contract.py` 合并 API、bot、config 的显式描述，生成 TS 类型和绑定；`--check` 本次返回 0，说明生成产物与后端描述一致。
+6. **生成契约可重复检查。** `scripts/generate.py` 合并 API、bot、config 的显式描述，生成 TS 类型和绑定；`--check` 本次返回 0，说明生成产物与后端描述一致。
 
 ## 4. 发现与复核结论
 
@@ -242,7 +242,7 @@ pnpm test
 pnpm typecheck:python
 # 0 errors, 0 warnings
 
-uv run --locked python scripts/generate_ctx_contract.py --check
+uv run --locked python scripts/generate.py --check
 # 返回 0
 ```
 
@@ -261,7 +261,7 @@ pnpm exec node --version
 pnpm exec uv run --locked pytest tests/e2e/test_tui.py tests/e2e/test_tui_recovery.py -q
 # 2 passed
 
-uv run --locked python scripts/generate_ctx_contract.py --check
+uv run --locked python scripts/generate.py --check
 # 返回 0
 ```
 
