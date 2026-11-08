@@ -8,6 +8,14 @@
 - 消费状态升级为 version=3/4；旧 version=1/2 在同一模式下保留事件进度、pending、回执和故障，只移除来源绑定及 SelectionChanged 暂停。未知投递、坏游标和模式变化仍拒绝自动重放。旧 TOML 须删除 source_ids，新模板、示例及文档同步调整，公共 ID 不变。
 - 天气继续周期查询，首次、相对上次已发布气温的变化超过 temperature_change_c（默认 3°C）、天气类型或可用状态变化时发布。恰好阈值、只变时间戳/风速以及重复相同故障不发布；恢复会发布新观察。最新天气保留原始观测时间，额外历史仍受一小时与条数限制。
 - 94 项针对性回归通过，覆盖所有来源参与、环境独立去重与恢复、旧消费状态升级及坏数据拒绝、天气累积温差、状态变化和稳定天气保留。全部使用假模型与模拟天气传输，未调用真实供应商。
+- 全量回归通过：Python 1341 项、前端与共享客户端 136 项、原生终端 5 项。修正换行格式后独立执行 `aurora check --lint` 全部通过；11 个工作区 wheel 构建成功，核验分发中的 cadence 与天气模板包含新配置契约。
+
+### 将本地 QQ MCP 迁入 Bot 工具目录
+
+- 将 `../Aurora-QQ` 整体迁到 `data/tools/Aurora-QQ`，保留独立 Git 仓库、源码、锁文件和原 config.toml；98 个文件逐一校验 SHA-256 一致。旧 `.venv` 保存在 `build/aurora-qq-venv-before-move-20261108/`，新环境按原 uv.lock 的固定依赖重建，安装后的 `uv sync --frozen --dry-run` 无差异。
+- 本地 MCP 的 cwd 更新为 `data/tools/Aurora-QQ`，直接启动新环境的 aurora-qq-mcp.exe，宿主启动不安装依赖。QQ 工具选择、协议要求、事件资源和运行期凭证引用保持原配置；主仓库继续忽略 data，本次迁移不修改 QQ 仓库源码。
+- QQ 仓库 41 项测试通过，1 项依赖旧适配包名的跨项目测试按原条件跳过；另通过当前项目的 MCPClients/MCPTools 实测新路径握手、29 个工具登记和 qq://events/inbox 目录发现。未发送 QQ 消息或启动真实模型，验证连接清理完成。
+- 本地 cadence 已删除 source_ids；天气来源继续启用，temperature_change_c 显式设置为 3。旧 cadence 快照离线升级校验通过，保留原始文件并备份至 `build/cadence-before-all-sources-20261108.json`，实际升级随下次宿主启动完成。
 
 ### 为 Panel 增加本地环境自动连接
 
