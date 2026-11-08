@@ -417,7 +417,11 @@ cadence 的首版 D11 转交规则如下：
 - 提交异常、回执保存失败或恢复出 pending 均以 `TransferUncertain` 暂停；日志缺失、换代、锚点不符或裁剪缺口以 `CursorInvalid` 暂停；来源选择与已有消费绑定不符以 `SelectionChanged` 暂停。显式激活占用且没有 Runtime 句柄时为 `RuntimeBusy`，其他转发故障为 `ForwarderFailed`。诊断只使用固定代码，暂停不影响直接交流，重启不自动清除。首版不提供自动核对、重置游标或重放操作；恢复流程由宿主明确审核，不能凭相似文本或残留运行状态推断转交成功。
 - pending、回执和 inbox 随宿主异步快照保存，普通世界事件独立事务入库，提交过程没有异步等待，但不构成外部副作用的持久事务；崩溃可能回到较早快照，不能宣称恰好一次执行。来源去重覆盖 world 数据库历史，呈现裁剪不会生成新的来源消息身份。首版完整保存关联及原始载荷，不自动裁剪；大规模日志与人工核对工具留待后续。
 
-M3.6 的直接交流不依赖 world/cadence。M4-W 先以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、唤醒工具、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
+M3.6 的直接交流不依赖 world/cadence。M4-W 已以模拟来源验证记录、原样转发、两条路径并存和关闭恢复；复杂聚类、子代理及真实平台连接按后续切片扩展，不提前创建独立 cadence 包。
+
+Bot 自身控制通过 `[self_control] enabled=true` 显式装配，默认关闭，不新增插件。bot_status 查询运行与自动活动，bot_autonomy 暂停/恢复普通 cadence 和计划唤醒，bot_finish 请求当前 run 在本轮全部工具和观察完成后正常结束；新输入保留给既有 AgentRuntime，结束请求不持久化、不跨运行继承。直接交流始终沿既有入口，不隐式解除暂停，也不提供宿主进程停止或重启工具。
+
+计划由 wake_schedule/wake_list/wake_cancel 管理，按 bot 实例保存到 state/self_control。SelfControl 仅持有等待到期的任务，复用唯一 AgentRuntime.submit，不要求 world 或 choice，不复制执行机制。到期提交不经过普通 cadence 的冷却；有效期内的计划在重启或解除暂停后可提交，过期计划保留 expired。先保存 pending 再提交，回执保留 guidance_id/sequence/run_id；恢复 pending 变为 uncertain，未知结果不自动重投。宿主异步快照不承诺崩溃下恰好一次。关闭先停止计划接纳并等待自有任务，再收束运行、工具和模型。工具参数、版本冲突与配置影响见[计划唤醒指南](../examples/START.md#bot-的计划唤醒与自身控制)。
 
 W2.1–W2.3 已交付来源接入、声明配置、后台托管和时间/天气环境周期，MCP 仍按以下边界继续实现：
 
@@ -609,7 +613,7 @@ Monorepo 使用 Python `uv workspace` 与 TypeScript `pnpm workspace`，Python �
 1. **直接交流工作台。** 复用 M3.6 已实现的回执、重复请求、状态查询、取消和契约，交付 OpenTUI 交互，不把接纳或模型输出解释为业务完成。
 2. **client 连接（D08、D09）。** 本机 ctx 与订阅重连已交付；浏览器认证、来源白名单和数据开放范围已明确，后续按实际环境验收反向代理部署，复用已有关闭和刷新语义。
 3. **独立 harness。** 复用 core、adapter.model、control 与 agent，定义自己的装配、配置、资源与恢复策略、交互入口和发布边界；不复制 bot 的默认配置或 CLI 命令。
-4. **世界与 cadence（D11、M4-W）。** world 的记录与来源独立于执行；bot 的可选 cadence 插件先原样转发，统一通过既有 AgentRuntime 提交。细化记录保留、重复识别、消费位置、转交结果不确定及恢复行为，验证两条输入路径并存；唤醒工具与子代理另行实施。
+4. **世界与 cadence（D11、M4-W）。** world 的记录与来源独立于执行；bot 的可选 cadence 插件统一通过既有 AgentRuntime 提交。记录保留、重复识别、消费位置、转交结果不确定及恢复行为已验证；Bot 已提供显式计划唤醒和自身控制，子代理另行实施。
 5. **公共接口维护。** 从实际边界提炼必要的 schema、兼容与迁移规则，不预设通用证明系统，不以规划 ID 证明接口已经冻结。
 
 ## 15. 变更记录

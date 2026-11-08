@@ -55,6 +55,8 @@ from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
 from .event_archive import READ_EVENT, create_reader
 from .event_archive import entries as archive_entries
 from .operations import RUN_CONTROL, RunOperations
+from .self_control import SELF_TOOLS, SelfControl, create_tool
+from .self_control import entries as self_control_entries
 from .work_notes import NOTE_TOOLS, WorkNotes, tool_selections
 from .work_notes import entries as note_entries
 
@@ -94,6 +96,7 @@ class DefaultAssembly:
         additional_tools: Callable[[tuple[ToolSelection, ...]], Iterable[ToolSelection]] | None = None,
         world_component_factory: Callable[..., LifecycleComponent] = configured_sources_component,
         cadence_timing: CadenceTiming | None = None,
+        self_control_timing: CadenceTiming | None = None,
     ) -> None:
         if not instance_id:
             raise ValueError("装配实例身份不能为空")
@@ -103,6 +106,7 @@ class DefaultAssembly:
         self._additional_tools = additional_tools
         self._world_component_factory = world_component_factory
         self._cadence_timing = cadence_timing
+        self._self_control_timing = self_control_timing or CadenceTiming()
         self.client: ModelClient | None = None
         self.agent: ReActAgent | None = None
         self.defaults: ReActDefaults | None = None
@@ -122,6 +126,7 @@ class DefaultAssembly:
         self._run_operations: RunOperations | None = None
         self.world_records: WorldRecords | None = None
         self.action_evidence: ActionEvidence | None = None
+        self.self_control: SelfControl | None = None
 
     def _runtime_agent(self) -> ReActAgent:
         if self.agent is None:
@@ -169,6 +174,7 @@ class DefaultAssembly:
                         decision_factory=self._create_decision_client,
                         view_factory=self._decision_view,
                         timing=self._cadence_timing,
+                        paused=lambda: self.self_control is not None and self.self_control.paused(),
                     ).component(depends_on=(records_components[0].instance_id,)),
                 )
             if any(entry.id == WORLD_CONFIGURATION for entry in self.registry.entries()):
@@ -231,6 +237,30 @@ class DefaultAssembly:
             raise ValueError("归档工具通过 archive.enabled 装配，不在 tools 中重复声明")
         if any(Id(item["tool"]) == READ_ACTION for item in self.config["tools"]):
             raise ValueError("行动证据工具通过 actions.enabled 装配，不在 tools 中重复声明")
+        if any(Id(item["tool"]) in SELF_TOOLS.values() for item in self.config["tools"]):
+            raise ValueError("自身控制工具通过 self_control.enabled 装配，不在 tools 中重复声明")
+        if self.config["self_control"]["enabled"]:
+            self.self_control = SelfControl(
+                self.ctx,
+                self.config["instance_id"],
+                self.runtime,
+                self._runtime_agent,
+                now=self._self_control_timing.now,
+                sleep=self._self_control_timing.sleep,
+            )
+            self.self_control.prepare()
+            self.config = parse_config(
+                {
+                    **self.config,
+                    "tools": [
+                        *self.config["tools"],
+                        *(
+                            {"tool": str(identity), "instance_id": f"self_control/{action}", "config": {}}
+                            for action, identity in SELF_TOOLS.items()
+                        ),
+                    ],
+                }
+            )
         if self.config["actions"]["enabled"]:
             self.action_evidence = ActionEvidence(
                 self.storage, self.config["instance_id"], max_chars=self.config["actions"]["max_chars"]
@@ -264,6 +294,12 @@ class DefaultAssembly:
             if entry.kind != "tool" or entry.register_to != TOOLS or not isinstance(entry.target, ToolSpec):
                 raise ValueError("默认装配选择的目标不是工具定义")
             spec = entry.target
+            if entry.id in SELF_TOOLS.values():
+                assert self.self_control is not None
+                action = next(name for name, identity in SELF_TOOLS.items() if identity == entry.id)
+                spec = ToolSpec(
+                    spec.component, spec.definition, factory=partial(create_tool, action, service=self.self_control)
+                )
             if entry.id == READ_EVENT:
                 assert self.world_records is not None
                 spec = ToolSpec(
@@ -421,9 +457,13 @@ class DefaultAssembly:
         entry.target.bind(self.config["instance_id"], self.runtime)
         self._run_operations = entry.target
         self._accepting = True
+        if self.self_control is not None:
+            self.self_control.start()
 
     def stop_accepting(self) -> None:
         self._accepting = False
+        if self.self_control is not None:
+            self.self_control.stop_accepting()
         self.runtime.stop_accepting()
 
     async def activate(self, request: ExecutionRequest) -> None:
@@ -482,6 +522,8 @@ class DefaultAssembly:
 
     @hook_handler("org.aurora.bot:handlers/assembly/stop_bot", slot=STOP)
     async def stop_bot(self) -> None:
+        if self.self_control is not None:
+            await self.self_control.close()
         await self.runtime.close()
         if self._executing:
             raise RuntimeError("停止前须通过宿主结束在途激活")
@@ -489,6 +531,8 @@ class DefaultAssembly:
 
     @hook_handler("org.aurora.bot:handlers/assembly/clean_bot", slot=CLEAN)
     async def clean_bot(self) -> None:
+        if self.self_control is not None:
+            await self.self_control.close()
         while self._owned_tools:
             owned = self._owned_tools[-1]
             if owned.aclose is not None:
@@ -527,6 +571,7 @@ def plugin() -> Plugin:
             *note_entries(),
             *archive_entries(),
             *action_entries(),
+            *self_control_entries(),
             RegistryEntry(
                 CONVERSATION, "endpoint", ConversationEndpoint(operations), "aurora_bot", register_to=ENDPOINTS
             ),

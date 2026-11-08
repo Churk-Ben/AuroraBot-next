@@ -130,6 +130,42 @@ def test_empty_activation_can_finish_without_action_or_output(runtime):
     assert len(ctx.list()) == 1
 
 
+def test_requested_finish_settles_observation_and_preserves_new_guidance(runtime):
+    _, ctx, _ = runtime
+    agent, seen, _, connect, replace = assemble(runtime, max_iterations=1)
+    request = ExecutionRequest("self-finish")
+    phases = []
+    assert not agent.request_finish(request.run_id)
+
+    async def infer(child):
+        agent.decision.set(ctx, child, "act")
+
+    async def act(child):
+        assert not agent.request_finish("another-run")
+        assert agent.request_finish(child.run_id)
+        agent.inbox.set(ctx, child, [guidance(1), guidance(2)])
+        phases.append("act")
+
+    async def observe(child):
+        assert agent.finish_requested
+        phases.append("observe")
+
+    async def finish(child):
+        assert not agent.request_finish(child.run_id)
+        phases.append("finish")
+
+    replace("infer", infer)
+    connect("act", act)
+    connect("observe", observe)
+    connect("finish", finish)
+    agent.inbox.set(ctx, request, [guidance(1)])
+    asyncio.run(agent.execute(request))
+    assert phases == ["act", "observe", "finish"]
+    assert seen == [guidance(1)] and agent.pending(request) == [guidance(2)]
+    assert record(agent, ctx, request)["status"] == "completed"
+    assert not agent.finish_requested and not agent.request_finish(request.run_id)
+
+
 @pytest.mark.parametrize("during", ["prepare", "infer"])
 def test_guidance_during_execution_is_consumed_in_current_run(runtime, during):
     _, ctx, _ = runtime

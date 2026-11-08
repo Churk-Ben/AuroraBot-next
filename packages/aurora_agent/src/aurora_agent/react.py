@@ -84,6 +84,7 @@ class ReActAgent:
         self.decision = decision
         self.max_iterations = max_iterations
         self._active = False
+        self._finish_requested = False
         self.states = {"inbox": inbox, "progress": progress, "runtime": runtime, "batch": batch, "decision": decision}
         for binding in (inbox, progress, runtime):
             if not isinstance(binding, InstanceStateBinding):
@@ -105,6 +106,21 @@ class ReActAgent:
     @property
     def plug(self) -> ExecutionPlug:
         return ExecutionPlug(self.definition_id, self.execute, self.states, instance_id=self.instance_id)
+
+    @property
+    def finish_requested(self) -> bool:
+        """当前激活是否要求在本轮工具结果接纳后正常结束。"""
+        return self._finish_requested
+
+    def request_finish(self, run_id: str) -> bool:
+        """仅结束匹配的活动运行；不取消本轮工具、不消费新输入或停止调度所有者。"""
+        if not self._active:
+            return False
+        state = self.runtime.get(self.ctx, ExecutionRequest(run_id))
+        if not isinstance(state, dict) or state.get("run_id") != run_id or state.get("phase") == "finish":
+            return False
+        self._finish_requested = True
+        return True
 
     def pending(self, request: ExecutionRequest) -> list[Guidance]:
         """读取尚未接纳的输入；调度所有者可在执行前后复查，不消费或触发执行。"""
@@ -177,6 +193,9 @@ class ReActAgent:
                     return
             elif decision != "continue":
                 raise ValueError("infer 必须写入 act、continue 或 finish 决策")
+            if self._finish_requested:
+                await self._phase("finish", request)
+                return
         raise LoopLimitExceeded(f"ReAct 循环达到 {self.max_iterations} 次上限")
 
     async def execute(self, request: ExecutionRequest) -> None:
@@ -184,6 +203,7 @@ class ReActAgent:
         if self._active:
             raise AgentBusyError(f"ReActAgent 正在运行：{self.instance_id}")
         self._active = True
+        self._finish_requested = False
         try:
             self.runtime.set(
                 self.ctx,
@@ -215,6 +235,7 @@ class ReActAgent:
                 self._update(request, status="completed")
         finally:
             self._active = False
+            self._finish_requested = False
             for binding in (self.batch, self.decision):
                 address = binding.address(request)
                 self.ctx.delete(address.key, location=dict(address.location))

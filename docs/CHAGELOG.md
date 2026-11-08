@@ -2,6 +2,17 @@
 
 ## 2026-11-08
 
+### 提供 Bot 计划唤醒与自身运行控制
+
+- Agent 提供按 run_id 请求正常结束的能力，在当前轮工具与观察完成后执行 finish；保留后来输入交给同一调度所有者，结束请求不跨运行恢复。默认阶段保留完整工具往返并记录交流结束边界。
+- Agent 的 ReAct、默认阶段及运行时 34 项针对性回归通过，覆盖本轮观察完成、新引导保留、身份拒绝和正常结束。
+- 默认关闭的 `[self_control] enabled=true` 装配 bot_status、bot_autonomy、bot_finish 和 wake_schedule/wake_list/wake_cancel；所有工具绑定本实例，不新增插件或宿主进程控制。计划独立于 world/choice，到期经同一 AgentRuntime 提交，不受普通 cadence 冷却限制。
+- 一次性计划支持相对时间或带时区的绝对时间、版本更新与取消，最大提前 30 天、迟到有效期默认一小时；重启只提交有效期内的到期计划，过期保留 expired。新增 state/self_control 保存开关与最多 128 条计划，pending 恢复为 uncertain；未知提交不重放。状态沿宿主异步快照保存，不承诺崩溃下恰好一次。
+- 暂停同时阻止原样转发、决策投递和计划唤醒，直接交流仍可用；恢复不会清除故障。关闭等待所有自有计划任务收尾。默认产品入口只读开放新状态，旧 TOML 不被改写，新状态需有对应定义才能恢复。
+- 新增 32 项离线回归通过，覆盖正式模型工具往返后的结束与唤醒、暂停重启与直接交流、过期、未知投递和回执写入失败、pending 恢复、提前更新、时间回拨、版本与实例隔离，以及在途运行共享和部分启动失败清理；原 cadence/笔记的 42 项回归及 Python 类型检查通过。未调用真实供应商。
+- 11 个 wheel 构建成功，明确指定本次本地 wheel 安装后的 63 项自身控制与 Agent 回归通过，模块来自 site-packages，配置模板及六个工具定义齐全。control 环境不含 agent/adapter/模型，agent 环境不含 bot/CLI/API/模型 SDK；96 处本地文档链接及 Git 差异检查通过。
+- 完整 `uv run --locked aurora check --full` 通过：1331 项 Python、115 项 TypeScript、5 项原生终端测试及全部静态检查；Python 测试耗时 250.85 秒，保留已有两项 Pydantic ReadOnly 提示。首轮新增定义契约测试缺少 ToolSpec 类型收窄，修正后完成全量复验。
+
 ### 增加受控随机时钟驱动的决策 cadence
 
 - 显式添加 cadence 的 `[decision]` 后，随机间隔串行唤起 choice 模型，选择 observe、attend_events 或 review_work；固定模板形成引导，复用原 AgentRuntime。无该配置时保留原样转发，已有用户 TOML 不被改写。默认 60–180 秒判断、600 秒引导冷却、15 秒判断超时和 12000 字符完整 ChoiceRequest 预算。
