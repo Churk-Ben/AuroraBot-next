@@ -17,8 +17,8 @@ class LiteLLMChoiceClient:
     def __init__(
         self, config: ModelConfig, *, api_key: str | None, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
-        if config.capabilities is not None:
-            raise ValueError("choice 不接受聊天模型的 capabilities 配置")
+        if config.capabilities is not None or config.thinking is not None or config.reasoning_effort is not None:
+            raise ValueError("choice 不接受聊天模型的能力或思考配置")
         if config.base_url is not None:
             base = httpx.URL(config.base_url)
             if base.scheme not in ("http", "https") or not base.host or base.query or base.fragment or base.userinfo:

@@ -8,6 +8,7 @@ from aurora_adapter.model import (
     FinishReason,
     ModelClient,
     ModelRequest,
+    ReasoningBlock,
     ResponseBuffer,
     ToolCall,
     require_capabilities,
@@ -24,6 +25,8 @@ class ModelCallState(TypedDict):
     status: Literal["running", "completed", "cancelled", "failed"]
     execution_id: str
     text: str
+    reasoning_content: NotRequired[str]
+    thinking_blocks: NotRequired[list[ReasoningBlock]]
     tool_calls: list[ToolCall]
     finish_reason: FinishReason | None
     error: NotRequired[str]
@@ -82,6 +85,10 @@ class ModelCall:
             }
             if error is not None:
                 state["error"] = type(error).__name__
+            if buffer.reasoning_content:
+                state["reasoning_content"] = buffer.reasoning_content
+            if buffer.thinking_blocks:
+                state["thinking_blocks"] = buffer.thinking_blocks
             self.output_state.set(self.ctx, execution, state)
 
         write("running")
@@ -101,6 +108,8 @@ class ModelCall:
             else:
                 response = await self.client.complete(request)
                 buffer.text = response["text"]
+                buffer.reasoning_content = response.get("reasoning_content", "")
+                buffer.thinking_blocks = response.get("thinking_blocks", [])
                 buffer.tool_calls = response["tool_calls"]
                 buffer.finish_reason = response["finish_reason"]
                 buffer.result()

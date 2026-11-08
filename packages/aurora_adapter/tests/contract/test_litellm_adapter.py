@@ -106,6 +106,152 @@ def mock_completion(monkeypatch, sdk, value):
 
 
 @pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("provider", ["openai", "deepseek"])
+def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, streaming, provider):
+    sent = []
+    call = {"id": "lookup-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+
+    def handle(incoming):
+        body = json.loads(incoming.content)
+        sent.append(body)
+        assert body["thinking"] == {"type": "enabled"}
+        assert body["reasoning_effort"] == "high"
+        assert body["messages"][0]["content"][1]["image_url"]["url"] == "data:image/png;base64,eA=="
+        assert body["messages"][0]["content"][2]["file"]["file_data"] == "data:application/pdf;base64,eA=="
+        if len(sent) == 2:
+            assert body["messages"][1]["reasoning_content"] == "先检查文件，再查工具"
+        if not streaming:
+            value = response(
+                content="" if len(sent) == 1 else "完成",
+                calls=[call] if len(sent) == 1 else None,
+                reason="tool_calls" if len(sent) == 1 else "stop",
+            )
+            value["choices"][0]["message"]["reasoning_content"] = "先检查文件，再查工具"
+            return httpx.Response(200, json=value)
+        thinking = delta()
+        thinking["choices"][0]["delta"]["reasoning_content"] = "先检查文件，再查工具"
+        values = [
+            thinking,
+            delta(calls=[{"index": 0, **call}]) if len(sent) == 1 else delta(content="完成"),
+            delta(reason="tool_calls" if len(sent) == 1 else "stop"),
+        ]
+        body = "".join(
+            "data: "
+            + json.dumps({"id": "r", "created": 1, "object": "chat.completion.chunk", "model": "private-model", **item})
+            + "\n\n"
+            for item in values
+        )
+        return httpx.Response(
+            200, content=(body + "data: [DONE]\n\n").encode(), headers={"content-type": "text/event-stream"}
+        )
+
+    async def scenario():
+        client = cast(
+            "LiteLLMClient",
+            await create_litellm(
+                ModelConfig(
+                    "private-model",
+                    "https://model.test/v1",
+                    provider=provider,
+                    capabilities=ModelCapabilities(True, True),
+                    thinking={"type": "enabled"},
+                    reasoning_effort="high",
+                ),
+                api_key="test-only",
+            ),
+        )
+        await client._transport._client.aclose()
+        client._transport._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        value: ModelRequest = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "检查"},
+                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}},
+                        {
+                            "type": "file",
+                            "file": {"filename": "sample.pdf", "file_data": "data:application/pdf;base64,eA=="},
+                        },
+                    ],
+                }
+            ],
+            "tools": [{"name": "lookup", "description": "检查", "parameters": {"type": "object"}}],
+        }
+        try:
+            for turn in range(2):
+                if streaming:
+                    async with client.stream(value) as chunks:
+                        result = await collect_response(chunks)
+                else:
+                    result = await client.complete(value)
+                assert result["reasoning_content"] == "先检查文件，再查工具"
+                if turn == 0:
+                    assert result["text"] == "" and result["tool_calls"][0]["id"] == "lookup-1"
+                    value["messages"].extend(
+                        [
+                            {
+                                "role": "assistant",
+                                "content": result["text"],
+                                "tool_calls": result["tool_calls"],
+                                "reasoning_content": result["reasoning_content"],
+                            },
+                            {"role": "tool", "tool_call_id": "lookup-1", "content": "已检查"},
+                        ]
+                    )
+                else:
+                    assert result["text"] == "完成"
+        finally:
+            await client.aclose()
+        assert len(sent) == 2
+
+    asyncio.run(scenario())
+
+
+def test_signed_and_redacted_thinking_stream_is_preserved(sdk, monkeypatch):
+    def thought(block=None, text=None):
+        value = delta()
+        value["choices"][0]["delta"].update(reasoning_content=text, thinking_blocks=block)
+        return value
+
+    signed = {"type": "thinking", "thinking": "先分析", "signature": "signature-one"}
+    redacted = {"type": "redacted_thinking", "data": "opaque-data"}
+    stream = Stream(
+        [
+            thought([{"type": "thinking", "thinking": "先"}], "先"),
+            thought([{"type": "thinking", "thinking": "分析"}], "分析"),
+            thought([{"type": "thinking", "thinking": "", "signature": "signature-one"}]),
+            thought([redacted]),
+            delta(content="回答"),
+            delta(reason="stop"),
+        ]
+    )
+    calls = mock_completion(monkeypatch, sdk, stream)
+
+    async def scenario():
+        client = await create_litellm(
+            ModelConfig("anthropic/claude-sonnet-4-5", thinking={"type": "enabled", "budget_tokens": 2048}),
+            api_key="test",
+        )
+        try:
+            async with client.stream(request()) as chunks:
+                result = await collect_response(chunks)
+            assert result == {
+                "text": "回答",
+                "reasoning_content": "先分析",
+                "thinking_blocks": [signed, redacted],
+                "tool_calls": [],
+                "finish_reason": "stop",
+            }
+            assert calls[0]["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+        finally:
+            await client.aclose()
+        assert stream.closed
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("provider,model", [("openai", "Qwen/private-deployment"), ("xiaomi_mimo", "mimo-v2.5-pro")])
 def test_explicit_provider_preserves_model_and_supports_custom_capabilities(sdk, streaming, provider, model):
     sent = []
@@ -257,7 +403,7 @@ def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk, provider):
         sent.append(json.loads(value.content))
         if provider == "deepseek":
             assert value.url.host == "api.deepseek.com"
-            assert sent[-1]["thinking"] == {"type": "disabled"}
+            assert "thinking" not in sent[-1]
         return httpx.Response(200, json=response())
 
     async def scenario():
@@ -321,24 +467,79 @@ def test_real_sdk_streaming_and_owned_transport_close(sdk, provider):
         ]
         body = "".join(f"event: {item['type']}\ndata: {json.dumps(item)}\n\n" for item in events)
 
+        for event in events:
+            if "index" in event:
+                event["index"] = 2
+        events[1:1] = [
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "分析"}},
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "signature_delta", "signature": "signed-value"},
+            },
+            {"type": "content_block_stop", "index": 0},
+            {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "redacted_thinking", "data": "opaque-value"},
+            },
+            {"type": "content_block_stop", "index": 1},
+        ]
+        body = "".join(f"event: {item['type']}\ndata: {json.dumps(item)}\n\n" for item in events)
+
+    sent = []
+
     def handle(value):
+        sent.append(json.loads(value.content))
         assert value.url.host == "model.test"
         if provider == "deepseek":
-            assert json.loads(value.content)["thinking"] == {"type": "disabled"}
+            assert "thinking" not in json.loads(value.content)
+        if provider == "anthropic" and len(sent) == 2:
+            blocks = sent[-1]["messages"][1]["content"]
+            assert blocks[:2] == [
+                {"type": "thinking", "thinking": "分析", "signature": "signed-value"},
+                {"type": "redacted_thinking", "data": "opaque-value"},
+            ]
         return httpx.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
 
     async def scenario():
         client = cast(
-            "LiteLLMClient", await create_litellm(ModelConfig(model, "https://model.test/v1"), api_key="test-only")
+            "LiteLLMClient",
+            await create_litellm(
+                ModelConfig(
+                    model,
+                    "https://model.test/v1",
+                    thinking={"type": "enabled", "budget_tokens": 2048} if provider == "anthropic" else None,
+                ),
+                api_key="test-only",
+            ),
         )
         transport = client._transport
-        original = transport._client if provider == "openai" else transport.client
+        original = transport._client if provider in ("openai", "deepseek") else transport.client
         await original.aclose()
         http = httpx.AsyncClient(transport=httpx.MockTransport(handle))
         transport._client = http
         try:
             async with client.stream(request()) as chunks:
-                assert await collect_response(chunks) == {"text": "一二", "tool_calls": [], "finish_reason": "stop"}
+                result = await collect_response(chunks)
+            assert result["text"] == "一二" and result["tool_calls"] == [] and result["finish_reason"] == "stop"
+            if provider == "anthropic":
+                assert result["reasoning_content"] == "分析"
+                history = request()
+                history["messages"].extend(
+                    [
+                        {
+                            "role": "assistant",
+                            "content": result["text"],
+                            "reasoning_content": result["reasoning_content"],
+                            "thinking_blocks": result["thinking_blocks"],
+                        },
+                        {"role": "user", "content": "继续"},
+                    ]
+                )
+                async with client.stream(history) as chunks:
+                    assert await collect_response(chunks) == result
         finally:
             await client.aclose()
         assert http.is_closed

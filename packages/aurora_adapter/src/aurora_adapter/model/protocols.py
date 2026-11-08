@@ -5,7 +5,17 @@ from contextlib import AbstractAsyncContextManager
 from copy import deepcopy
 from typing import Protocol
 
-from .models import FinishReason, ModelCapabilities, ModelChunk, ModelConfig, ModelRequest, ModelResponse, ToolCall
+from .content import validate_content
+from .models import (
+    FinishReason,
+    ModelCapabilities,
+    ModelChunk,
+    ModelConfig,
+    ModelRequest,
+    ModelResponse,
+    ReasoningBlock,
+    ToolCall,
+)
 
 
 class ModelError(RuntimeError):
@@ -45,6 +55,13 @@ class ModelFactory(Protocol):
 
 
 def require_capabilities(client: ModelClient, request: ModelRequest, *, streaming: bool) -> None:
+    for message in request["messages"]:
+        content = validate_content(message["content"])
+        if isinstance(content, list) and any(part["type"] != "text" for part in content):
+            if message["role"] != "user":
+                raise ModelProtocolError("文件输入仅接受 user 消息")
+            if not client.capabilities.file_input:
+                raise UnsupportedCapability("模型不支持文件输入")
     if streaming and not client.capabilities.streaming:
         raise UnsupportedCapability("模型不支持流式响应")
     uses_tools = request.get("tools") or any(
@@ -59,6 +76,8 @@ class ResponseBuffer:
 
     def __init__(self) -> None:
         self.text = ""
+        self.reasoning_content = ""
+        self.thinking_blocks: list[ReasoningBlock] = []
         self.tool_calls: list[ToolCall] = []
         self.finish_reason: FinishReason | None = None
 
@@ -67,6 +86,10 @@ class ResponseBuffer:
             raise ModelProtocolError("结束片段之后不得再输出内容")
         if chunk["type"] == "text":
             self.text += chunk["text"]
+        elif chunk["type"] == "reasoning":
+            self.reasoning_content += chunk["text"]
+        elif chunk["type"] == "thinking_block":
+            self.thinking_blocks.append(deepcopy(chunk["block"]))
         elif chunk["type"] == "tool_call":
             call = chunk["tool_call"]
             if any(previous["id"] == call["id"] for previous in self.tool_calls):
@@ -80,7 +103,16 @@ class ResponseBuffer:
             raise ModelProtocolError("响应流缺少结束片段")
         if self.finish_reason == "tool_calls" and not self.tool_calls:
             raise ModelProtocolError("工具调用结束必须提供完整工具请求")
-        return {"text": self.text, "tool_calls": deepcopy(self.tool_calls), "finish_reason": self.finish_reason}
+        result: ModelResponse = {
+            "text": self.text,
+            "tool_calls": deepcopy(self.tool_calls),
+            "finish_reason": self.finish_reason,
+        }
+        if self.reasoning_content:
+            result["reasoning_content"] = self.reasoning_content
+        if self.thinking_blocks:
+            result["thinking_blocks"] = deepcopy(self.thinking_blocks)
+        return result
 
 
 async def collect_response(chunks: AsyncIterator[ModelChunk]) -> ModelResponse:

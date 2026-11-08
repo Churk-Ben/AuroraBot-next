@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from aurora_adapter.model import Message, ModelRequest
+from aurora_adapter.model.content import MAX_FILE_BYTES, request_size
 from aurora_core.json_data import encode_json
 
 
@@ -23,13 +24,15 @@ def read_exchange_ends(messages: list[Message], value: object) -> list[int]:
 class ModelInputBudgetExceeded(ValueError):
     """固定输入和当前交流段无法放入预算；异常只包含长度，不包含业务内容。"""
 
-    def __init__(self, max_chars: int, required_chars: int) -> None:
+    def __init__(self, max_chars: int, required_chars: int, file_bytes: int = 0) -> None:
         self.max_chars, self.required_chars = max_chars, required_chars
-        super().__init__(f"模型输入预算不足：至少需要 {required_chars} 字符，预算为 {max_chars}")
+        super().__init__(
+            f"模型输入预算不足：需要 {required_chars} 字符和 {file_bytes} 附件字节，预算为 {max_chars} 字符及 {MAX_FILE_BYTES} 附件字节"
+        )
 
 
 class ModelInputBudget:
-    """限制统一 ModelRequest JSON 字符数，不等同于供应商 token 或 HTTP 字节数。
+    """限制请求文本 JSON 字符及 10 MiB 内嵌文件，不等同于供应商 token。
 
     system、临时观察及工具定义完整保留。按显式正常结束位置选择完整交流段；
     未提供位置时仅识别无工具调用的 assistant 消息，至少保留最新交流段。
@@ -53,7 +56,12 @@ class ModelInputBudget:
                 if message["role"] == "assistant" and not message.get("tool_calls")
             ]
         ends = read_exchange_ends(history, exchange_ends)
-        if len(encode_json(request)) <= self.max_chars:
+
+        def fits(candidate: ModelRequest) -> bool:
+            chars, file_bytes = request_size(candidate)
+            return chars <= self.max_chars and file_bytes <= MAX_FILE_BYTES
+
+        if fits(request):
             return request
         boundaries = [end for end in ends if end < len(history)]
 
@@ -71,17 +79,17 @@ class ModelInputBudget:
             ]
             return candidate
 
-        required = len(encode_json(request))
+        required, file_bytes = request_size(request)
         if not boundaries:
-            raise ModelInputBudgetExceeded(self.max_chars, required)
+            raise ModelInputBudgetExceeded(self.max_chars, required, file_bytes)
         smallest = candidate_at(boundaries[-1])
-        smallest_size = len(encode_json(smallest))
-        if smallest_size > self.max_chars:
-            raise ModelInputBudgetExceeded(self.max_chars, min(required, smallest_size))
+        smallest_size, smallest_files = request_size(smallest)
+        if not fits(smallest):
+            raise ModelInputBudgetExceeded(self.max_chars, min(required, smallest_size), smallest_files)
         low, high = 0, len(boundaries) - 1
         while low < high:
             middle = (low + high) // 2
-            if len(encode_json(candidate_at(boundaries[middle]))) <= self.max_chars:
+            if fits(candidate_at(boundaries[middle])):
                 high = middle
             else:
                 low = middle + 1

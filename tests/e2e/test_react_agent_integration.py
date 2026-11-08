@@ -171,7 +171,7 @@ def test_model_tool_guidance_and_reactivation_survive_host_restart(tmp_path):
         try:
             await host.run(agent.execute, request)
             assert len(client.requests) == 2 and injected == [True]
-            assert {message["content"] for message in client.requests[-1]["messages"]} >= {"5", "保留已有计算结果"}
+            assert {str(message["content"]) for message in client.requests[-1]["messages"]} >= {"5", "保留已有计算结果"}
             assert cast(ModelCallState, output.get(ctx, request))["text"] == "结果为 5"
             assert agent.progress.get(ctx, request) == 2
             assert cast(dict, agent.runtime.get(ctx, request))["run_id"] == "first"

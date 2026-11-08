@@ -16,6 +16,7 @@ from ..models import (
     ModelConfig,
     ModelRequest,
     ModelResponse,
+    ReasoningBlock,
     ToolCall,
 )
 from ..protocols import ModelError, ModelProtocolError, ResponseBuffer, UnsupportedCapability, require_capabilities
@@ -82,6 +83,24 @@ def _calls(value: Any) -> list[dict[str, Any]]:
     return [_object(item) for item in value]
 
 
+def _thinking(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ModelProtocolError("thinking_blocks 必须为列表")
+    blocks = [_object(item) for item in value]
+    for block in blocks:
+        if block.get("type") == "thinking":
+            if not isinstance(block.get("thinking", ""), str) or not isinstance(block.get("signature", ""), str):
+                raise ModelProtocolError("思考块的文本和签名必须为字符串")
+        elif block.get("type") == "redacted_thinking":
+            if not isinstance(block.get("data"), str) or not block["data"]:
+                raise ModelProtocolError("隐藏思考块缺少数据")
+        else:
+            raise ModelProtocolError("未知思考块类型")
+    return blocks
+
+
 def _payload(request: ModelRequest) -> dict[str, Any]:
     messages: list[dict[str, Any]] = []
     for message in deepcopy(request["messages"]):
@@ -126,6 +145,8 @@ class LiteLLMClient:
         self._base_url = base_url
         self._api_key = api_key
         self._provider = provider
+        self._thinking = deepcopy(config.thinking)
+        self._reasoning_effort = config.reasoning_effort
         self._active = False
         self._closed = False
         self.capabilities = (
@@ -154,18 +175,27 @@ class LiteLLMClient:
 
     async def _request(self, request: ModelRequest, *, streaming: bool) -> Any:
         payload = _payload(request)
+        # DeepSeek 的兼容传输原样保留文件和思考，避免按 SDK 目录裁剪消息内容。
+        wire_provider = "openai" if self._provider == "deepseek" else self._provider
+        if self._thinking is not None:
+            if wire_provider == "anthropic":
+                payload["thinking"] = deepcopy(self._thinking)
+            else:
+                payload["extra_body"] = {"thinking": deepcopy(self._thinking)}
+        if self._reasoning_effort is not None:
+            payload["reasoning_effort"] = self._reasoning_effort
         if "tools" in payload:
             # 实例已校验工具能力，允许工具参数通过 SDK 的模型目录检查。
             payload["allowed_openai_params"] = ["tools"]
+        if self._reasoning_effort is not None:
+            payload.setdefault("allowed_openai_params", []).append("reasoning_effort")
         base_url = self._base_url
         if self._provider == "deepseek":
-            # 当前公共消息协议不保存 reasoning_content，工具往返使用非思考模式。
-            payload["thinking"] = {"type": "disabled"}
             base_url = base_url or "https://api.deepseek.com"
         try:
             return await self._sdk.acompletion(
                 model=self._model,
-                custom_llm_provider=self._provider,
+                custom_llm_provider=wire_provider,
                 api_base=base_url,
                 api_key=self._api_key,
                 client=self._transport,
@@ -187,6 +217,11 @@ class LiteLLMClient:
             if message.get("function_call"):
                 raise ModelProtocolError("不支持旧式 function_call 响应")
             buffer = ResponseBuffer()
+            buffer.append({"type": "reasoning", "text": _text(message.get("reasoning_content"))})
+            for block in _thinking(message.get("thinking_blocks")):
+                if block["type"] == "thinking" and not block.get("signature"):
+                    raise ModelProtocolError("完整思考块缺少回传签名")
+                buffer.append({"type": "thinking_block", "block": cast(ReasoningBlock, block)})
             buffer.append({"type": "text", "text": _text(message.get("content"))})
             for call in _calls(message.get("tool_calls")):
                 buffer.append({"type": "tool_call", "tool_call": _tool(call)})
@@ -197,6 +232,7 @@ class LiteLLMClient:
 
     async def _chunks(self, response: Any) -> AsyncGenerator[ModelChunk, None]:
         pending: dict[int, dict[str, Any]] = {}
+        thinking: dict[str, Any] | None = None
         reason: FinishReason | None = None
         iterator = aiter(response)
         while True:
@@ -211,8 +247,12 @@ class LiteLLMClient:
                 continue
             delta = _object(choice.get("delta"))
             text = _text(delta.get("content"))
+            reasoning = _text(delta.get("reasoning_content"))
+            blocks = _thinking(delta.get("thinking_blocks"))
             if (
                 not text
+                and not reasoning
+                and not blocks
                 and not delta.get("tool_calls")
                 and not delta.get("function_call")
                 and choice.get("finish_reason") is None
@@ -224,6 +264,21 @@ class LiteLLMClient:
                 raise ModelProtocolError("不支持旧式 function_call 响应")
             if text:
                 yield {"type": "text", "text": text}
+            if reasoning:
+                yield {"type": "reasoning", "text": reasoning}
+            for block in blocks:
+                if block["type"] == "redacted_thinking":
+                    if thinking is not None:
+                        raise ModelProtocolError("思考块尚未获得签名")
+                    yield {"type": "thinking_block", "block": cast(ReasoningBlock, block)}
+                else:
+                    if thinking is None:
+                        thinking = {"type": "thinking", "thinking": "", "signature": ""}
+                    thinking["thinking"] += block.get("thinking", "")
+                    thinking["signature"] += block.get("signature", "")
+                    if thinking["signature"]:
+                        yield {"type": "thinking_block", "block": cast(ReasoningBlock, thinking)}
+                        thinking = None
             for part in _calls(delta.get("tool_calls")):
                 index = part.get("index")
                 if type(index) is not int or index < 0:
@@ -239,6 +294,8 @@ class LiteLLMClient:
                 reason = _reason(choice["finish_reason"])
         if reason is None:
             raise ModelProtocolError("响应流缺少结束片段")
+        if thinking is not None:
+            raise ModelProtocolError("思考流缺少回传签名")
         buffer = ResponseBuffer()
         for index in sorted(pending):
             chunk: ModelChunk = {"type": "tool_call", "tool_call": _tool(pending[index])}
@@ -292,9 +349,9 @@ async def create(config: ModelConfig, *, api_key: str | None = None) -> LiteLLMC
         )
         if provider == "deepseek":
             base_url = config.base_url or "https://api.deepseek.com"
-        if provider == "openai" or JSONProviderRegistry.exists(provider):
+        if provider in ("openai", "deepseek") or JSONProviderRegistry.exists(provider):
             transport = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0)
-        elif provider in ("anthropic", "deepseek"):
+        elif provider == "anthropic":
             transport = AsyncHTTPHandler()
         else:
             raise UnsupportedCapability("供应商未接入实例传输；OpenAI 兼容服务可配置 provider=openai 和 base_url")

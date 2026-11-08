@@ -100,7 +100,7 @@ def test_model_can_schedule_finish_and_wake_without_world(tmp_path):
             assert assembly.defaults is not None and assembly.action_evidence is not None
             context = assembly.defaults._context(ExecutionRequest(result.run_id))
             assert context["pending"] is None and context.get("exchange_ends") == [len(context["messages"])]
-            replies = [json.loads(item["content"]) for item in context["messages"] if item["role"] == "tool"]
+            replies = [json.loads(cast(str, item["content"])) for item in context["messages"] if item["role"] == "tool"]
             assert [item["status"] for item in replies] == ["completed", "completed"]
             assert replies[-1]["value"]["finish_requested"]
             assert [item["outcome"] for item in assembly.action_evidence.recent()] == ["completed", "completed"]
@@ -245,7 +245,7 @@ def test_control_tools_pause_list_cancel_and_resume_in_direct_run(tmp_path):
             assert result.status == "completed" and len(clients[0].requests) == 1
             assert assembly.defaults is not None
             context = assembly.defaults._context(ExecutionRequest(result.run_id))
-            replies = [json.loads(item["content"]) for item in context["messages"] if item["role"] == "tool"]
+            replies = [json.loads(cast(str, item["content"])) for item in context["messages"] if item["role"] == "tool"]
             assert len(replies) == 6 and all(item["status"] == "completed" for item in replies)
             assert replies[2]["value"]["items"][0]["status"] == "scheduled"
             assert replies[4]["value"]["counts"]["cancelled"] == 1

@@ -2,14 +2,14 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 from aurora_config import ConfigSchema
 from aurora_core.ids import Id
 from aurora_core.registry import DefinitionRegistry
 
 from .decisions import ChoiceFactory
-from .models import ModelCapabilities, ModelConfig
+from .models import ModelCapabilities, ModelConfig, ThinkingConfig
 from .protocols import ModelFactory
 
 ADAPTERS = Id("org.aurora.adapter:registries/model/adapters")
@@ -27,6 +27,8 @@ class ModelProfile(TypedDict):
     credential: NotRequired[str]
     provider: NotRequired[str]
     capabilities: NotRequired[dict[str, bool]]
+    thinking: NotRequired[ThinkingConfig]
+    reasoning_effort: NotRequired[str]
 
 
 _TEXT = {"type": "string", "pattern": r"\S"}
@@ -44,11 +46,25 @@ PROFILE_SCHEMA = ConfigSchema(
                 "base_url": _TEXT,
                 "credential": _TEXT,
                 "provider": _TEXT,
+                "thinking": {
+                    "type": "object",
+                    "required": ["type"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "type": {"enum": ["enabled", "disabled"]},
+                        "budget_tokens": {"type": "integer", "minimum": 1024},
+                    },
+                },
+                "reasoning_effort": {"enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]},
                 "capabilities": {
                     "type": "object",
                     "required": ["streaming", "tool_calls"],
                     "additionalProperties": False,
-                    "properties": {"streaming": {"type": "boolean"}, "tool_calls": {"type": "boolean"}},
+                    "properties": {
+                        "streaming": {"type": "boolean"},
+                        "tool_calls": {"type": "boolean"},
+                        "file_input": {"type": "boolean", "default": True},
+                    },
                 },
             },
         },
@@ -128,5 +144,7 @@ def _profile(profiles: object, bindings: object, role: str) -> tuple[str, ModelP
             profile.get("base_url"),
             provider=profile.get("provider"),
             capabilities=None if capabilities is None else ModelCapabilities(**capabilities),
+            thinking=profile.get("thinking"),
+            reasoning_effort=cast(Any, profile.get("reasoning_effort")),
         ),
     )

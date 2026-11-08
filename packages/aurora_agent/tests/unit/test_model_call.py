@@ -59,6 +59,28 @@ def test_model_instances_generate_stable_independent_ids(runtime):
     asyncio.run(client.aclose())
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_reasoning_is_separate_from_answer(runtime, streaming):
+    ctx, hooks = runtime
+    client = FakeModel(lambda _: FakeReply(("结果",), reasoning=("思考", "片段")))
+    component, request, output = assemble(ctx, hooks, client, streaming=streaming)
+    asyncio.run(component.execute(request))
+    result = output.get(ctx, request)
+    assert result["text"] == "结果" and result["reasoning_content"] == "思考片段"
+    asyncio.run(client.aclose())
+
+
+def test_partial_reasoning_remains_on_stream_failure(runtime):
+    ctx, hooks = runtime
+    client = FakeModel(lambda _: FakeReply(reasoning=("尚未完成",), error=ModelError("断流")))
+    component, request, output = assemble(ctx, hooks, client)
+    with pytest.raises(ModelError):
+        asyncio.run(component.execute(request))
+    result = output.get(ctx, request)
+    assert result["status"] == "failed" and result["reasoning_content"] == "尚未完成" and result["text"] == ""
+    asyncio.run(client.aclose())
+
+
 def test_stream_updates_one_state_and_does_not_close_shared_client(runtime):
     ctx, hooks = runtime
 
