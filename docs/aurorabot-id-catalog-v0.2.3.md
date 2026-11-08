@@ -154,6 +154,9 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.adapter:registries/model/adapters` | `registry` | 已实现 | 接收模型适配器工厂 |
 | `org.aurora.adapter:services/model/client` | `service` | 已实现 | 上层消费的统一 ModelClient 协议 |
 | `org.aurora.adapter:adapters/model/litellm` | `adapter` | 已实现 | 基于 LiteLLM 创建 ModelClient |
+| `org.aurora.adapter:registries/model/choice_adapters` | `registry` | 已实现 | 接收类型化选择模型工厂，与聊天工厂分开校验 |
+| `org.aurora.adapter:services/model/choice_client` | `service` | 已实现 | ChoiceClient 单题选择与关闭契约，不生成文本或执行工具 |
+| `org.aurora.adapter:adapters/model/jev` | `adapter` | 已实现 | Jev SystemOne choice 工厂，登记到 choice_adapters，按需导入 HTTP 依赖 |
 | `org.aurora.adapter:schemas/model/request` | `schema` | 已实现 | 统一模型请求 |
 | `org.aurora.adapter:schemas/model/response` | `schema` | 已实现 | 统一模型响应 |
 | `org.aurora.adapter:schemas/model/chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
@@ -164,6 +167,8 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.adapter:state/model/bindings` | `state_key` | 已实现 | 逻辑模型角色与服务实例的可恢复绑定描述；来源为包内 TOML 模板 |
 
 安装 `aurora-adapter[model]` 可加载模型配置插件，`aurora-adapter[litellm]` 另提供供应商 SDK。插件入口为 `aurora_adapter.model`，依赖 aurora_config，登记 adapters、model_client、四个模型 schema、两个配置声明及其非持久状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
+
+`aurora-adapter[jev]` 提供 Jev 的 HTTP 依赖；安装不触发调用。ChoiceClient 复用 model/profiles.toml 与 model/bindings.toml，`resolve_choice` 只解析 choice_adapters，`resolve_model` 只解析聊天 adapters。新增定义无独立插件或持久状态，不改写已有配置或快照。Jev 的 `base_url` 为服务根地址，工厂追加 `v1/systemone`；凭证通过 profile 的环境变量引用在运行期解析。仅消费声明选项，概率不作为随机行动概率；错误和重定向明确失败，不自动重试。
 
 模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 

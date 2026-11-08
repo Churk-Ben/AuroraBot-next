@@ -8,10 +8,12 @@ from aurora_config import ConfigSchema
 from aurora_core.ids import Id
 from aurora_core.registry import DefinitionRegistry
 
+from .decisions import ChoiceFactory
 from .models import ModelCapabilities, ModelConfig
 from .protocols import ModelFactory
 
 ADAPTERS = Id("org.aurora.adapter:registries/model/adapters")
+CHOICE_ADAPTERS = Id("org.aurora.adapter:registries/model/choice_adapters")
 CONFIG = Id("org.aurora.adapter:state/model/config")
 BINDINGS = Id("org.aurora.adapter:state/model/bindings")
 
@@ -78,8 +80,35 @@ class ResolvedModel:
     credential: str | None
 
 
+@dataclass(frozen=True)
+class ResolvedChoice:
+    """类型化决策模型工厂，与聊天模型使用同一份 profile 和角色绑定。"""
+
+    profile_name: str
+    factory: ChoiceFactory
+    config: ModelConfig
+    credential: str | None
+
+
 def resolve_model(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedModel:
     """只解析已登记适配器，不导入配置提供的模块路径，也不创建或缓存客户端。"""
+    name, profile, config = _profile(profiles, bindings, role)
+    entry = registry.get(Id(profile["adapter"]))
+    if entry.kind != "adapter" or entry.register_to != ADAPTERS or not callable(entry.target):
+        raise TypeError("模型配置目标必须为 adapters 注册表中的可调用工厂")
+    return ResolvedModel(name, cast(ModelFactory, entry.target), config, profile.get("credential"))
+
+
+def resolve_choice(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedChoice:
+    """只接受 choice 注册表中的工厂，防止将决策端点当作聊天端点。"""
+    name, profile, config = _profile(profiles, bindings, role)
+    entry = registry.get(Id(profile["adapter"]))
+    if entry.kind != "adapter" or entry.register_to != CHOICE_ADAPTERS or not callable(entry.target):
+        raise TypeError("决策配置目标必须为 choice_adapters 注册表中的可调用工厂")
+    return ResolvedChoice(name, cast(ChoiceFactory, entry.target), config, profile.get("credential"))
+
+
+def _profile(profiles: object, bindings: object, role: str) -> tuple[str, ModelProfile, ModelConfig]:
     PROFILE_SCHEMA.validate(profiles)
     BINDINGS_SCHEMA.validate(bindings)
     profiles = cast(dict[str, ModelProfile], profiles)
@@ -90,18 +119,14 @@ def resolve_model(registry: DefinitionRegistry, profiles: object, bindings: obje
         raise ValueError("模型绑定引用了不存在的配置")
     name = bindings[role]
     profile = profiles[name]
-    entry = registry.get(Id(profile["adapter"]))
-    if entry.kind != "adapter" or entry.register_to != ADAPTERS or not callable(entry.target):
-        raise TypeError("模型配置目标必须为 adapters 注册表中的可调用工厂")
     capabilities = profile.get("capabilities")
-    return ResolvedModel(
+    return (
         name,
-        cast(ModelFactory, entry.target),
+        profile,
         ModelConfig(
             profile["model"],
             profile.get("base_url"),
             provider=profile.get("provider"),
             capabilities=None if capabilities is None else ModelCapabilities(**capabilities),
         ),
-        profile.get("credential"),
     )
