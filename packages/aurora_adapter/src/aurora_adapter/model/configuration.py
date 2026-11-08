@@ -63,7 +63,7 @@ PROFILE_SCHEMA = ConfigSchema(
                     "properties": {
                         "streaming": {"type": "boolean"},
                         "tool_calls": {"type": "boolean"},
-                        "file_input": {"type": "boolean", "default": True},
+                        "file_input": {"type": "boolean"},
                     },
                 },
             },

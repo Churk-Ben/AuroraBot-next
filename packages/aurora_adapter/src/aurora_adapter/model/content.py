@@ -18,6 +18,8 @@ def _source(value: object, *, image: bool = False, file_id: bool = False) -> int
     if not isinstance(value, str) or not value.strip():
         raise ValueError("文件来源须为非空字符串")
     if value.startswith("data:"):
+        if file_id:
+            raise ValueError("内嵌文件须使用 file_data，不能作为 file_id")
         header, separator, data = value.partition(",")
         if not separator or not header.endswith(";base64") or "/" not in header:
             raise ValueError("内嵌文件须使用含 MIME 类型的 base64 data URI")
@@ -79,6 +81,10 @@ def validate_content(value: object) -> MessageContent:
                 )
             ):
                 raise ValueError("文件内容块无效")
+            if "file_data" in source and (
+                not isinstance(source["file_data"], str) or not source["file_data"].startswith("data:")
+            ):
+                raise ValueError("file_data 须为 data URI；远程文件请使用 file_id")
             size += _source(source.get("file_data", source.get("file_id")), file_id="file_id" in source)
         else:
             raise ValueError("不支持的消息内容块")
@@ -103,6 +109,7 @@ def request_size(request: ModelRequest) -> tuple[int, int]:
             data = source.get(key, "")
             if data.startswith("data:") and "," in data:
                 header, encoded = data.split(",", 1)
-                size += len(encoded) // 4 * 3 - len(encoded) + len(encoded.rstrip("="))
+                padding = len(encoded) - len(encoded.rstrip("="))
+                size += len(encoded) // 4 * 3 - padding
                 source[key] = f"{header},[binary]"
     return len(encode_json(compact)), size

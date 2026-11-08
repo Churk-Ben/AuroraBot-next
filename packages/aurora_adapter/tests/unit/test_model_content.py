@@ -19,6 +19,8 @@ from aurora_adapter.model.fake import FakeModel, FakeReply
         [{"type": "image_url", "image_url": {"url": "data:image/png;base64,%%%"}}],
         [{"type": "file", "file": {"file_id": "a", "file_data": "data:text/plain;base64,eA=="}}],
         [{"type": "file", "file": {"file_id": "C:/secret.txt"}}],
+        [{"type": "file", "file": {"file_id": "data:application/pdf;base64,eA=="}}],
+        [{"type": "file", "file": {"file_data": "https://example.test/sample.pdf"}}],
         [{"type": "file", "file": {"file_data": "data:text/plain;base64,"}}],
     ],
 )
