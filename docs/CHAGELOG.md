@@ -2,6 +2,13 @@
 
 ## 2026-11-08
 
+### 为本地 Bot 配置持久终端 MCP
+
+- 在 Git 忽略的 `data/tools/terminal-mcp/.venv/` 独立安装 [terminal-mcp](https://github.com/mkpvishnu/terminal-mcp) `0.4.7`，依赖版本保存到同目录的 `requirements.lock`；宿主直接启动本地入口，不在启动时下载依赖，不修改工作区 Python 依赖。
+- `data/config/org.aurora.adapter/mcp.toml` 新增 `terminal` stdio 服务，使用 legacy 协商，向现有 Bot 装配开放 `terminal_create`、`terminal_send`、`terminal_interact`、`terminal_read`、`terminal_list`、`terminal_close`、`terminal_wait_for`。保留原 QQ 服务及其工具选择，连接执行超时为 45 秒，小于 Bot 的 60 秒工具预算。
+- 为本地 Bot 提示补充 Windows PowerShell 会话创建、复用 session_id、分次读取长任务输出、超时不重发及关闭会话的说明。会话跨工具调用保留，默认空闲一天回收；宿主或 MCP 服务重启后不恢复进程，不改写业务快照。
+- 使用项目实际 `MCPClients` 和 `MCPTools` 完成连接及七个工具登记；协议协商为 `2025-11-25`。跨调用变量及工作目录保留、会话枚举、异步命令输出读取与匹配等待、会话关闭和连接清理均通过，未调用真实模型。当前运行的产品宿主尚未重启，新增工具在重启后加载。
+
 ### 配置本地完整能力 Bot 并归档旧数据
 
 - 正常停止原 Bot 后，将原 `data/` 整体移至 `build/data-archive-20261108-205846/`；13 个文件逐一校验 SHA-256，配置、快照、数据库和日志均保留。新 `data/` 只包含配置，不恢复旧业务状态。
