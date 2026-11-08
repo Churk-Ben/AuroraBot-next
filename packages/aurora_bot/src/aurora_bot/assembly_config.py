@@ -47,6 +47,7 @@ class BotConfig(TypedDict):
     input_budget: ArchiveConfig
     archive: ArchiveConfig
     actions: ArchiveConfig
+    self_control: dict[str, bool]
 
 
 def validate_json(value: object) -> None:
@@ -96,6 +97,12 @@ BOT_SCHEMA = ConfigSchema(
                 },
             },
             "notes": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {"enabled": {"type": "boolean", "default": False}},
+            },
+            "self_control": {
                 "type": "object",
                 "additionalProperties": False,
                 "default": {},

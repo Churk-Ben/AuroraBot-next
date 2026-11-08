@@ -20,6 +20,10 @@ max_chars = 12000
 [notes]
 enabled = false
 
+# 显式启用计划唤醒、自动引导暂停/恢复与本轮结束工具；直接交流仍可用。
+[self_control]
+enabled = false
+
 # 显式启用当前 world 的只读事件归档工具；预算覆盖单次返回值的完整 JSON。
 [archive]
 enabled = false

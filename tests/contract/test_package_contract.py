@@ -51,6 +51,33 @@ def test_workspace_plugins_use_the_aurora_discovery_group():
         assert points and all(point.group == "aurora.plugins" for point in points)
 
 
+def test_self_control_definitions_are_bot_owned_and_configuration_is_opt_in():
+    from aurora_agent.tools import ToolSpec
+    from aurora_bot.assembly import plugin
+    from aurora_bot.assembly_config import parse_config
+    from aurora_bot.self_control import COMPONENT, SELF_TOOLS
+    from aurora_bot.self_control_state import SELF_CONTROL
+
+    entries = {entry.id: entry for entry in plugin().entries}
+    expected = {SELF_CONTROL, COMPONENT, *SELF_TOOLS.values()}
+    assert len(expected) == 8 and expected <= entries.keys()
+    assert all(entries[identity].provider == "aurora_bot" for identity in expected)
+    names = set()
+    for identity in SELF_TOOLS.values():
+        spec = entries[identity].target
+        assert isinstance(spec, ToolSpec)
+        names.add(spec.definition["name"])
+    assert names == {
+        "bot_status",
+        "bot_autonomy",
+        "bot_finish",
+        "wake_schedule",
+        "wake_list",
+        "wake_cancel",
+    }
+    assert parse_config({"instance_id": "main", "model_role": "reasoning"})["self_control"] == {"enabled": False}
+
+
 def test_adapter_templates_share_one_package_without_path_collisions(tmp_path):
     from aurora_config.files import configuration_files
     from aurora_core.bootstrap import bootstrap

@@ -535,10 +535,58 @@ max_chars = 12000
 
 两种模式的快照不可互换；检测到已有另一模式的状态会拒绝启动，不自动改写或删除用户数据。首次试用使用独立数据目录；当前不提供跨模式迁移或暂停状态的自动修复。已有来源选择改变仍暂停。关闭时先取消并等待判断，再关闭决策连接，Bot 的执行与工具继续由原所有者收尾。
 
-离线回归：
+决策 cadence 离线回归：
 
 ```powershell
 uv run --locked pytest packages/aurora_adapter/tests/contract/test_litellm_choice.py packages/aurora_bot/tests/unit/test_cadence_state.py tests/e2e/test_cadence_decision.py -q
+```
+
+### Bot 的计划唤醒与自身控制
+
+在 `<data-dir>/config/org.aurora.bot/config.toml` 显式启用后重启：
+
+```toml
+[self_control]
+enabled = true
+```
+
+默认关闭，已有用户文件不被覆盖。功能由 `aurora_bot.assembly` 提供，不新增插件；计划唤醒无需启用 world 或 choice 模型。启用 cadence 时，两者共用自动引导暂停开关，所有引导仍交给同一个 AgentRuntime。
+
+| 模型工具 | 用途 |
+| --- | --- |
+| `bot_status` | 查询当前运行、UTC 时间、自动引导开关、计划数量、下次唤醒及计划等待故障 |
+| `bot_autonomy` | `paused=true` 暂停普通 cadence 和计划唤醒；`false` 恢复，不清除既有故障 |
+| `bot_finish` | 本轮全部工具与结果观察完成后正常结束，不再发起下一轮推理 |
+| `wake_schedule` | 创建或更新一次性计划，支持相对秒数或带时区的绝对时间 |
+| `wake_list` | 分页读取自己的完整计划与回执；默认每页 10 条，最多 20 条，使用 next_after 继续 |
+| `wake_cancel` | 按版本取消尚未提交的计划；不撤销已经接纳的引导 |
+
+例如 Bot 通过 `wake_schedule` 登记十分钟后的检查：
+
+```json
+{
+  "wake_id": "check_delivery",
+  "expected_revision": 0,
+  "delay_seconds": 600,
+  "late_seconds": 3600,
+  "text": "核对先前发送的结果，未知结果先查证，不直接重发。"
+}
+```
+
+也可以用 `"at": "2026-11-09T10:00:00+08:00"` 替代 delay_seconds，两者必须二选一，时间须在未来 30 天内。late_seconds 是到期后的有效期，默认一小时，最多一天；超过有效期标记 expired，重启或恢复自动引导时不补发。有效期内已到期的计划会提交一次引导，忙碌时进入当前运行，取消收尾期间明确拒绝的提交等待后重新检查有效期。计划不经过 choice 判断或普通 cadence 的冷却。
+
+创建使用 expected_revision=0；更新或取消先用 wake_list 取得当前 revision。系统投递、过期和恢复也会推进版本，旧版本返回 wake_conflict。每实例最多 128 条计划，终态记录继续占用容量，可显式更新已有计划；文本最多 4000 字符。工具不接受其他 instance_id，不允许通过 tools 配置重复装配。
+
+安排好计划后可调用 bot_finish 结束本轮，等待未来唤醒。该工具应放在本批最后：同批其他工具仍会执行，工具结果完整写回上下文及已启用的行动证据。后来到达的引导保留给同一运行时的后续激活。正常结束不暂停 cadence；若需要暂停所有自动活动，单独调用 bot_autonomy。暂停后计划也不会唤醒 Bot，直接交流仍可发起运行并让 Bot 调用 bot_autonomy 恢复；直接交流本身不隐式恢复开关。
+
+`org.aurora.bot:state/self_control` 按 `location={instance_id}` 保存 version=1 状态，包含 paused、error 和计划。计划的 submitted 及 receipt 只表示引导接纳，不证明业务完成；pending 在恢复时标记 uncertain，未知提交和回执写入失败不自动重投。uncertain 不允许直接覆盖，须核对后显式取消；取消不撤销可能已发生的动作。计划等待的基础设施错误保留 WakeupFailed，普通暂停/恢复不清除它或 cadence 的故障。
+
+状态依赖宿主异步快照，不承诺崩溃下恰好一次投递。关闭先停止计划等待和自动输入，再关闭运行、工具、模型并最终落盘。关闭 self_control.enabled 保留已有状态但不运行计划服务或提供控制工具；其中的暂停门控也不启用。新 ID 不替换旧定义，旧快照无需迁移，含新状态的快照需使用登记该 ID 的版本恢复。`scripts/bot.py` 已将该状态作为只读观察键开放，不新增 HTTP 控制端点或宿主退出/重启工具。
+
+离线回归：
+
+```powershell
+uv run --locked pytest packages/aurora_bot/tests/unit/test_self_control_state.py tests/e2e/test_self_control.py packages/aurora_agent/tests/unit/test_react_agent.py -q
 ```
 
 ## MCP 独立客户端验收

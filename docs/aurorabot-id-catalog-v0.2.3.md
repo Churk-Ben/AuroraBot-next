@@ -268,6 +268,15 @@ bot 负责默认产品装配、配置、资源所有权和运行入口。定义�
 | `org.aurora.bot:components/actions/read` | `component` | `aurora_bot.assembly` |
 | `org.aurora.bot:components/actions/read/execute` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:tools/actions/read` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:state/self_control` | `state_key` | `aurora_bot.assembly` |
+| `org.aurora.bot:components/self_control` | `component` | `aurora_bot.assembly` |
+| `org.aurora.bot:components/self_control/execute` | `hook_handler` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/self_control/status` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/self_control/autonomy` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/self_control/finish` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/self_control/schedule` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/self_control/list` | `tool` | `aurora_bot.assembly` |
+| `org.aurora.bot:tools/self_control/cancel` | `tool` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/clean_model` | `hook_handler` | `aurora_bot.assembly` |
 | `org.aurora.bot:handlers/assembly/prepare_bot` | `hook_handler` | `aurora_bot.assembly` |
@@ -286,6 +295,10 @@ notes_write 以 expected_revision=0 创建，后续更新必须携带当前 revi
 `tools/world/read_event` 的模型名称为 world_read_event，由 `[archive] enabled=true` 显式接入，默认关闭，不在 tools 列表手工声明。默认装配向工厂注入其持有的 WorldRecords，参数只接受 journal_id、record_id、offset，不允许数据库覆盖。返回带身份及来源的原始 JSON 片段和 next_offset；max_chars 限制每次 value 的 JSON 长度，默认 8000。定义发现不打开资源，无新插件、持久状态、数据库迁移或旧 ID 替换；详情见[主动上下文设计](aurora_bot_ctx_prompt_design.md#已实现的事件归档读取)。
 
 `tools/actions/read` 的模型名称为 actions_read，由 `[actions] enabled=true` 显式接入，默认关闭。按 run_id/call_id/offset 查询当前 bot 实例的持久执行证据；参数不能覆盖实例或数据库。新增组件与工具不替换旧 ID，不新增插件或 ctx 状态，旧快照无需迁移。执行前及结果边界独立事务写入 bot 数据库；关闭功能保留记录，缺失或未知不自动重试。配置、结果语义和恢复边界见[行动证据](aurora_bot_ctx_prompt_design.md#已实现的行动证据)。
+
+`state/self_control` 以 `location={instance_id}` 保存 version=1 的暂停开关、计划等待错误及最多 128 条一次性计划。`[self_control] enabled=true` 将上述六个工具接入原 ToolExecutor，模型名称依次为 bot_status、bot_autonomy、bot_finish、wake_schedule、wake_list、wake_cancel；默认关闭，不要求 world 或 choice，不接受参数覆盖实例。bot_finish 仅请求当前 run 在本轮观察后正常结束，未消费引导保留；不关闭宿主或取消其他工具。暂停同时门控普通 cadence 与计划唤醒，直接交流仍可用。
+
+计划以 wake_id/revision 比较更新；due_at/expires_at 为 UTC Unix 秒，submitted 记录 guidance_id/sequence/run_id，pending 恢复为 uncertain，不自动重放。状态由宿主快照持久化，回执不证明业务完成，不承诺崩溃下恰好一次。新定义不替换旧 ID，不新增插件；旧快照无需迁移，新状态不能由缺少定义的版本静默恢复。配置关闭保留状态，工具与计划服务停用。详细工具参数、过期与暂停语义见[计划唤醒指南](../examples/START.md#bot-的计划唤醒与自身控制)。
 
 运行操作和命令均使用 `run/submit`、`run/activate`、`run/cancel`，要求显式 instance_id。运行管理服务按实例绑定 AgentRuntime；CLI 命令通过公共操作分发，不要求 bot 导入 CLI 实现。默认装配的资源在 prepare 创建，stop 收束运行，clean 关闭工具与模型并解绑实例。
 

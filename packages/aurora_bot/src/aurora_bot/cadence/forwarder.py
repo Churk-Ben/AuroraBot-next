@@ -22,6 +22,7 @@ from aurora_world import RECORDS, CursorError, WorldRecords
 
 from ..assembly_config import CONFIG as BOT_CONFIG
 from ..context_view import BusinessContextView
+from ..self_control_state import SELF_CONTROL
 from .decision_state import CHOICES, initial_state
 from .state import CADENCE_CONFIG, CHECKPOINT, CONFIG_STATE, position
 from .timing import CadenceTiming
@@ -48,6 +49,7 @@ class Cadence:
         decision_factory: Callable[[str], Awaitable[ChoiceClient]] | None = None,
         view_factory: Callable[[dict, list[str]], BusinessContextView] | None = None,
         timing: CadenceTiming | None = None,
+        paused: Callable[[], bool] = lambda: False,
     ) -> None:
         self.ctx, self.hooks, self.runtime = ctx, hooks, runtime
         self.records = records
@@ -60,6 +62,8 @@ class Cadence:
         self._changed = asyncio.Event()
         self._decision_factory, self._view_factory = decision_factory, view_factory
         self._timing = timing or CadenceTiming()
+        self._paused = paused
+        self._control_subscription: str | None = None
         self._decision_config: dict | None = None
         self._decision_client: ChoiceClient | None = None
         self._decision_view: BusinessContextView | None = None
@@ -142,6 +146,7 @@ class Cadence:
             self._worker = asyncio.create_task(self._decide(), name=f"cadence-decision-{self.instance_id}")
             return
         self._subscription = self.ctx.subscribe(self._notify, key=RECORDS, location={})
+        self._control_subscription = self.ctx.subscribe(self._notify, key=SELF_CONTROL, location=self._location)
         self._changed.set()
         self._worker = asyncio.create_task(self._forward(), name=f"cadence-{self.instance_id}")
 
@@ -154,7 +159,7 @@ class Cadence:
             while self._accepting:
                 await self._changed.wait()
                 self._changed.clear()
-                while self._accepting:
+                while self._accepting and not self._paused():
                     batch = records.read(after=position(self._state["position"]), limit=1)
                     if not batch:
                         break
@@ -211,6 +216,9 @@ class Cadence:
         if self._subscription is not None:
             self.ctx.unsubscribe(self._subscription)
             self._subscription = None
+        if self._control_subscription is not None:
+            self.ctx.unsubscribe(self._control_subscription)
+            self._control_subscription = None
         if (
             self._worker is not None
             and self._worker is not asyncio.current_task()
@@ -245,7 +253,7 @@ class Cadence:
                 if not math.isfinite(delay) or not config["min_seconds"] <= delay <= config["max_seconds"]:
                     raise ValueError("随机间隔超出配置范围")
                 await self._timing.sleep(delay)
-                if self._accepting:
+                if self._accepting and not self._paused():
                     await self._evaluate()
         except asyncio.CancelledError:
             return
@@ -301,7 +309,7 @@ class Cadence:
             choice = await self._decision_client.choose(request)
         if choice not in CHOICES:
             raise ValueError("决策模型返回未声明的选项")
-        if not self._accepting:
+        if not self._accepting or self._paused():
             return
         evaluated_at = self._timing.now()
         decision = {"id": identity, "at": evaluated_at, "choice": choice, "disposition": "observed"}

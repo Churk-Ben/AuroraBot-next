@@ -15,6 +15,7 @@ from aurora_api.access import AccessPolicy, token_from_env
 from aurora_bot.assembly_config import AGENTS, MESSAGES, RUN, WORK
 from aurora_bot.cadence.state import CHECKPOINT
 from aurora_bot.conversation import CONVERSATION
+from aurora_bot.self_control_state import SELF_CONTROL
 from aurora_bot.work_notes import NOTES
 from aurora_cli.commander import run_cli
 from aurora_cli.configuration import read_host_config
@@ -44,6 +45,7 @@ READ_ONLY_KEYS = (
     ENVIRONMENT,
     SOURCE_STATUS,
     CHECKPOINT,
+    SELF_CONTROL,
     CLIENT_STATUS,
     WORLD_STATUS,
 )
