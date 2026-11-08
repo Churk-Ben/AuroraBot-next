@@ -163,6 +163,40 @@ try {
 
 已配置默认装配的 CLI 宿主可用 `serve --endpoints '["org.aurora.bot:endpoints/conversation"]'` 显式开放该端点；ctx 状态仍由 `--keys` 独立选择。`aurora_api` 插件提供端点接收方声明，未启用时不妨碍进程内运行；安装包不会自动启用插件或开放路由。默认仍限本机客户端，不接受浏览器 Origin；浏览器访问须显式启用下述访问策略。
 
+### 浏览器工作台（Panel）
+
+Panel 使用 Vue、Naive UI、Font Awesome、Pinia 和 Vue Router，提供连接、Bot 实例选择、交流和只读状态页，复用共享 client。页面路由为 `/#/conversation` 和 `/#/state`，可使用浏览器前进/后退，切页不重建订阅连接。先安装工作区依赖：
+
+```powershell
+pnpm install --frozen-lockfile
+```
+
+使用离线默认 Bot 即可体验，不需要真实模型密钥。后端终端中执行：
+
+```powershell
+$env:AURORA_API_TOKEN = uv run --locked python -c "import secrets; print(secrets.token_urlsafe(32))"
+uv run --locked python examples/default_bot/main.py --data-dir build/panel-demo --serve --port 10270 --token-env AURORA_API_TOKEN --allowed-origin http://127.0.0.1:5173
+```
+
+另开终端，在仓库根目录执行 `pnpm --filter @aurorabot/panel dev`，访问 `http://127.0.0.1:5173`。填写 API 地址 `http://127.0.0.1:10270` 和前一个终端生成的令牌。开发服务器固定回环地址与端口，端口占用时明确退出；若自行换端口，须同步后端 Origin 白名单。已有配置的产品宿主也可通过 `scripts/serve_bot.py` 开放相同来源，详情见下节。
+
+连接后选择目标 Bot，Enter 发送、Shift+Enter 换行；中文输入法确认候选词不会发送消息。运行中可追加引导，模型过程及工具参数/结果按运行显示；接纳状态与完成回执分开，停止操作指定运行并等待收尾。接纳结果不确定时先核对，只有点击“用原请求重试”才再次提交相同身份；后端重启后旧请求失效，不自动重发。
+
+状态页仅浏览后端已经开放的状态，可按 ID 或 location 筛选，值作为文本显示。切页保留草稿，各实例与 API 地址的草稿分开；这些草稿、令牌和连接设置都不写浏览器存储。刷新后重新连接，通过“已保存的上下文”查看后端历史；本页观察的过程不是持久日志。刷新、断开或关闭页面仅停止观察，不取消后端任务。连接尚未完成时也可点击“断开”。
+
+生产构建与本机预览：
+
+```powershell
+pnpm --filter @aurorabot/panel build
+pnpm --filter @aurorabot/panel preview
+```
+
+产物位于 `apps/aurora_panel/dist`，预览地址为 `http://127.0.0.1:4173`，需相应开放这个 Origin。生产页面默认以当前页面的 Origin 作为 API 地址；可在连接表单中改为其他明确开放的 API Origin。通过同源 HTTPS 代理部署静态资源及 API 时，保持 `/ctx`、`/conversation` 等 API 路径转发与 WS Upgrade，后端继续进行来源及令牌校验。令牌不放入 Vite 构建变量或静态文件。
+
+前端按 `layouts`、`views`、`components`、`composables`、`stores`、`services` 分工，工程结构与依赖边界见[架构设计](../docs/aurorabot-design-v0.2.3.md#102-界面动作边界)。开发时运行 `pnpm --filter @aurorabot/panel typecheck` 检查 TypeScript 与严格模板类型，`pnpm exec vitest run apps/aurora_panel` 执行服务和页面回归；图标按需导入 Font Awesome，主题统一在 `src/theme` 配置。
+
+本切片未提供 ctx/TOML 编辑、浏览器偏好持久化或完整 Markdown 渲染。界面与连接回归见 `apps/aurora_panel/tests`、`tests/e2e/test_panel.py`，浏览器和布局验收记录见 [变更记录](../docs/CHAGELOG.md)。
+
 ### 浏览器访问与运行期认证
 
 后端仍监听 `127.0.0.1`。开发页面可通过明确的 Origin 白名单跨端口访问；生产环境由反向代理提供 HTTPS/WSS，静态页面优先同源部署。启用浏览器来源或额外 Host 时必须同时提供访问令牌；同源也需要显式列入来源白名单。令牌授予宿主已经开放的全部状态和端点，不提供多用户或每个状态的权限隔离。
