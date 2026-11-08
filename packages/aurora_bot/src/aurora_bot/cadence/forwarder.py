@@ -18,13 +18,13 @@ from aurora_core.ctx import Context, StateChange
 from aurora_core.hooks import HookConnections
 from aurora_core.json_data import decode_json, encode_json
 from aurora_core.lifecycle import CLEAN, PREPARE, START, STOP, LifecycleComponent
-from aurora_world import RECORDS, CursorError, WorldRecords
+from aurora_world import ENVIRONMENT, RECORDS, CursorError, WorldRecords
 
 from ..assembly_config import CONFIG as BOT_CONFIG
 from ..context_view import BusinessContextView
 from ..self_control_state import SELF_CONTROL
 from .decision_state import CHOICES, initial_state
-from .state import CADENCE_CONFIG, CHECKPOINT, CONFIG_STATE, position
+from .state import CADENCE_CONFIG, CHECKPOINT, CONFIG_STATE, position, upgrade_checkpoint
 from .timing import CadenceTiming
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class Cadence:
     """每个默认 bot 仅装配一个转发所有者；不创建激活或等待业务完成。
 
     持久状态按 bot instance_id 定位。原样转发逐条读取历史并保留完整关联；决策模式
-    观察有界业务视图，分开记录观察和引导，仅保留最近 64 条投递回执。来源变化、
+    观察有界业务视图，分开记录观察和引导，仅保留最近 64 条投递回执。
     游标缺口和未知投递均暂停，恢复不清除诊断；不承诺崩溃下的恰好一次投递。
     """
 
@@ -47,7 +47,7 @@ class Cadence:
         *,
         instance_id: str,
         decision_factory: Callable[[str], Awaitable[ChoiceClient]] | None = None,
-        view_factory: Callable[[dict, list[str]], BusinessContextView] | None = None,
+        view_factory: Callable[[dict], BusinessContextView] | None = None,
         timing: CadenceTiming | None = None,
         paused: Callable[[], bool] = lambda: False,
     ) -> None:
@@ -58,6 +58,7 @@ class Cadence:
         self._state: dict = {}
         self._accepting = False
         self._subscription: str | None = None
+        self._environment_subscription: str | None = None
         self._worker: asyncio.Task[None] | None = None
         self._changed = asyncio.Event()
         self._decision_factory, self._view_factory = decision_factory, view_factory
@@ -101,51 +102,51 @@ class Cadence:
     @hook_handler("org.aurora.bot:handlers/cadence/prepare", slot=PREPARE)
     async def prepare(self) -> None:
         config = cast(dict, CADENCE_CONFIG.parse(self.ctx.get(CONFIG_STATE)))
-        selected = config["source_ids"]
         self._decision_config = config.get("decision")
-        if any(self.records.presentation(source_id) != "events" for source_id in selected):
-            raise ValueError(
-                "cadence 只能消费归档事件；需要转交的环境来源须在 world 配置中显式选择 presentation=events"
-            )
         self._location = {"instance_id": cast(dict, self.ctx.get(BOT_CONFIG))["instance_id"]}
         try:
-            self._state = cast(dict, self.ctx.get(CHECKPOINT, location=self._location))
+            stored = self.ctx.get(CHECKPOINT, location=self._location)
         except KeyError:
+            stored = None
+        if stored is None:
             self._state = (
-                initial_state(selected)
+                initial_state()
                 if self._decision_config is not None
                 else {
-                    "version": 1,
-                    "source_ids": sorted(selected),
+                    "version": 3,
+                    "environment_positions": {},
                     "position": None,
                     "pending": None,
                     "receipts": [],
                     "error": None,
                 }
             )
-            if selected or self._decision_config is not None:
-                self._save()
-        if self._state["version"] != (2 if self._decision_config is not None else 1):
+        else:
+            self._state = upgrade_checkpoint(stored)
+        if self._state["version"] != (4 if self._decision_config is not None else 3):
             raise ValueError("cadence 模式与已有快照不一致；请使用独立数据目录，不自动改写消费状态")
+        if self._state != stored:
+            self._save()
+            if stored is not None:
+                logger.info("cadence 消费状态已升级至版本 %s，保留历史游标和回执", self._state["version"])
         if self._state["pending"] is not None:
             self._pause("TransferUncertain")
-        elif self._state["source_ids"] != sorted(selected):
-            self._pause("SelectionChanged")
         if self._decision_config is not None and self._state["error"] is None:
             if self._decision_factory is None or self._view_factory is None:
                 raise ValueError("决策 cadence 需要显式注入 choice 工厂和业务视图")
-            self._decision_view = self._view_factory(self._decision_config, selected)
+            self._decision_view = self._view_factory(self._decision_config)
             self._decision_client = await self._decision_factory(self._decision_config["model_role"])
 
     @hook_handler("org.aurora.bot:handlers/cadence/start", slot=START)
     def start(self) -> None:
-        if self._state["error"] is not None or (not self._state["source_ids"] and self._decision_config is None):
+        if self._state["error"] is not None:
             return
         self._accepting = True
         if self._decision_config is not None:
             self._worker = asyncio.create_task(self._decide(), name=f"cadence-decision-{self.instance_id}")
             return
         self._subscription = self.ctx.subscribe(self._notify, key=RECORDS, location={})
+        self._environment_subscription = self.ctx.subscribe(self._notify, key=ENVIRONMENT)
         self._control_subscription = self.ctx.subscribe(self._notify, key=SELF_CONTROL, location=self._location)
         self._changed.set()
         self._worker = asyncio.create_task(self._forward(), name=f"cadence-{self.instance_id}")
@@ -154,55 +155,62 @@ class Cadence:
         self._changed.set()
 
     async def _forward(self) -> None:
-        records = self.records
         try:
             while self._accepting:
                 await self._changed.wait()
                 self._changed.clear()
                 while self._accepting and not self._paused():
-                    batch = records.read(after=position(self._state["position"]), limit=1)
-                    if not batch:
+                    batch = self.records.read(after=position(self._state["position"]), limit=1)
+                    observations = self.records.observations() if not batch else ()
+                    fresh = [
+                        record
+                        for record in observations
+                        if self._new_environment(record.source_id, asdict(record.position))
+                    ]
+                    if not batch and not fresh:
                         break
-                    record = batch[0]
+                    record = batch[0] if batch else fresh[0]
+                    kind = "event" if batch else "environment"
                     anchor = asdict(record.position)
-                    if record.source_id not in self._state["source_ids"]:
-                        self._save(position=anchor)
-                    else:
-                        message = {
-                            "position": anchor,
-                            "source_id": record.source_id,
-                            "message_id": record.message_id,
-                            "payload": record.payload,
-                        }
-                        self._save(pending=message)
-                        try:
-                            receipt = self.runtime.submit(cast(JsonValue, record.payload))
-                        except AgentBusyError:
-                            # Runtime 在写入前拒绝取消期间的提交，等待同一运行收尾后重新读取。
-                            self._save(pending=None)
-                            current = self.runtime.current
-                            if current is None:
-                                self._pause("RuntimeBusy")
-                                return
-                            await current.wait()
-                            await asyncio.sleep(0)
-                            continue
-                        except Exception:  # noqa: BLE001 - 提交可能已写入 inbox，禁止自动重放。
-                            self._pause("TransferUncertain")
+                    message = {
+                        "kind": kind,
+                        "position": anchor,
+                        "source_id": record.source_id,
+                        "message_id": record.message_id,
+                        "payload": record.payload,
+                    }
+                    self._save(pending=message)
+                    try:
+                        receipt = self.runtime.submit(cast(JsonValue, record.payload))
+                    except AgentBusyError:
+                        self._save(pending=None)
+                        current = self.runtime.current
+                        if current is None:
+                            self._pause("RuntimeBusy")
                             return
-                        self._save(
-                            position=anchor,
-                            pending=None,
-                            receipts=[
-                                *self._state["receipts"],
-                                {
-                                    "message": message,
-                                    "guidance_id": receipt.guidance_id,
-                                    "sequence": receipt.sequence,
-                                    "run_id": receipt.run.run_id,
-                                },
-                            ],
-                        )
+                        await current.wait()
+                        await asyncio.sleep(0)
+                        continue
+                    except Exception:  # noqa: BLE001 - 提交可能已写入 inbox，禁止自动重放。
+                        self._pause("TransferUncertain")
+                        return
+                    self._save(
+                        position=anchor if kind == "event" else self._state["position"],
+                        environment_positions={
+                            **self._state["environment_positions"],
+                            **({record.source_id: anchor} if kind == "environment" else {}),
+                        },
+                        pending=None,
+                        receipts=[
+                            *self._state["receipts"],
+                            {
+                                "message": message,
+                                "guidance_id": receipt.guidance_id,
+                                "sequence": receipt.sequence,
+                                "run_id": receipt.run.run_id,
+                            },
+                        ],
+                    )
                     await asyncio.sleep(0)
         except asyncio.CancelledError:
             return
@@ -211,11 +219,29 @@ class Cadence:
         except Exception:  # noqa: BLE001 - 保留 pending 与游标，状态写入失败继续向宿主报告。
             self._pause("TransferUncertain" if self._state.get("pending") is not None else "ForwarderFailed")
 
+    def _new_environment(self, source_id: str, anchor: dict) -> bool:
+        previous = self._state["environment_positions"].get(source_id)
+        if (
+            previous is not None
+            and previous["journal_id"] == anchor["journal_id"]
+            and previous["sequence"] == anchor["sequence"]
+            and previous["record_id"] != anchor["record_id"]
+        ):
+            raise CursorError("环境消费位置与观察身份不一致")
+        return (
+            previous is None
+            or previous["journal_id"] != anchor["journal_id"]
+            or anchor["sequence"] > previous["sequence"]
+        )
+
     def stop_accepting(self) -> None:
         self._accepting = False
         if self._subscription is not None:
             self.ctx.unsubscribe(self._subscription)
             self._subscription = None
+        if self._environment_subscription is not None:
+            self.ctx.unsubscribe(self._environment_subscription)
+            self._environment_subscription = None
         if self._control_subscription is not None:
             self.ctx.unsubscribe(self._control_subscription)
             self._control_subscription = None
@@ -274,6 +300,10 @@ class Cadence:
         business = cast(dict, decode_json(self._decision_view(ExecutionRequest(identity))))
         guided = position(self._state["event_position"])
         events = business["events"]["records"]
+        environment = [
+            item for item in business["environment"]["records"] if self._new_environment(item["source_id"], item)
+        ]
+        business["environment"]["records"] = environment
         if guided is not None:
             events = [item for item in events if item["sequence"] > guided.sequence]
             business["events"]["records"] = events
@@ -299,7 +329,7 @@ class Cadence:
             ),
             "criteria": {
                 "observe": "继续观察，本次不提交引导。",
-                "attend_events": "有值得关注的未投递近期事件，请 Bot 结合这些事实判断行动。",
+                "attend_events": "有值得关注的未投递事件或环境变化，请 Bot 结合这些事实判断行动。",
                 "review_work": "有未归档工作笔记值得重新检查，请 Bot 判断是否需要接续行动。",
             },
         }
@@ -316,7 +346,9 @@ class Cadence:
         self._save(position=observed, observation=decision)
         if choice == "observe":
             return
-        if (choice == "attend_events" and not events) or (choice == "review_work" and not business["notes"]["records"]):
+        if (choice == "attend_events" and not events and not environment) or (
+            choice == "review_work" and not business["notes"]["records"]
+        ):
             self._save(observation={**decision, "disposition": "no_material"})
             return
         last = self._state["last_guided_at"]
@@ -329,7 +361,7 @@ class Cadence:
             "choice": choice,
             "observed_at": now,
             "instruction": (
-                "请关注本次视图中的事件，结合事实判断是否需要行动。"
+                "请关注本次视图中的事件与环境变化，结合事实判断是否需要行动。"
                 if choice == "attend_events"
                 else "请检查本次视图中的未归档笔记，判断是否需要接续工作。"
             ),
@@ -342,8 +374,20 @@ class Cadence:
             if choice == "attend_events" and latest is not None
             else self._state["event_position"]
         )
+        environmental = dict(self._state["environment_positions"])
+        if choice == "attend_events":
+            for item in environment:
+                environmental[item["source_id"]] = {
+                    name: item[name] for name in ("journal_id", "sequence", "record_id")
+                }
         self._save(
-            observation=decision, pending={"decision": decision, "guidance": guidance, "position": event_position}
+            observation=decision,
+            pending={
+                "decision": decision,
+                "guidance": guidance,
+                "position": event_position,
+                "environment_positions": environmental,
+            },
         )
         try:
             receipt = self.runtime.submit(cast(JsonValue, guidance))
@@ -362,10 +406,21 @@ class Cadence:
                 for item in business["notes"]["records"]
             ]
         )
+        if choice == "attend_events":
+            references.extend(
+                {
+                    "kind": "world_environment",
+                    "source_id": item["source_id"],
+                    "journal_id": item["journal_id"],
+                    "record_id": item["record_id"],
+                }
+                for item in environment
+            )
         self._save(
             pending=None,
             observation=submitted,
             event_position=event_position,
+            environment_positions=environmental,
             last_guided_at=evaluated_at,
             receipts=[
                 *self._state["receipts"][-63:],

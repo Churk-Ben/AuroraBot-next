@@ -2,15 +2,15 @@
 
 import math
 
-from .state import _identity, position
+from .state import _identity, environment_positions, position
 
 CHOICES = ("observe", "attend_events", "review_work")
 
 
-def initial_state(source_ids: list[str]) -> dict:
+def initial_state() -> dict:
     return {
-        "version": 2,
-        "source_ids": sorted(source_ids),
+        "version": 4,
+        "environment_positions": {},
         "position": None,
         "observation": None,
         "event_position": None,
@@ -43,15 +43,9 @@ def _decision(value: object) -> None:
 
 
 def validate_decision_state(value: dict) -> None:
-    if set(value) != set(initial_state([])):
+    if set(value) != set(initial_state()):
         raise ValueError("cadence 决策状态字段无效")
-    sources = value["source_ids"]
-    if not isinstance(sources, list):
-        raise TypeError("cadence 来源必须为列表")
-    for source in sources:
-        _identity(source)
-    if len(sources) != len(set(sources)):
-        raise ValueError("cadence 来源不能重复")
+    environment_positions(value["environment_positions"])
     observed = position(value["position"])
     guided = position(value["event_position"])
     if guided is not None and (
@@ -65,13 +59,19 @@ def validate_decision_state(value: dict) -> None:
         _decision(value["observation"])
     if value["last_guided_at"] is not None:
         _time(value["last_guided_at"])
-    if value["error"] not in (None, "SelectionChanged", "TransferUncertain", "CursorInvalid", "DecisionFailed"):
+    if value["error"] not in (None, "TransferUncertain", "CursorInvalid", "DecisionFailed"):
         raise ValueError("cadence 暂停原因无效")
     pending = value["pending"]
     if pending is not None:
-        if not isinstance(pending, dict) or set(pending) != {"decision", "guidance", "position"}:
+        if not isinstance(pending, dict) or set(pending) != {
+            "decision",
+            "guidance",
+            "position",
+            "environment_positions",
+        }:
             raise ValueError("cadence 待投递记录无效")
         _decision(pending["decision"])
+        environment_positions(pending["environment_positions"])
         if pending["decision"] != value["observation"] or pending["decision"]["disposition"] != "pending":
             raise ValueError("cadence 待投递记录与观察不一致")
         if pending["decision"]["choice"] == "observe" or not isinstance(pending["guidance"], dict):
@@ -112,7 +112,11 @@ def validate_decision_state(value: dict) -> None:
             if not isinstance(reference, dict):
                 raise TypeError("cadence 材料引用必须为对象")
             if receipt["decision"]["choice"] == "attend_events":
-                if set(reference) != {"kind", "journal_id", "record_id"} or reference["kind"] != "world_event":
+                fields = {"kind", "journal_id", "record_id"}
+                if reference.get("kind") == "world_environment":
+                    fields.add("source_id")
+                    _identity(reference.get("source_id"))
+                if set(reference) != fields or reference["kind"] not in ("world_event", "world_environment"):
                     raise ValueError("cadence 事件引用无效")
                 _identity(reference["journal_id"])
                 _identity(reference["record_id"])

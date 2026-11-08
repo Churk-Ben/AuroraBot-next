@@ -1,2 +1,1 @@
-# 环境事件通过同一 AgentRuntime 进入巡检 bot。
-source_ids = ["workshop/environment"]
+# 默认转交所有世界事件和环境变化。

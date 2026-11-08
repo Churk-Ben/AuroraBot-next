@@ -29,11 +29,11 @@ from test_default_assembly import seed, setup
 LOCATION = {"instance_id": "main"}
 
 
-def configured(root, *, sources=("selected",)):
+def configured(root):
     path = root / "config/org.aurora.bot/cadence.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        path.write_text(tomli_w.dumps({"source_ids": list(sources)}), encoding="utf-8")
+        path.write_text(tomli_w.dumps({}), encoding="utf-8")
     return setup(root, extra_plugins=(world_plugin(), cadence_plugin()))
 
 
@@ -69,7 +69,7 @@ def test_forwarding_preserves_payload_and_accepts_during_same_run(tmp_path):
 
         assembly.runtime._activate = hold
         try:
-            ignored = append(assembly, "ignored", source="other")
+            other = append(assembly, "other-source", source="other")
             payload = {"text": "保留原始内容", "items": [1, False, None, {"nested": "值"}]}
             first = append(assembly, payload=payload)
             await entered.wait()
@@ -77,18 +77,19 @@ def test_forwarding_preserves_payload_and_accepts_during_same_run(tmp_path):
             assert handle is not None
             second = append(assembly, "two", payload=["独立消息"])
             assert append(assembly, payload=payload).duplicate
-            await until(lambda: len(state(ctx)["receipts"]) == 2)
+            await until(lambda: len(state(ctx)["receipts"]) == 3)
             receipts = state(ctx)["receipts"]
             assert [item["message"]["position"] for item in receipts] == [
+                asdict(other.record.position),
                 asdict(first.record.position),
                 asdict(second.record.position),
             ]
-            assert ignored.record.position.sequence < receipts[0]["message"]["position"]["sequence"]
+            assert {item["message"]["source_id"] for item in receipts} == {"selected", "other"}
             assert {item["run_id"] for item in receipts} == {handle.run_id}
             assert state(ctx)["pending"] is None and not handle.done
             assert assembly.agent is not None
             inbox = assembly.agent.pending(ExecutionRequest("inspect"))
-            assert [item["payload"] for item in inbox] == [payload, ["独立消息"]]
+            assert [item["payload"] for item in inbox] == ["other-source", payload, ["独立消息"]]
             assert [item["id"] for item in inbox] == [item["guidance_id"] for item in receipts]
             release.set()
             assert (await handle.wait()).status == "completed"
@@ -182,7 +183,7 @@ def test_uncertain_transfer_pauses_without_replay_even_after_restart(tmp_path, m
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("fault", ["anchor", "journal", "selection", "pending"])
+@pytest.mark.parametrize("fault", ["anchor", "journal", "pending"])
 def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
     async def scenario():
         host, assembly, ctx, _, _, _, _, _ = configured(tmp_path)
@@ -191,8 +192,6 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
         await until(lambda: len(state(ctx)["receipts"]) == 1)
         await until(lambda: assembly.runtime.current is None)
         await host.stop()
-        if fault == "selection":
-            (tmp_path / "config/org.aurora.bot/cadence.toml").write_text('source_ids = ["other"]', encoding="utf-8")
         restored, other, other_ctx, _, clients, _, _, _ = configured(tmp_path)
 
         def configure():
@@ -216,6 +215,7 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
                     {
                         **state(other_ctx),
                         "pending": {
+                            "kind": "event",
                             "position": asdict(record.position),
                             "source_id": record.source_id,
                             "message_id": record.message_id,
@@ -230,7 +230,6 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
             expected = {
                 "anchor": "CursorInvalid",
                 "journal": "CursorInvalid",
-                "selection": "SelectionChanged",
                 "pending": "TransferUncertain",
             }[fault]
             await until(lambda: state(other_ctx)["error"] == expected)
@@ -243,15 +242,16 @@ def test_recovery_requires_matching_cursor_and_resolved_intent(tmp_path, fault):
     asyncio.run(scenario())
 
 
-def test_empty_selection_and_immediate_shutdown_do_not_leave_tasks(tmp_path):
+def test_default_configuration_forwards_all_sources_and_shutdown_does_not_leave_tasks(tmp_path):
     async def scenario():
-        host, assembly, ctx, _, clients, _, _, _ = configured(tmp_path, sources=())
+        host, assembly, ctx, _, clients, _, _, _ = configured(tmp_path)
         await host.start(configure=lambda: seed(ctx, tools=False))
         append(assembly)
-        await asyncio.sleep(0)
-        assert clients[0].requests == [] and ctx.list(key=CHECKPOINT) == ()
+        await until(lambda: len(state(ctx)["receipts"]) == 1)
+        await until(lambda: assembly.runtime.current is None)
+        assert clients[0].requests and state(ctx)["error"] is None
         await host.stop()
-        (tmp_path / "config/org.aurora.bot/cadence.toml").write_text('source_ids = ["selected"]', encoding="utf-8")
+        (tmp_path / "config/org.aurora.bot/cadence.toml").write_text("", encoding="utf-8")
         restored, _, _, _, _, _, _, _ = configured(tmp_path)
         await restored.start()
         await restored.stop()
@@ -331,7 +331,7 @@ def test_source_lifecycle_and_partial_start_cleanup(tmp_path, fail_start):
             return SourceInstance(start, stop, close)
 
         for relative, value in (
-            ("org.aurora.bot/cadence.toml", {"source_ids": ["selected"]}),
+            ("org.aurora.bot/cadence.toml", {}),
             ("org.aurora.world/config.toml", {"sources": [{"source": str(source), "source_id": "selected"}]}),
         ):
             path = tmp_path / "config" / relative
@@ -423,7 +423,8 @@ def test_forwarding_reads_durable_backlog_outside_recent_view(tmp_path):
 
 
 @pytest.mark.parametrize("archive", [False, True])
-def test_environment_forwarding_requires_explicit_event_presentation(tmp_path, archive):
+def test_environment_sources_wake_without_changing_world_presentation(tmp_path, archive):
+    from aurora_world import ENVIRONMENT
     from aurora_world.environment import TIME
     from aurora_world.environment import plugin as environment_plugin
 
@@ -435,23 +436,58 @@ def test_environment_forwarding_requires_explicit_event_presentation(tmp_path, a
             source["presentation"] = "events"
         path.write_text(tomli_w.dumps({"sources": [source]}), encoding="utf-8")
         (tmp_path / "config/org.aurora.bot").mkdir(parents=True)
-        (tmp_path / "config/org.aurora.bot/cadence.toml").write_text('source_ids = ["selected"]', encoding="utf-8")
+        (tmp_path / "config/org.aurora.bot/cadence.toml").write_text("", encoding="utf-8")
         host, assembly, ctx, _, clients, _, _, _ = setup(
             tmp_path,
             extra_plugins=(world_plugin(), world_configuration_plugin(), environment_plugin(), cadence_plugin()),
         )
-        if archive:
-            await host.start(configure=lambda: seed(ctx, tools=False))
-            try:
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        try:
+            assert assembly.world_records is not None
+            if archive:
                 await until(lambda: len(state(ctx)["receipts"]) == 1)
-                assert assembly.world_records is not None
                 assert assembly.world_records.read()[0].source_id == "selected"
+            else:
+                await until(lambda: bool(ctx.list(key=ENVIRONMENT, location={"source_id": "selected"})))
+                assert assembly.world_records.presentation("selected") == "time"
+                assert assembly.world_records.read() == ()
+                await until(lambda: len(state(ctx)["receipts"]) == 1)
+                assert state(ctx)["position"] is None
+                assert state(ctx)["receipts"][0]["message"]["kind"] == "environment"
+                assert "selected" in state(ctx)["environment_positions"]
+                assert state(ctx)["error"] is None
+                await until(lambda: assembly.runtime.current is None)
+                assert clients[0].requests
+        finally:
+            await host.stop()
+        assert clients[0].closed
+
+    asyncio.run(scenario())
+
+
+def test_environment_progress_survives_restart_without_replaying_retained_observations(tmp_path):
+    async def scenario():
+        for restart in (False, True):
+            host, assembly, ctx, _, clients, _, _, _ = configured(tmp_path)
+            records = assembly.world_records
+            assert records is not None
+            records.select("time", "time")
+            await host.start(configure=(None if restart else lambda ctx=ctx: seed(ctx, tools=False)))
+            try:
+                if not restart:
+                    records.append(source_id="time", message_id="first", payload="时间一")
+                await until(lambda ctx=ctx: len(state(ctx)["receipts"]) == 1)
+                await until(lambda assembly=assembly: assembly.runtime.current is None)
+                if restart:
+                    await asyncio.sleep(0)
+                    assert clients[0].requests == []
+                    records.append(source_id="time", message_id="second", payload="时间二")
+                    await until(lambda ctx=ctx: len(state(ctx)["receipts"]) == 2)
+                    await until(lambda assembly=assembly: assembly.runtime.current is None)
+                    assert clients[0].requests
+                assert state(ctx)["position"] is None
+                assert records.read() == ()
             finally:
                 await host.stop()
-        else:
-            with pytest.raises(ValueError, match="presentation=events"):
-                await host.start(configure=lambda: seed(ctx, tools=False))
-            await host.stop()
-            assert clients[0].closed
 
     asyncio.run(scenario())

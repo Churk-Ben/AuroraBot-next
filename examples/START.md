@@ -441,9 +441,10 @@ latitude = 32.0617
 longitude = 118.7778
 interval_seconds = 900
 timeout_seconds = 10
+temperature_change_c = 3
 ```
 
-地点名称和经纬度须一起修改；时间使用宿主本地时区。每次启动立即采样，此后按各自间隔采样，不补发停机期间的周期。移除某个来源项可单独停用，`sources = []` 停用全部来源，修改后重启生效，模板不覆盖已有配置。时间间隔至少 1 秒，天气至少 60 秒，天气总请求超时至多 30 秒。
+地点名称和经纬度须一起修改；时间使用宿主本地时区。每次启动立即采样，此后按各自间隔采样，不补发停机期间的周期。移除某个来源项可单独停用，`sources = []` 停用全部来源，修改后重启生效，模板不覆盖已有配置。时间间隔至少 1 秒，天气至少 60 秒，天气总请求超时至多 30 秒。 天气仍按周期查询，首次采样、相对上次已发布气温的绝对变化超过 temperature_change_c（默认 3°C）、天气代码或可用状态变化时才发布；恰好 3°C、仅时间戳或风速变化不发布，连续小幅温差累计比较。重复相同故障不重复发布，恢复时发布当前天气。
 
 ```powershell
 uv run --locked aurora bot --edit-config
@@ -452,7 +453,7 @@ pnpm tui
 
 两个命令分别在两个终端运行。`scripts/bot.py` 默认开放近期事件、环境观察与来源状态，TUI 状态页筛选 `org.aurora.world` 即可读取，F7 可编辑 TOML。观察包含采样时间、地点、温度、天气描述及数据有效时间；天气来自 [Open-Meteo 当前天气接口](https://open-meteo.com/en/docs)，属于天气模型数据，载荷保留提供方归属。超时、网络失败或无效响应写入 `status=unavailable` 和固定错误代码，不伪造天气；时间来源继续运行，下一个天气周期会重新采样。
 
-环境采样只更新 `org.aurora.world:state/environment`，按 source_id 区分，不进入普通事件数据库或自动触发 cadence。时间默认保留最新 1 条，天气按宿主接收时间保留一小时内最多 4 条；world 在接纳时、启动时和每 30 秒统一刷新，无新输入也会过期。普通事件保存于 `namespaces/ns-org.aurora.world/events.sqlite3`，`state/records` 只提供近期文本视图，历史与去重不因呈现裁剪丢失。
+环境采样更新 `org.aurora.world:state/environment`，按 source_id 区分，不进入普通事件数据库；启用 cadence 后，新观察可以参与唤醒。时间默认保留最新 1 条；天气保留最新已发布观察及一小时内的历史，合计最多 4 条。最新天气保留原始观测时间，不因天气稳定而消失，不代表刚刚重新发布。普通事件保存于 `namespaces/ns-org.aurora.world/events.sqlite3`，state/records 只提供近期文本视图，历史与去重不因呈现裁剪丢失。
 
 统一保留规则写在文件根级 `[view]`（不要放进 `[sources.config]`）：
 
@@ -475,13 +476,9 @@ refresh_seconds = 30
 
 `scripts/bot.py` 已启用 cadence。使用通用 CLI 时，在默认 bot 的 `host.toml` 插件清单中显式加入 `aurora_world`、`aurora_bot.cadence`，保留已有的 bot、模型和配置依赖。来源按前节另行配置；只接收程序写入的世界记录时，无需启用 world 配置或环境插件。MCP 默认 bot 装配同样复用这一路径。
 
-首次启动只补齐缺失的 `<data-dir>/config/org.aurora.bot/cadence.toml`，默认 `source_ids = []` 不转发。选择实际来源实例后重启，例如只关注外部消息：
+首次启动只补齐缺失的 `<data-dir>/config/org.aurora.bot/cadence.toml`。不配置 `[decision]` 时原样转发所有世界事件和环境变化，不再提供 `source_ids` 白名单。停用某个来源请修改 world 的 sources，暂停自动活动使用 bot_autonomy。
 
-```toml
-source_ids = ["external/resources"]
-```
-
-首次选择从数据库可用历史开始。每条选定世界记录的 payload 原样形成一条引导，空闲时可启动运行，运行中继续接纳；环境观察默认不进入事件序列；需要归档并转发的来源须在对应 [[sources]] 下显式配置 presentation = "events"。cadence 选择了仍按环境观察呈现的来源时会明确拒绝启动，避免配置看似生效却没有转交。来源及世界消息身份保存在转交关联中，不给模型载荷加包装；回执表示已提交引导，不表示业务完成。直接交流继续使用同一 AgentRuntime。
+事件从数据库可用历史开始消费；环境按当前保留的观察消费，各来源独立记录锚点。每条新材料的 payload 原样形成引导，空闲时可启动运行，运行中继续接纳。环境不自动写入事件数据库，也不保证补发已经被保留策略裁剪的采样；需要可靠历史归档的来源仍可选择 presentation = "events"。回执保留来源、材料身份和类型，接纳不代表业务完成。直接交流继续使用同一 AgentRuntime。
 
 ```powershell
 uv run --locked aurora bot --edit-config
@@ -489,7 +486,7 @@ uv run --locked aurora bot --edit-config
 
 `scripts/bot.py` 默认启用 cadence 并开放观察状态。TUI 状态页读取 `org.aurora.bot:state/cadence`，location 的 instance_id 与 bot 配置一致；其中 position 为扫描位置，pending 为尚无确定回执的原消息，receipts 保存消息、guidance_id、sequence 和 run_id。F7 可编辑来源选择，正常关闭后重启生效。已有消费状态绑定了原来源集合，改变集合会暂停，不能通过改配置悄悄改变消费范围。
 
-`error=TransferUncertain` 表示须核对 pending 是否已经进入 agent；`CursorInvalid` 表示日志换代、缺失或裁剪缺口；`SelectionChanged` 表示来源范围不一致。暂停不阻断直接交流，也不会因重启自动解除。核对时先停止宿主并保留完整快照，对照 world、pending、receipts 与 agent 数据；不能仅凭文本相同认定已投递。首版没有自动核对或重置命令，须由宿主明确决定修复后的消费状态，不能直接删除游标来重放。
+`error=TransferUncertain` 表示须核对 pending 是否已经进入 agent；`CursorInvalid` 表示日志换代、缺失或裁剪缺口。暂停不阻断直接交流，也不会因重启自动解除。核对时先停止宿主并保留完整快照，对照 world、pending、receipts 与 agent 数据；不能仅凭文本相同认定已投递。首版没有自动核对或重置命令，须由宿主明确决定修复后的消费状态，不能直接删除游标来重放。
 
 完整回执随宿主异步保存，暂不自动裁剪；不能据此承诺崩溃时恰好一次执行。world 的去重覆盖数据库历史，呈现窗口外的同身份重投仍返回原记录。离线回归为 `uv run --locked pytest packages/aurora_bot/tests/unit/test_cadence_state.py tests/e2e/test_cadence.py -q`；live_workshop 已完成正式替换，双路径与恢复验收见 `tests/e2e/test_live_workshop.py`。
 
@@ -514,8 +511,6 @@ credential = "JEVMODEL_API_KEY"
 `<data-dir>/config/org.aurora.bot/cadence.toml` 示例：
 
 ```toml
-source_ids = []
-
 [decision]
 model_role = "cadence"
 min_seconds = 60.0
@@ -525,17 +520,17 @@ timeout_seconds = 15.0
 max_chars = 12000
 ```
 
-`source_ids` 精确选择事件来源；空列表不观察普通事件，但仍可读取环境和已启用的本实例工作笔记、行动证据。若需在没有新事件时检查笔记，在 bot 的 `config.toml` 中设置 `[notes] enabled = true`。`review_work` 没有可见笔记、`attend_events` 没有可见新事件时，不产生引导。决策模型不读取完整聊天历史、任意 ctx、配置或凭证。
+所有世界来源的事件和环境变化均可参与决策，同时读取已启用的本实例工作笔记和行动证据。若需检查笔记，在 bot 的 config.toml 中设置 `[notes] enabled = true`。`review_work` 没有可见笔记、`attend_events` 没有未投递事件或环境变化时，不产生引导。决策模型不读取完整聊天历史、任意 ctx、配置或凭证。
 
 每次判断串行执行，结束后再等待下一随机间隔；默认每小时最多约 60 次判断，实际次数受随机间隔和调用耗时限制。引导之间至少间隔 cooldown_seconds，重启保留最后投递时间；冷却期间仍可评估并记录选择。时间回拨不会跳过冷却。超时、无效选项或调用失败暂停为 `DecisionFailed`，没有默认行动、自动重试或静默回退。
 
-视图复用 BusinessContextView，按来源过滤事件并隔离实例笔记。max_chars 限制统一 ChoiceRequest 的完整 JSON 字符数，包括 state、instructions 和 criteria，不是供应商 token 或实际 HTTP 大小；视图单独预留信封空间，必要材料仍超限时暂停。`observe` 仅更新观察，不表示事件完成；窗口内未投递材料可以再次评估。超过窗口或预算的事件不会逐条补发，要求历史事件可靠逐条转交时继续使用原样转发模式。
+视图复用 BusinessContextView，读取全部世界来源并隔离实例笔记。max_chars 限制统一 ChoiceRequest 的完整 JSON 字符数，包括 state、instructions 和 criteria，不是供应商 token 或实际 HTTP 大小；视图单独预留信封空间，必要材料仍超限时暂停。`observe` 仅更新观察，不表示事件完成；窗口内未投递材料可以再次评估。超过窗口或预算的事件不会逐条补发，要求历史事件可靠逐条转交时继续使用原样转发模式。
 
-`attend_events` 和 `review_work` 由固定模板形成带决策身份、观察时间和业务视图的引导，经原 AgentRuntime 提交；Bot 忙碌时可接纳新引导，取消收尾期间被明确拒绝的投递留待下一次判断。Bot 可以判断无需行动。已投递事件批次的最新位置用于抑制旧窗口重复引导；笔记可以在冷却期后再次检查，笔记内容和投递回执均不证明业务完成。
+`attend_events` 和 `review_work` 由固定模板形成带决策身份、观察时间和业务视图的引导，经原 AgentRuntime 提交；Bot 忙碌时可接纳新引导，取消收尾期间被明确拒绝的投递留待下一次判断。Bot 可以判断无需行动。事件全局位置与每个环境来源的独立锚点抑制旧材料重复引导；笔记可以在冷却期后再次检查，笔记内容和投递回执均不证明业务完成。
 
-`org.aurora.bot:state/cadence` 的决策快照为 version=2，分别保存观察 position/observation、事件引导位置 event_position、last_guided_at、pending 和最近 64 条 receipts。回执保留决策结果、材料引用、guidance_id、sequence 和 run_id，旧回执裁剪不回退事件位置；这不是完整审计日志。pending 保留待核对的具体引导；未知投递及回执保存失败暂停为 `TransferUncertain`，恢复不重投。快照由宿主异步保存，不承诺崩溃下恰好一次投递。
+`org.aurora.bot:state/cadence` 的决策快照为 version=4，分别保存观察 position/observation、事件引导位置 event_position、环境引导位置 environment_positions、last_guided_at、pending 和最近 64 条 receipts。回执保留决策结果、材料引用、guidance_id、sequence 和 run_id，旧回执裁剪不回退事件位置；这不是完整审计日志。pending 保留待核对的具体引导；未知投递及回执保存失败暂停为 `TransferUncertain`，恢复不重投。快照由宿主异步保存，不承诺崩溃下恰好一次投递。
 
-两种模式的快照不可互换；检测到已有另一模式的状态会拒绝启动，不自动改写或删除用户数据。首次试用使用独立数据目录；当前不提供跨模式迁移或暂停状态的自动修复。已有来源选择改变仍暂停。关闭时先取消并等待判断，再关闭决策连接，Bot 的执行与工具继续由原所有者收尾。
+两种模式的快照不可互换；检测到已有另一模式的状态会拒绝启动，不自动改写或删除用户数据。首次试用使用独立数据目录；当前不提供跨模式迁移或暂停状态的自动修复。旧 version=1/2 消费状态在同一模式下升级为 version=3/4，保留游标、pending、回执和故障；只移除来源绑定及已取消的 SelectionChanged 暂停。旧配置中的 source_ids 必须删除，不会静默忽略。升级前备份数据目录；升级后的快照不能直接交给旧程序恢复。关闭时先取消并等待判断，再关闭决策连接，Bot 的执行与工具继续由原所有者收尾。
 
 决策 cadence 离线回归：
 

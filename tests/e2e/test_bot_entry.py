@@ -74,8 +74,8 @@ def test_explicit_missing_environment_file_is_an_error(tmp_path, monkeypatch):
         asyncio.run(bot.run(["--env-file", str(tmp_path / "missing.env"), "--token-env", TOKEN_ENV]))
 
 
-@pytest.mark.parametrize(("edit_config", "automatic"), [(False, False), (True, True)])
-def test_full_product_from_incomplete_host_config(tmp_path, monkeypatch, edit_config, automatic):
+@pytest.mark.parametrize(("edit_config", "archived_event"), [(False, False), (True, True)])
+def test_full_product_from_incomplete_host_config(tmp_path, monkeypatch, edit_config, archived_event):
     monkeypatch.setenv(TOKEN_ENV, TOKEN)
     env_file = tmp_path / ".env"
     env_file.write_text("", encoding="utf-8")
@@ -90,7 +90,7 @@ def test_full_product_from_incomplete_host_config(tmp_path, monkeypatch, edit_co
             world = tmp_path / "config/org.aurora.world/config.toml"
             world.parent.mkdir(exist_ok=True)
             sources = [{"source": "org.aurora.world:sources/environment/time", "source_id": "clock"}]
-            if automatic:
+            if archived_event:
                 sources.append(
                     {
                         "source": "org.aurora.world:sources/environment/time",
@@ -98,9 +98,7 @@ def test_full_product_from_incomplete_host_config(tmp_path, monkeypatch, edit_co
                         "presentation": "events",
                     }
                 )
-                (tmp_path / "config/org.aurora.bot/cadence.toml").write_text(
-                    'source_ids = ["pulse"]\n', encoding="utf-8"
-                )
+                (tmp_path / "config/org.aurora.bot/cadence.toml").write_text("", encoding="utf-8")
             world.write_text(tomli_w.dumps({"sources": sources}), encoding="utf-8")
             before = {path: path.read_bytes() for path in (tmp_path / "config").rglob("*.toml")}
             clients = []
@@ -145,18 +143,15 @@ def test_full_product_from_incomplete_host_config(tmp_path, monkeypatch, edit_co
                             await asyncio.sleep(0.02)
                     info = response.json()["result"]
                     assert len(clients) == 1
-                    if automatic:
-                        while True:
-                            state = await http.post(
-                                "/ctx/get", json={"key": str(bot.RUN), "location": {"instance_id": "main"}}
-                            )
-                            assert state.status_code == 200
-                            if state.json()["result"]["status"] == "completed":
-                                break
-                            await asyncio.sleep(0.02)
-                        assert clients[0].requests
-                    else:
-                        assert not clients[0].requests
+                    while True:
+                        state = await http.post(
+                            "/ctx/get", json={"key": str(bot.RUN), "location": {"instance_id": "main"}}
+                        )
+                        assert state.status_code == 200
+                        if state.json()["result"]["status"] == "completed":
+                            break
+                        await asyncio.sleep(0.02)
+                    assert clients[0].requests
                     assert (await http.post("/configuration/list", json={})).status_code == (
                         200 if edit_config else 404
                     )
@@ -198,6 +193,6 @@ def test_full_product_from_incomplete_host_config(tmp_path, monkeypatch, edit_co
             assert not [task for task in asyncio.all_tasks() if task.get_name().startswith("aurora-mcp:")]
             snapshot = (tmp_path / "framework/ctx.json").read_text(encoding="utf-8")
             assert TOKEN not in snapshot
-            assert ("org.aurora.bot:state/cadence" in snapshot) == automatic
+            assert "org.aurora.bot:state/cadence" in snapshot
 
     asyncio.run(scenario())

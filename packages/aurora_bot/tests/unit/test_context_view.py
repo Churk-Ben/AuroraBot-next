@@ -88,8 +88,10 @@ def test_expired_observations_refresh_before_inference_without_pruning_archive(w
     clock[0] += 3601
     view = json.loads(render(records))
     assert view["events"]["records"] == []
-    assert [item["kind"] for item in view["environment"]["records"]] == ["time"]
-    assert ctx.get(ENVIRONMENT, location={"source_id": "weather"})["records"] == []
+    assert [item["kind"] for item in view["environment"]["records"]] == ["time", "weather"]
+    weather = ctx.get(ENVIRONMENT, location={"source_id": "weather"})["records"]
+    assert len(weather) == 1 and weather[0]["payload"] == {"temperature": 18}
+    assert weather[0]["received_at"] < clock[0] - 3600
     assert records.get_by_id(event.record_id).payload == "旧事件"
 
 
