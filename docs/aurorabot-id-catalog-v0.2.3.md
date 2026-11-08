@@ -154,6 +154,9 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.adapter:registries/model/adapters` | `registry` | 已实现 | 接收模型适配器工厂 |
 | `org.aurora.adapter:services/model/client` | `service` | 已实现 | 上层消费的统一 ModelClient 协议 |
 | `org.aurora.adapter:adapters/model/litellm` | `adapter` | 已实现 | 基于 LiteLLM 创建 ModelClient |
+| `org.aurora.adapter:registries/model/choice_adapters` | `registry` | 已实现 | 接收类型化选择模型工厂，与聊天工厂分开校验 |
+| `org.aurora.adapter:services/model/choice_client` | `service` | 已实现 | ChoiceClient 单题选择与关闭契约，不生成文本或执行工具 |
+| `org.aurora.adapter:adapters/model/litellm_choice` | `adapter` | 已实现 | LiteLLM choice 工厂，登记到 choice_adapters，按需导入决策 SDK |
 | `org.aurora.adapter:schemas/model/request` | `schema` | 已实现 | 统一模型请求 |
 | `org.aurora.adapter:schemas/model/response` | `schema` | 已实现 | 统一模型响应 |
 | `org.aurora.adapter:schemas/model/chunk` | `schema` | 已实现 | 文本增量、完整工具请求和结束片段 |
@@ -164,6 +167,8 @@ ctx 原语由 core 实现。Python 插件通过进程内接口访问，CLI 使�
 | `org.aurora.adapter:state/model/bindings` | `state_key` | 已实现 | 逻辑模型角色与服务实例的可恢复绑定描述；来源为包内 TOML 模板 |
 
 安装 `aurora-adapter[model]` 可加载模型配置插件，`aurora-adapter[litellm]` 另提供供应商 SDK。插件入口为 `aurora_adapter.model`，依赖 aurora_config，登记 adapters、model_client、四个模型 schema、两个配置声明及其非持久状态；FakeModel 是可直接注入的离线实现，没有单独的 adapter ID。LiteLLM 适配器、工厂加载、TOML profiles 与角色绑定恢复均已接入默认装配。bot 使用 ModelClient，不直接引用 SDK，不强制新增独立工厂 schema ID。
+
+ChoiceClient 沿用 `aurora-adapter[litellm]`，复用 model/profiles.toml 与 model/bindings.toml，`resolve_choice` 只解析 choice_adapters，`resolve_model` 只解析聊天 adapters。新增定义无独立插件或持久状态，不改写已有配置或快照。`typesafe/jev-latest` 通过 SDK 转换为 SystemOne，`base_url` 可指向兼容服务根地址；凭证通过 profile 的环境变量引用在运行期解析。工厂使用锁定 SDK 的决策转换和底层 handler 注入独立连接池；升级 SDK 时须复验此边界。仅消费声明选项，概率不作为随机行动概率；错误和重定向明确失败，不自动重试。
 
 模型 complete 返回完整响应，stream 通过异步上下文消费文本增量、完整 ToolCall 与唯一结束片段。工具 JSON 参数由适配层组装，能力不足明确拒绝。调用方关闭单次流，装配在全部调用结束后关闭客户端；配置与 api_key 分开传入。ctx 快照仅包含 persistent 状态并使用严格 JSON，运行时对象由装配持有，凭证不写入 ctx；模型配置与绑定由包内 TOML 模板提供，只复制缺失文件并保留用户内容。
 
@@ -333,11 +338,14 @@ MCP 客户端与桥接实现计划归属可选包 `aurora_adapter.mcp`，不再�
 | 当前定义 | kind | 定位与职责 |
 | --- | --- | --- |
 | `org.aurora.bot:configs/cadence` | config | 来源选择与 `org.aurora.bot/cadence.toml` 模板声明 |
-| `org.aurora.bot:state/cadence_config` | state_key | 全局 `source_ids` 配置，非持久化，默认空列表 |
-| `org.aurora.bot:state/cadence` | state_key | 按 instance_id 保存来源选择绑定、完整消费位置、pending 原消息、receipts 引导关联与固定 error；持久化 |
+| `org.aurora.bot:state/cadence_config` | state_key | 全局 `source_ids` 与可选 decision 配置，非持久化；缺省原样转发且来源为空 |
+| `org.aurora.bot:state/cadence` | state_key | 按 instance_id 持久保存来源绑定及转交状态；version=1 为逐条转发，version=2 分离观察、决策和引导关联 |
 | `org.aurora.bot:handlers/cadence/prepare` | hook_handler | 校验配置与恢复的消费绑定，未知转交保持暂停 |
-| `org.aurora.bot:handlers/cadence/start` | hook_handler | 先订阅再读取，向既有 Runtime 逐条原样提交 |
+| `org.aurora.bot:handlers/cadence/start` | hook_handler | 按显式模式启动逐条转发或随机时钟决策，均向既有 Runtime 提交 |
 | `org.aurora.bot:handlers/cadence/stop` | hook_handler | 取消订阅并等待转发任务结束，不取消独立运行句柄 |
+| `org.aurora.bot:handlers/cadence/clean` | hook_handler | 等待自有任务结束后关闭决策客户端，原样转发模式无额外客户端 |
+
+决策模式的 version=2 保存 position/observation、event_position、last_guided_at、pending、最近 64 条 receipts 和固定 error；观察及回执不表示业务完成。pending 包含具体引导，回执保留材料引用和运行关联。配置通过 decision.model_role 选择 ChoiceClient，原样转发仍使用 version=1。未改名或新增持久状态 ID，未知状态仍严格拒绝；两种快照不自动转换，跨模式启动须使用独立数据目录或另行设计显式迁移。新增 clean hook 不创建新插件。
 
 来源消息身份、世界记录身份、guidance_id、run_id 和 execution_id 均为实例数据，不替代公共定义 ID。一条世界消息可进入已有运行；转交回执与消费位置不表示业务完成。直接交流和世界输入保留各自来源关联，宿主须避免同一输入经两条路径重复提交。所有 ID 和插件为新增，不替换旧定义、不改写已有 TOML 或快照；含 cadence 消费状态的快照须显式启用其插件才能恢复，缺失定义不被忽略。未知投递、裁剪缺口及来源选择变化的暂停规则见[设计第 7.7 节](aurorabot-design-v0.2.3.md#77-直接交流与世界输入)。M4.W4 已将 live_workshop 改为正式 world/cadence 的消费者，直接交流共用 AgentRuntime。示例新增来源定义 dev.example.workshop:sources/workshop，移除 state/request 与自有调度处理器；旧示例快照需使用原版本或换新目录，不自动迁移。
 

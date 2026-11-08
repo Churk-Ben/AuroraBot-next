@@ -8,6 +8,7 @@ from aurora_core.registry import RegistryEntry
 
 from .adapters import create_litellm
 from .configuration import BINDINGS, BINDINGS_SCHEMA, CONFIG, PROFILE_SCHEMA, check_bindings
+from .decisions import ChoiceClient, create_litellm_choice
 from .models import ModelCapabilities, ModelChunk, ModelRequest, ModelResponse
 from .protocols import ModelClient
 
@@ -15,6 +16,8 @@ from .protocols import ModelClient
 def plugin() -> Plugin:
     definitions = (
         ("registries/model/adapters", "registry", KindReceiver(frozenset({"adapter"})), "registries"),
+        ("registries/model/choice_adapters", "registry", KindReceiver(frozenset({"adapter"})), "registries"),
+        ("services/model/choice_client", "service", ChoiceClient, "services"),
         ("services/model/client", "service", ModelClient, "services"),
         ("schemas/model/request", "schema", ModelRequest, "schemas"),
         ("schemas/model/response", "schema", ModelResponse, "schemas"),
@@ -50,6 +53,13 @@ def plugin() -> Plugin:
                     check=check_bindings,
                 ),
                 provider="aurora_adapter.model",
+            ),
+            RegistryEntry(
+                Id("org.aurora.adapter:adapters/model/litellm_choice"),
+                "adapter",
+                create_litellm_choice,
+                "aurora_adapter.model",
+                register_to=Id("org.aurora.adapter:registries/model/choice_adapters"),
             ),
             RegistryEntry(
                 Id("org.aurora.adapter:adapters/model/litellm"),

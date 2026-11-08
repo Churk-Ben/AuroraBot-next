@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 import pytest
+from aurora_bot.cadence.decision_state import initial_state
 from aurora_bot.cadence.state import CADENCE_CONFIG, validate_checkpoint
 from aurora_core.discovery import load_plugins
 
@@ -67,5 +68,53 @@ def test_corrupt_checkpoint_is_rejected(fault):
         state["receipts"][0]["sequence"] = True
     else:
         state["error"] = "arbitrary error text"
+    with pytest.raises((ValueError, TypeError)):
+        validate_checkpoint(state)
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {},
+        {"model_role": " "},
+        {"model_role": "cadence", "min_seconds": 0},
+        {"model_role": "cadence", "min_seconds": 60, "max_seconds": 30},
+        {"model_role": "cadence", "cooldown_seconds": 0},
+        {"model_role": "cadence", "timeout_seconds": 0},
+        {"model_role": "cadence", "max_chars": 1024},
+        {"model_role": "cadence", "api_key": "must-not-persist"},
+    ],
+)
+def test_invalid_decision_configuration(decision):
+    with pytest.raises(ValueError):
+        CADENCE_CONFIG.parse({"decision": decision})
+
+
+def test_decision_defaults_are_explicit_and_separate_from_forwarding():
+    assert CADENCE_CONFIG.parse({}) == {"source_ids": []}
+    parsed = CADENCE_CONFIG.parse({"decision": {"model_role": "cadence"}})
+    assert isinstance(parsed, dict)
+    assert parsed["source_ids"] == [] and parsed["decision"]["min_seconds"] == 60
+    assert parsed["decision"]["max_seconds"] == 180
+    validate_checkpoint(initial_state([]))
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("version", True),
+        ("source_ids", ["a", "a"]),
+        ("source_ids", [""]),
+        ("error", "raw provider error"),
+        ("last_guided_at", float("nan")),
+        ("event_position", {"journal_id": "j", "sequence": 1, "record_id": "r"}),
+        ("observation", {"id": "d", "at": 1, "choice": "invented", "disposition": "observed"}),
+        ("pending", {"decision": {}, "guidance": {}, "position": None}),
+        ("receipts", [{}]),
+    ],
+)
+def test_corrupt_decision_state_is_not_ignored(field, value):
+    state = initial_state(["source"])
+    state[field] = value
     with pytest.raises((ValueError, TypeError)):
         validate_checkpoint(state)

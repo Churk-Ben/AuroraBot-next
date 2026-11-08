@@ -181,7 +181,9 @@ def seed(ctx, *, tools=True, credential=False, model="first"):
     ctx.set(BINDINGS, {"reasoning": "primary"})
 
 
-def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret", extra_plugins=()):
+def setup(
+    root, *, behavior="normal", capabilities=None, secret="runtime-secret", extra_plugins=(), assembly_options=None
+):
     registry = bootstrap()
     register_plugins(registry, (configuration_plugin(),))
     register_plugins(registry, extra_plugins)
@@ -267,7 +269,12 @@ def setup(root, *, behavior="normal", capabilities=None, secret="runtime-secret"
     )
     storage = StorageService(root)
     assembly = DefaultAssembly(
-        registry=registry, ctx=ctx, hooks=hooks, storage=storage, credential_resolver=lambda _: secret
+        registry=registry,
+        ctx=ctx,
+        hooks=hooks,
+        storage=storage,
+        credential_resolver=lambda _: secret,
+        **(assembly_options or {}),
     )
 
     class ConfiguredLifecycle(Lifecycle):

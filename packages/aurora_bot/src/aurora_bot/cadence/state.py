@@ -1,4 +1,4 @@
-"""cadence 的来源选择、持久消费位置和转交关联。"""
+"""cadence 的来源及决策配置、持久消费和观察状态校验。"""
 
 from typing import cast
 
@@ -23,6 +23,9 @@ def _sources(value: object) -> None:
         _identity(source)
     if len(sources) != len(set(sources)):
         raise ValueError("cadence 来源身份不能重复")
+    decision = cast(dict, value).get("decision")
+    if decision is not None and decision["max_seconds"] < decision["min_seconds"]:
+        raise ValueError("cadence 随机间隔上限不能小于下限")
 
 
 CADENCE_CONFIG = ConfigSchema(
@@ -31,6 +34,19 @@ CADENCE_CONFIG = ConfigSchema(
         "additionalProperties": False,
         "properties": {
             "source_ids": {"type": "array", "items": {"type": "string"}, "default": []},
+            "decision": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["model_role"],
+                "properties": {
+                    "model_role": {"type": "string", "pattern": r"\S"},
+                    "min_seconds": {"type": "number", "minimum": 1, "default": 60.0},
+                    "max_seconds": {"type": "number", "minimum": 1, "default": 180.0},
+                    "cooldown_seconds": {"type": "number", "minimum": 1, "default": 600.0},
+                    "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 15.0},
+                    "max_chars": {"type": "integer", "minimum": 4096, "maximum": 128000, "default": 12000},
+                },
+            },
         },
     },
     check=_sources,
@@ -60,6 +76,11 @@ def _transfer(value: object) -> WorldPosition:
 def validate_checkpoint(value: object) -> None:
     """同时校验消费顺序和关联身份；配置和运行句柄不进入快照。"""
     encode_json(value)
+    if isinstance(value, dict) and type(value.get("version")) is int and value["version"] == 2:
+        from .decision_state import validate_decision_state
+
+        validate_decision_state(value)
+        return
     if not isinstance(value, dict) or set(value) != {
         "version",
         "source_ids",

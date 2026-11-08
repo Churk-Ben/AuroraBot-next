@@ -2,6 +2,21 @@
 
 ## 2026-11-08
 
+### 增加受控随机时钟驱动的决策 cadence
+
+- 显式添加 cadence 的 `[decision]` 后，随机间隔串行唤起 choice 模型，选择 observe、attend_events 或 review_work；固定模板形成引导，复用原 AgentRuntime。无该配置时保留原样转发，已有用户 TOML 不被改写。默认 60–180 秒判断、600 秒引导冷却、15 秒判断超时和 12000 字符完整 ChoiceRequest 预算。
+- 决策读取有界业务视图，事件按 source_ids 过滤，笔记及行动证据按实例隔离。无事件时可检查笔记；观察不等于处理，事件去重位置和笔记冷却分别保存。当前窗口不保证旧事件逐条补发，冷却后允许再次检查未归档笔记；运行忙碌时可以补充引导，取消收尾期间明确拒绝的投递留待下次判断。
+- cadence 状态 version=2 分离观察、最近判断、事件引导位置、最后投递时间、pending 与最近 64 条含材料引用的回执；不新增持久状态 ID。两模式快照不自动转换，跨模式启动拒绝并提示使用独立数据目录；未知投递、回执写入失败和恢复 pending 均暂停，模型错误不降级成行动。关闭等待在途判断取消后释放独立决策连接。
+- 78 项针对性回归与 Python 类型检查通过，覆盖真实 LiteLLM 的 Jev/OpenAI 格式转换、独立连接池、观察后再次判断、随机间隔边界、无事件笔记检查、冷却恢复、忙碌运行、来源及实例隔离、预算、取消收尾、未知投递恢复、回执裁剪后去重和损坏配置/状态。未调用真实供应商或 QQ 服务，未修改 README.md、AGENTS.md 或用户数据。
+- 完整 `uv run --locked aurora check --full` 通过：1297 项 Python、115 项 TypeScript、5 项原生终端测试及全部静态检查；Python 测试耗时 237.08 秒，保留已有的两项 Pydantic ReadOnly 提示。首轮发现两处插件定义总数仍为 11 的断言，按新增的三个公共定义更新为 14，并增加新增 ID 集合检查，随后完整复验通过。
+- 11 个 wheel 构建成功。干净 control 环境不含 agent/adapter/模型，干净 agent 环境不含 bot/CLI/API/模型 SDK；产品 wheel 的 61 项决策协议、状态和集成测试通过，确认模块来自 site-packages、配置模板和插件定义齐全。工作区使用锁定 LiteLLM 1.106.6，干净产品环境按发布约束解析的 1.106.7 也通过相同协议测试。105 处本地文档链接及 Git 差异检查通过。
+
+### 提供类型化选择模型与 LiteLLM 决策适配
+
+- 在 adapter.model 增加 ChoiceClient/ChoiceFactory 单题选择契约和独立 choice_adapters 注册表，复用现有 profile、角色绑定与运行期凭证；聊天工厂和选择工厂不能混用。litellm_choice 工厂仅实例化时导入 SDK，插件发现不创建客户端。
+- 复用锁定版本 LiteLLM 1.106.6 的决策转换和 HTTP handler，显式注入自有客户端，不使用全局连接池或修改 SDK 全局配置；沿用既有 litellm extra，没有新增依赖。通过 typesafe/jev-latest 选择 Jev，base_url 可指向 SystemOne 兼容服务。响应只能选择已声明项；不把概率当作随机投递概率，不自动重试或跟随重定向，错误不暴露响应正文和凭证。
+- 模拟传输验证覆盖 Jev 请求契约、HTTP 错误、畸形回答、取消清理和工厂边界；未调用真实供应商。新增公共定义无独立插件、配置文件或持久状态，已有 TOML 与快照不变。底层 SDK 入口的升级须重新验证客户端注入和供应商转换。
+
 ### 默认快速边界检查与显式完整测试
 
 - `uv run --locked aurora check` 保留全部格式、lint、Python/TypeScript 类型和客户端入口检查，默认测试限定为 `tests/contract`、共享 TypeScript 客户端和检查计划契约；不收集 Python 插件包内测试，不启动完整前端、原生终端或长耗时集成测试。

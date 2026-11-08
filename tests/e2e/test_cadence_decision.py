@@ -1,0 +1,421 @@
+"""通过真实宿主和可控时钟验收持续决策、引导去重及关闭恢复。"""
+
+import asyncio
+import random
+from copy import deepcopy
+from dataclasses import asdict
+from typing import cast
+
+import pytest
+import tomli_w
+from aurora_adapter.model.configuration import BINDINGS, CHOICE_ADAPTERS
+from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_agent.react import AgentBusyError
+from aurora_bot.assembly_config import CONFIG
+from aurora_bot.cadence import plugin as cadence_plugin
+from aurora_bot.cadence.state import CHECKPOINT, CONFIG_STATE
+from aurora_bot.cadence.timing import CadenceTiming
+from aurora_bot.work_notes import WorkNotes
+from aurora_control import ExecutionRequest
+from aurora_core import Id
+from aurora_core.json_data import encode_json
+from aurora_core.registry import RegistryEntry
+from aurora_core.snapshots import JsonSnapshotStore
+from aurora_world.plugin import plugin as world_plugin
+from test_cadence import append, state, until
+from test_default_assembly import seed, setup
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+        self.waits = asyncio.Queue()
+        self.delays = []
+        self.timing = CadenceTiming(lambda: self.now, self.sleep, random.Random(7).uniform)
+
+    async def sleep(self, delay):
+        gate = asyncio.Event()
+        self.delays.append(delay)
+        self.waits.put_nowait((delay, gate))
+        await gate.wait()
+
+    async def tick(self):
+        async with asyncio.timeout(3):
+            delay, gate = await self.waits.get()
+        self.now += delay
+        gate.set()
+
+
+class Decisions:
+    def __init__(self):
+        self.choice = "observe"
+        self.requests = []
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.hold = False
+        self.closed = False
+        self.cleaned = False
+
+    async def choose(self, request):
+        self.requests.append(deepcopy(request))
+        self.entered.set()
+        try:
+            if self.hold:
+                await self.release.wait()
+            return self.choice
+        finally:
+            self.cleaned = True
+
+    async def aclose(self):
+        assert not self.hold or self.cleaned
+        self.closed = True
+
+
+def configured(root, *, sources=("selected",), decision_config=None):
+    clock, decisions = Clock(), Decisions()
+    path = root / "config/org.aurora.bot/cadence.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(
+            tomli_w.dumps(
+                {
+                    "source_ids": list(sources),
+                    "decision": {
+                        "model_role": "cadence",
+                        "min_seconds": 30,
+                        "max_seconds": 60,
+                        "cooldown_seconds": 100,
+                        **(decision_config or {}),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+    host, assembly, ctx, registry, clients, _, events, _ = setup(
+        root, extra_plugins=(world_plugin(), cadence_plugin()), assembly_options={"cadence_timing": clock.timing}
+    )
+
+    async def factory(config, *, api_key):
+        events.append("decision.created")
+        return decisions
+
+    adapter = Id("dev.cadence:adapters/choice")
+    registry.register(RegistryEntry(adapter, "adapter", factory, "test", register_to=CHOICE_ADAPTERS))
+
+    def configure():
+        seed(ctx, tools=False)
+        ctx.set(CONFIG, {**cast(dict, ctx.get(CONFIG)), "notes": {"enabled": True}})
+        ctx.set(
+            MODEL_CONFIG, {**cast(dict, ctx.get(MODEL_CONFIG)), "decision": {"adapter": str(adapter), "model": "fake"}}
+        )
+        ctx.set(BINDINGS, {**cast(dict, ctx.get(BINDINGS)), "cadence": "decision"})
+
+    return host, assembly, ctx, clients, clock, decisions, configure, events
+
+
+async def tick(clock, ctx):
+    previous = state(ctx)["observation"]
+    await clock.tick()
+    await until(lambda: state(ctx)["observation"] != previous or state(ctx)["error"] is not None)
+
+
+def note(ctx, identity="main", *, expected_revision=0, text="核对未完成事项"):
+    return WorkNotes(ctx, identity).write(
+        {
+            "note_id": "task",
+            "expected_revision": expected_revision,
+            "text": text,
+            "status": "active",
+            "references": [],
+        },
+        ExecutionRequest("write-note"),
+        "note-call",
+    )
+
+
+def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_path):
+    async def scenario():
+        host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path)
+        await host.start(configure=configure)
+        try:
+            first = append(assembly)
+            append(assembly, "private", source="other", payload="不应暴露的其他来源")
+            note(ctx, "other", text="不应暴露的其他实例笔记")
+            for _ in range(3):
+                await tick(clock, ctx)
+                assert state(ctx)["position"] == asdict(first.record.position)
+                assert state(ctx)["event_position"] is None and state(ctx)["receipts"] == []
+                records = decisions.requests[-1]["state"]["business"]["events"]["records"]
+                assert [record["record_id"] for record in records] == [first.record.record_id]
+                assert "不应暴露" not in encode_json(decisions.requests[-1])
+            assert clients[0].requests == []
+            assert all(30 <= delay <= 60 for delay in clock.delays)
+            assert len(set(clock.delays)) > 1
+            decisions.choice = "attend_events"
+            await tick(clock, ctx)
+            assert len(state(ctx)["receipts"]) == 1
+            assert state(ctx)["event_position"] == asdict(first.record.position)
+            await until(lambda: assembly.runtime.current is None)
+            assert clients[0].requests
+            clock.now += 200
+            await tick(clock, ctx)
+            assert len(state(ctx)["receipts"]) == 1
+            assert state(ctx)["observation"]["disposition"] == "no_material"
+        finally:
+            await host.stop()
+        assert decisions.closed
+
+    asyncio.run(scenario())
+
+
+def test_no_event_ticks_review_notes_with_cooldown_and_restart(tmp_path):
+    async def scenario():
+        for restart in (False, True):
+            host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path, sources=())
+            decisions.choice = "review_work"
+            await host.start(configure=configure)
+            try:
+                if not restart:
+                    note(ctx)
+                    await tick(clock, ctx)
+                    assert len(state(ctx)["receipts"]) == 1
+                    await until(lambda assembly=assembly: assembly.runtime.current is None)
+                    await tick(clock, ctx)
+                    assert len(state(ctx)["receipts"]) == 1
+                    assert state(ctx)["observation"]["disposition"] == "cooldown"
+                else:
+                    await tick(clock, ctx)
+                    assert clients[0].requests == [] and len(state(ctx)["receipts"]) == 1
+                    clock.now += 200
+                    await tick(clock, ctx)
+                    assert len(state(ctx)["receipts"]) == 2
+                    assert state(ctx)["event_position"] is None
+                    await until(lambda assembly=assembly: assembly.runtime.current is None)
+                    assert clients[0].requests
+            finally:
+                await host.stop()
+            assert decisions.closed
+        snapshot = JsonSnapshotStore(tmp_path / "framework/ctx.json").load()
+        assert any(item.address.key == CHECKPOINT for item in snapshot)
+        assert all(item.address.key != CONFIG_STATE for item in snapshot)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fault", ["before_submit", "after_submit", "commit"])
+def test_uncertain_decision_delivery_pauses_across_restart(tmp_path, monkeypatch, fault):
+    async def scenario():
+        host, assembly, ctx, _, clock, decisions, configure, _ = configured(tmp_path)
+        decisions.choice = "attend_events"
+        await host.start(configure=configure)
+        append(assembly)
+        submit, save = assembly.runtime.submit, ctx.set
+        calls = []
+
+        def broken_submit(payload):
+            calls.append(payload)
+            if fault == "after_submit":
+                submit(payload)
+            raise RuntimeError("投递结果未知")
+
+        def broken_save(key, value, **kwargs):
+            if key == CHECKPOINT and value["receipts"]:
+                raise OSError("回执写入失败")
+            save(key, value, **kwargs)
+
+        if fault == "commit":
+            monkeypatch.setattr(ctx, "set", broken_save)
+        else:
+            monkeypatch.setattr(assembly.runtime, "submit", broken_submit)
+        try:
+            await tick(clock, ctx)
+            assert state(ctx)["error"] == "TransferUncertain"
+            assert state(ctx)["pending"] is not None
+            assert state(ctx)["receipts"] == [] and state(ctx)["event_position"] is None
+            assert len(decisions.requests) == 1
+            saved = state(ctx)
+        finally:
+            monkeypatch.setattr(ctx, "set", save)
+            await host.stop()
+        restarted, _, other_ctx, clients, _, other_decisions, other_configure, events = configured(tmp_path)
+        await restarted.start(configure=other_configure)
+        try:
+            assert state(other_ctx) == saved
+            assert other_decisions.requests == [] and clients[0].requests == []
+            assert "decision.created" not in events
+        finally:
+            await restarted.stop()
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_cancels_decision_before_closing_client_and_does_not_submit(tmp_path):
+    async def scenario():
+        host, assembly, _, clients, clock, decisions, configure, _ = configured(tmp_path)
+        decisions.hold = True
+        decisions.choice = "attend_events"
+        await host.start(configure=configure)
+        append(assembly)
+        await clock.tick()
+        await decisions.entered.wait()
+        await host.stop()
+        assert decisions.cleaned and decisions.closed
+        snapshot = JsonSnapshotStore(tmp_path / "framework/ctx.json").load()
+        saved = cast(dict, next(item.value for item in snapshot if item.address.key == CHECKPOINT))
+        assert saved["pending"] is None and saved["observation"] is None
+        assert clients[0].requests == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fault", ["timeout", "invalid_choice"])
+def test_decision_failure_pauses_without_fallback_action(tmp_path, fault):
+    async def scenario():
+        host, assembly, ctx, clients, clock, decisions, configure, _ = configured(
+            tmp_path, decision_config={"timeout_seconds": 0.03}
+        )
+        decisions.hold = fault == "timeout"
+        decisions.choice = "invalid"
+        await host.start(configure=configure)
+        try:
+            append(assembly)
+            await tick(clock, ctx)
+            assert state(ctx)["error"] == "DecisionFailed"
+            assert state(ctx)["receipts"] == [] and state(ctx)["pending"] is None
+            assert clients[0].requests == [] and decisions.cleaned
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_decision_can_feed_the_existing_busy_run_and_direct_conversation(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clock, decisions, configure, _ = configured(tmp_path)
+        decisions.choice = "attend_events"
+        await host.start(configure=configure)
+        release, entered = asyncio.Event(), asyncio.Event()
+        activate = assembly.runtime._activate
+
+        async def held(request):
+            entered.set()
+            await release.wait()
+            await activate(request)
+
+        assembly.runtime._activate = held
+        try:
+            direct = assembly.runtime.submit("直接交流")
+            await entered.wait()
+            append(assembly)
+            await tick(clock, ctx)
+            assert decisions.requests[-1]["state"]["bot"]["busy"]
+            assert state(ctx)["receipts"][0]["run_id"] == direct.run.run_id
+            assert assembly.agent is not None
+            payloads = [item["payload"] for item in assembly.agent.pending(ExecutionRequest("inspect"))]
+            assert payloads[0] == "直接交流"
+            assert isinstance(payloads[1], dict) and payloads[1]["kind"] == "cadence_decision"
+            release.set()
+            assert (await direct.run.wait()).status == "completed"
+        finally:
+            release.set()
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_budget_and_source_selection_apply_before_decision(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clock, decisions, configure, _ = configured(
+            tmp_path, decision_config={"max_chars": 4096}
+        )
+        await host.start(configure=configure)
+        try:
+            append(assembly, payload='中文"\\\n' * 10000)
+            note(ctx, text="工作" * 7000)
+            await tick(clock, ctx)
+            assert state(ctx)["error"] is None
+            assert len(encode_json(decisions.requests[0])) <= 4096
+            business = decisions.requests[0]["state"]["business"]
+            assert business["notes"]["records"][0]["abridged"]
+            assert "runtime-secret" not in encode_json(decisions.requests[0])
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_mode_change_requires_explicit_handling_of_existing_snapshot(tmp_path):
+    async def scenario():
+        from test_cadence import configured as forward_configured
+
+        host, assembly, ctx, *_ = forward_configured(tmp_path)
+        await host.start(configure=lambda: seed(ctx, tools=False))
+        append(assembly)
+        await until(lambda: bool(state(ctx)["receipts"]))
+        await host.stop()
+        path = tmp_path / "config/org.aurora.bot/cadence.toml"
+        path.write_text('source_ids = ["selected"]\n[decision]\nmodel_role = "cadence"\n', encoding="utf-8")
+        snapshot = (tmp_path / "framework/ctx.json").read_bytes()
+        restarted, _, _, _, _, _, configure, events = configured(tmp_path)
+        with pytest.raises(ValueError, match="模式与已有快照不一致"):
+            await restarted.start(configure=configure)
+        assert "decision.created" not in events
+        assert (tmp_path / "framework/ctx.json").read_bytes() == snapshot
+
+    asyncio.run(scenario())
+
+
+def test_explicit_busy_rejection_leaves_event_for_the_next_decision(tmp_path, monkeypatch):
+    async def scenario():
+        host, assembly, ctx, _, clock, decisions, configure, _ = configured(tmp_path)
+        decisions.choice = "attend_events"
+        await host.start(configure=configure)
+        original = assembly.runtime.submit
+
+        def reject(payload):
+            raise AgentBusyError("正在取消收尾，尚未写入引导")
+
+        try:
+            append(assembly)
+            monkeypatch.setattr(assembly.runtime, "submit", reject)
+            await tick(clock, ctx)
+            assert state(ctx)["observation"]["disposition"] == "busy"
+            assert state(ctx)["pending"] is None and state(ctx)["event_position"] is None
+            monkeypatch.setattr(assembly.runtime, "submit", original)
+            await tick(clock, ctx)
+            assert len(state(ctx)["receipts"]) == 1 and state(ctx)["error"] is None
+            await until(lambda: assembly.runtime.current is None)
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
+
+
+def test_receipt_window_does_not_roll_back_event_deduplication(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clock, decisions, configure, _ = configured(tmp_path)
+        decisions.choice = "attend_events"
+        await host.start(configure=configure)
+        try:
+            for index in range(65):
+                event = append(assembly, str(index))
+                clock.now += 100
+                await tick(clock, ctx)
+                await until(lambda: assembly.runtime.current is None)
+                assert state(ctx)["event_position"] == asdict(event.record.position)
+            assert len(state(ctx)["receipts"]) == 64
+            assert state(ctx)["receipts"][-1]["references"] == [
+                {
+                    "kind": "world_event",
+                    "journal_id": event.record.position.journal_id,
+                    "record_id": event.record.record_id,
+                }
+            ]
+            clock.now += 200
+            await tick(clock, ctx)
+            assert state(ctx)["observation"]["disposition"] == "no_material"
+            assert len(state(ctx)["receipts"]) == 64
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())

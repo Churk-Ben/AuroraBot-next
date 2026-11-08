@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import cast
 
 from aurora_adapter.model import ModelClient, require_capabilities
-from aurora_adapter.model.configuration import BINDINGS, resolve_model
+from aurora_adapter.model.configuration import BINDINGS, resolve_choice, resolve_model
 from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_adapter.model.decisions import ChoiceClient
 from aurora_agent.input_budget import ModelInputBudget
 from aurora_agent.model import ModelCall
 from aurora_agent.react import AgentBusyError, ReActAgent
@@ -47,6 +48,7 @@ from .assembly_config import (
 )
 from .cadence import Cadence
 from .cadence.state import CONFIGURATION as CADENCE_CONFIGURATION
+from .cadence.timing import CadenceTiming
 from .cli import command_entries
 from .context_view import BusinessContextView
 from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
@@ -91,6 +93,7 @@ class DefaultAssembly:
         instance_id: str = "default",
         additional_tools: Callable[[tuple[ToolSelection, ...]], Iterable[ToolSelection]] | None = None,
         world_component_factory: Callable[..., LifecycleComponent] = configured_sources_component,
+        cadence_timing: CadenceTiming | None = None,
     ) -> None:
         if not instance_id:
             raise ValueError("装配实例身份不能为空")
@@ -99,6 +102,7 @@ class DefaultAssembly:
         self.instance_id = instance_id
         self._additional_tools = additional_tools
         self._world_component_factory = world_component_factory
+        self._cadence_timing = cadence_timing
         self.client: ModelClient | None = None
         self.agent: ReActAgent | None = None
         self.defaults: ReActDefaults | None = None
@@ -162,6 +166,9 @@ class DefaultAssembly:
                         self.runtime,
                         self.world_records,
                         instance_id=f"{self.instance_id}/cadence",
+                        decision_factory=self._create_decision_client,
+                        view_factory=self._decision_view,
+                        timing=self._cadence_timing,
                     ).component(depends_on=(records_components[0].instance_id,)),
                 )
             if any(entry.id == WORLD_CONFIGURATION for entry in self.registry.entries()):
@@ -187,6 +194,29 @@ class DefaultAssembly:
             *records_components,
             *cadence,
             *world,
+        )
+
+    async def _create_decision_client(self, role: str) -> ChoiceClient:
+        resolved = resolve_choice(self.registry, self.ctx.get(MODEL_CONFIG), self.ctx.get(BINDINGS), role)
+        api_key = None if resolved.credential is None else self.credential_resolver(resolved.credential)
+        return await resolved.factory(resolved.config, api_key=api_key)
+
+    def _decision_view(self, config: dict, source_ids: list[str]) -> BusinessContextView:
+        assert self.config is not None
+        return BusinessContextView(
+            self.world_records,
+            {
+                "enabled": True,
+                "events": True,
+                "environment": True,
+                "notes": True,
+                "actions": True,
+                "max_chars": config["max_chars"] - 2048,
+            },
+            source_ids=frozenset(source_ids),
+            notes=WorkNotes(self.ctx, self.config["instance_id"]) if self.config["notes"]["enabled"] else None,
+            actions=self.action_evidence,
+            archive_enabled=self.config["archive"]["enabled"],
         )
 
     @hook_handler("org.aurora.bot:handlers/assembly/prepare_model", slot=PREPARE)
