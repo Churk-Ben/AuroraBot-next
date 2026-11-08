@@ -230,6 +230,8 @@ class ReActDefaults:
     async def record_observation(self, request: ExecutionRequest) -> None:
         context = self._context(request)
         self._settle(context, recovering=False)
+        if self.agent.finish_requested:
+            context["exchange_ends"].append(len(context["messages"]))
         self.context_state.set(self.ctx, request, context)
 
 
