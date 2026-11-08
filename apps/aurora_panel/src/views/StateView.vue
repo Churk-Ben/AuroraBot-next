@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 
-import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { NCard, NEmpty, NInput, NTag } from 'naive-ui';
+import { KunChip, KunInput } from '@kungal/ui-vue';
+import { Database, Search } from '@lucide/vue';
 
-import JsonViewer from '../components/common/JsonViewer.vue';
-import StateTable from '../components/state/StateTable.vue';
 import { useWorkbenchStore } from '../stores/workbench';
 import { address } from '../utils/state';
 
@@ -24,59 +21,49 @@ const selected = computed(
 </script>
 
 <template>
-  <section class="page-stack" aria-label="状态工作区">
-    <header class="page-heading">
+  <section class="state-page" aria-label="状态工作区">
+    <header class="state-heading">
       <div>
+        <span class="eyebrow">看见正在发生的事</span>
         <h1>公开状态</h1>
-        <p>读取和订阅后端已开放的数据。</p>
+        <p class="muted">读取和订阅后端已开放的数据。</p>
       </div>
-      <NTag :bordered="false">只读 · {{ store.state.records.length }} 项</NTag>
+      <KunChip variant="flat">只读 · {{ store.state.records.length }} 项</KunChip>
     </header>
-    <NInput
-      v-model:value="filter"
-      :input-props="{ id: 'state-filter', 'aria-label': '筛选状态' }"
+    <KunInput
+      :model-value="filter"
+      v-bind="{ id: 'state-filter' }"
+      @update:model-value="filter = String($event)"
+      aria-label="筛选状态"
       placeholder="按状态 ID 或位置筛选…"
-      clearable
+      is-clearable
     >
-      <template #prefix><FontAwesomeIcon :icon="faMagnifyingGlass" /></template>
-    </NInput>
-    <div class="state-browser">
-      <StateTable :records="records" @select="selectedAddress = address($event)" />
-      <NCard class="state-detail" title="当前值" size="small">
-        <template v-if="selected">
-          <div class="state-address">
-            <strong class="text-content">{{ selected.id }}</strong>
-            <div class="text-content muted">{{ JSON.stringify(selected.location) }}</div>
-          </div>
-          <JsonViewer :value="selected.value" />
-        </template>
-        <NEmpty v-else :description="filter ? '没有匹配的状态' : '后端尚未开放或写入状态'" />
-      </NCard>
+      <template #prefix><Search :size="17" /></template>
+    </KunInput>
+    <div v-if="records.length" class="state-browser">
+      <div class="state-list" aria-label="状态列表">
+        <button
+          v-for="record in records"
+          :key="address(record)"
+          type="button"
+          :aria-pressed="selected === record"
+          @click="selectedAddress = address(record)"
+        >
+          <Database :size="16" /><span
+            ><strong>{{ record.id }}</strong> <small>{{ JSON.stringify(record.location) }}</small></span
+          >
+        </button>
+      </div>
+      <section v-if="selected" class="state-detail" aria-label="当前值">
+        <h2>{{ selected.id }}</h2>
+        <p class="muted">{{ JSON.stringify(selected.location) }}</p>
+        <pre>{{ JSON.stringify(selected.value, null, 2) }}</pre>
+      </section>
+    </div>
+    <div v-else class="state-empty">
+      <Database :size="30" />
+      <h2>{{ filter ? '没有匹配的状态' : '这里将呈现运行中的状态' }}</h2>
+      <p>{{ filter ? '试试其他关键词。' : '后端连接就绪后，已开放的数据会在这里实时更新。' }}</p>
     </div>
   </section>
 </template>
-
-<style scoped>
-.state-browser {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.state-detail {
-  min-width: 0;
-}
-
-.state-address {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-@media (width <= 1100px) {
-  .state-browser {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-</style>

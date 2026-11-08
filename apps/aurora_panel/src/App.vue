@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue';
 
-import { dateZhCN, NConfigProvider, NGlobalStyle, zhCN } from 'naive-ui';
-
 import WorkbenchLayout from './layouts/WorkbenchLayout.vue';
 import { useWorkbenchStore } from './stores/workbench';
-import { themeOverrides, themeVariables } from './theme';
 
 const store = useWorkbenchStore();
 const leave = () => {
@@ -19,8 +16,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <NConfigProvider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="themeOverrides" :style="themeVariables">
-    <NGlobalStyle />
-    <WorkbenchLayout />
-  </NConfigProvider>
+  <WorkbenchLayout />
 </template>

@@ -6,9 +6,6 @@ packages:
 catalog:
   '@eslint-community/eslint-plugin-eslint-comments': 4.8.1
   '@eslint/js': 10.0.1
-  '@fortawesome/fontawesome-svg-core': 7.3.1
-  '@fortawesome/free-solid-svg-icons': 7.3.1
-  '@fortawesome/vue-fontawesome': 3.3.3
   '@kungal/ui-core': 2.64.1
   '@kungal/ui-tokens': 2.64.1
   '@kungal/ui-vue': 2.64.1
@@ -31,7 +28,6 @@ catalog:
   globals: 17.13.0
   happy-dom: 21.0.4
   jiti: 2.7.0
-  naive-ui: 2.45.3
   oxlint: 1.90.0
   pinia: 4.1.0
   postcss: 8.5.32

@@ -1,11 +1,8 @@
 <script setup lang="ts">
-import type { FormInst, FormRules } from 'naive-ui';
+import { ref, watch } from 'vue';
 
-import { reactive, ref, toRefs } from 'vue';
-
-import { faLink } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
-import { NAlert, NButton, NDrawer, NDrawerContent, NForm, NFormItem, NInput, NSpace, NText } from 'naive-ui';
+import { KunButton, KunDrawer, KunInput } from '@kungal/ui-vue';
+import { Link2, ShieldCheck } from '@lucide/vue';
 import { storeToRefs } from 'pinia';
 
 import { useWorkbenchStore } from '../../stores/workbench';
@@ -13,113 +10,79 @@ import { useWorkbenchStore } from '../../stores/workbench';
 const store = useWorkbenchStore();
 const { connectionVisible, connecting, state } = storeToRefs(store);
 const { disconnect } = store;
-const formRef = ref<FormInst>();
-const fields = reactive({
-  endpoint: import.meta.env.DEV ? 'http://127.0.0.1:10270' : window.location.origin,
-  token: '',
-});
-const { endpoint, token } = toRefs(fields);
-function clearToken() {
-  fields.token = '';
-}
+const endpoint = ref(import.meta.env.DEV ? 'http://127.0.0.1:10270' : window.location.origin);
+const token = ref('');
+const error = ref('');
 const origin = window.location.origin;
-const rules: FormRules = {
-  endpoint: [
-    { required: true, message: '请输入 API 地址', trigger: ['input', 'blur'] },
-    {
-      validator: (_rule, value: string) => {
-        try {
-          const url = new URL(value.trim());
-          return (
-            ['http:', 'https:'].includes(url.protocol) &&
-            !url.username &&
-            !url.password &&
-            !url.search &&
-            !url.hash &&
-            ['', '/'].includes(url.pathname)
-          );
-        } catch {
-          return false;
-        }
-      },
-      message: '请填写完整的 http(s)://主机:端口，不含路径',
-      trigger: 'blur',
-    },
-  ],
-  token: { required: true, message: '请输入访问令牌', trigger: 'blur' },
-};
-
+watch(connectionVisible, (visible) => {
+  if (!visible) token.value = '';
+});
 async function connect() {
-  if (store.connecting) return;
+  if (connecting.value) return;
+  error.value = '';
   try {
-    await formRef.value?.validate();
+    const url = new URL(endpoint.value.trim());
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !['', '/'].includes(url.pathname)
+    )
+      throw new Error('invalid');
   } catch {
+    error.value = '请填写完整的 http(s)://主机:端口，不含路径';
     return;
   }
-  await store.connect(fields.endpoint.trim(), () => {
-    const credential = fields.token;
-    fields.token = '';
+  if (!token.value.trim()) {
+    error.value = '请输入访问令牌';
+    return;
+  }
+  await store.connect(endpoint.value.trim(), () => {
+    const credential = token.value;
+    token.value = '';
     return credential;
   });
 }
 </script>
 
 <template>
-  <NDrawer
-    v-model:show="connectionVisible"
-    :width="480"
-    :style="{ maxWidth: '100vw' }"
-    :auto-focus="true"
-    @after-leave="clearToken"
-  >
-    <NDrawerContent title="连接你的 Aurora" closable>
-      <NForm
-        ref="formRef"
-        class="connection-form"
-        :model="fields"
-        :rules="rules"
+  <KunDrawer v-model="connectionVisible" title="连接你的 Aurora" size="md">
+    <p class="muted connection-intro">连接一个正在运行的后端，开始你的工作。</p>
+    <form class="connection-form" @submit.prevent="connect">
+      <KunInput
+        :model-value="endpoint"
+        v-bind="{ 'data-testid': 'endpoint', autocomplete: 'url' }"
+        @update:model-value="endpoint = String($event)"
+        label="API 地址"
         :disabled="connecting"
-        @submit.prevent="connect"
-      >
-        <NFormItem label="API 地址" path="endpoint" :label-props="{ for: 'endpoint' }">
-          <NInput
-            v-model:value="endpoint"
-            :input-props="{ id: 'endpoint', autocomplete: 'url' }"
-            placeholder="http://127.0.0.1:10270"
-          />
-        </NFormItem>
-        <NFormItem label="访问令牌" path="token" :label-props="{ for: 'token' }">
-          <NInput
-            v-model:value="token"
-            type="password"
-            show-password-on="click"
-            :input-props="{ id: 'token', autocomplete: 'off' }"
-            placeholder="输入当前后端的访问令牌"
-          />
-        </NFormItem>
-        <NText depth="3">令牌仅用于本次连接，不会保存到浏览器。</NText>
-        <NSpace class="connection-actions">
-          <NButton type="primary" attr-type="submit" :loading="connecting" :disabled="connecting">
-            <template #icon><FontAwesomeIcon :icon="faLink" /></template>{{ connecting ? '正在连接…' : '连接工作台' }}
-          </NButton>
-          <NButton v-if="state.connection !== 'closed'" :disabled="false" @click="disconnect()"> 断开 </NButton>
-        </NSpace>
-      </NForm>
-      <NAlert v-if="state.notice" type="warning" class="connection-help">{{ state.notice }}</NAlert>
-      <NAlert type="info" title="浏览器来源" class="connection-help">
-        后端需允许当前来源：<code class="text-content">{{ origin }}</code
-        >。localhost 和 127.0.0.1 是不同来源。
-      </NAlert>
-    </NDrawerContent>
-  </NDrawer>
+        placeholder="http://127.0.0.1:10270"
+      />
+      <KunInput
+        :model-value="token"
+        v-bind="{ 'data-testid': 'token', autocomplete: 'off' }"
+        @update:model-value="token = String($event)"
+        label="访问令牌"
+        type="password"
+        :disabled="connecting"
+        placeholder="输入当前后端的访问令牌"
+      />
+      <p class="credential-note"><ShieldCheck :size="17" />令牌仅用于本次连接，不会保存到浏览器。</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+      <div class="action-row">
+        <KunButton type="submit" color="primary" :loading="connecting" :disabled="connecting">
+          <Link2 :size="17" />{{ connecting ? '正在连接…' : '连接工作台' }}
+        </KunButton>
+        <KunButton v-if="state.connection !== 'closed'" variant="light" @click="disconnect()">断开</KunButton>
+      </div>
+    </form>
+    <p v-if="state.notice" class="workspace-notice" role="status">{{ state.notice }}</p>
+    <div class="connection-origin">
+      <strong>浏览器来源</strong>
+      <p>后端需允许当前来源：</p>
+      <code>{{ origin }}</code>
+      <p>localhost 和 127.0.0.1 是不同来源。</p>
+    </div>
+  </KunDrawer>
 </template>
-
-<style scoped>
-.connection-actions {
-  margin-top: 24px;
-}
-
-.connection-help {
-  margin-top: 20px;
-}
-</style>

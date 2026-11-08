@@ -11,14 +11,10 @@
   },
   "dependencies": {
     "@aurorabot/client": "workspace:*",
-    "@fortawesome/fontawesome-svg-core": "catalog:",
-    "@fortawesome/free-solid-svg-icons": "catalog:",
-    "@fortawesome/vue-fontawesome": "catalog:",
     "@kungal/ui-core": "catalog:",
     "@kungal/ui-tokens": "catalog:",
     "@kungal/ui-vue": "catalog:",
     "@lucide/vue": "catalog:",
-    "naive-ui": "catalog:",
     "pinia": "catalog:",
     "vue": "catalog:",
     "vue-router": "catalog:"

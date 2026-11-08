@@ -10,8 +10,6 @@ import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from '../src/App.vue';
-import KunApp from '../src/kun/App.vue';
-import { createKunRouter } from '../src/kun/router.ts';
 import { createPanelRouter } from '../src/router/index.ts';
 import { useWorkbenchStore } from '../src/stores/workbench.ts';
 import { FakeClient, settle } from './fake-client.ts';
@@ -45,8 +43,8 @@ function input(selector: string, value: string) {
   node.dispatchEvent(new Event('input', { bubbles: true }));
 }
 async function connect() {
-  input('#endpoint, input[data-testid=endpoint]', 'http://localhost:10270');
-  input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
+  input('input[data-testid=endpoint]', 'http://localhost:10270');
+  input('input[data-testid=token]', 'test-panel-runtime-token-1234567890');
   element('form.connection-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await settle();
   await nextTick();
@@ -67,13 +65,10 @@ async function navigate(selector: string) {
   await nextTick();
 }
 
-describe.each([
-  { name: 'Naive UI', root: App, router: createPanelRouter },
-  { name: 'KunUI', root: KunApp, router: createKunRouter },
-])('$name 浏览器工作台页面交互', (variant) => {
+describe('浏览器工作台页面交互', () => {
   beforeEach(async () => {
     pinia = createPinia();
-    router = variant.router(createMemoryHistory());
+    router = createPanelRouter(createMemoryHistory());
     await router.push('/state');
     await router.push('/conversation');
     await router.isReady();
@@ -81,9 +76,9 @@ describe.each([
     localStorage.clear();
     sessionStorage.clear();
     document.body.innerHTML = '<div id="test-app"></div>';
-    app = createApp(variant.root).use(pinia).use(router);
+    app = createApp(App).use(pinia).use(router);
     app.mount('#test-app');
-    if (variant.name === 'KunUI') useWorkbenchStore(pinia).connectionVisible = true;
+    element<HTMLButtonElement>('button[aria-label="连接设置"]').click();
     await settle();
     await nextTick();
   });
@@ -105,7 +100,7 @@ describe.each([
     expect(document.body.textContent).toContain('实时同步');
     element<HTMLButtonElement>('button[aria-label="连接设置"]').click();
     await nextTick();
-    expect(element<HTMLInputElement>('#token, input[data-testid=token]').value).toBe('');
+    expect(element<HTMLInputElement>('input[data-testid=token]').value).toBe('');
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(document.documentElement.innerHTML).not.toContain('test-panel-runtime-token');
@@ -207,8 +202,8 @@ describe.each([
   });
 
   it('非法 API 地址在表单中反馈，不建立订阅连接', async () => {
-    input('#endpoint, input[data-testid=endpoint]', 'localhost:10270');
-    input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
+    input('input[data-testid=endpoint]', 'localhost:10270');
+    input('input[data-testid=token]', 'test-panel-runtime-token-1234567890');
     element('form.connection-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
     await nextTick();
@@ -225,8 +220,8 @@ describe.each([
       pending.reject(new Error('已关闭'));
     };
     prepared.push(client);
-    input('#endpoint, input[data-testid=endpoint]', 'http://localhost:10270');
-    input('#token, input[data-testid=token]', 'test-panel-runtime-token-1234567890');
+    input('input[data-testid=endpoint]', 'http://localhost:10270');
+    input('input[data-testid=token]', 'test-panel-runtime-token-1234567890');
     element('form.connection-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await settle();
     await nextTick();

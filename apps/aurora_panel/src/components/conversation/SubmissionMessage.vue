@@ -1,49 +1,38 @@
 <script setup lang="ts">
 import type { Submission } from '../../types/workbench';
 
-import { NAlert, NAvatar, NButton, NSpace, NTag, NThing } from 'naive-ui';
+import { KunButton } from '@kungal/ui-vue';
+import { UserRound } from '@lucide/vue';
 
 import { statusNames } from '../../constants/status';
+import { useWorkbenchStore } from '../../stores/workbench';
 
-defineProps<{ message: Submission; ready: boolean; session: string }>();
-const emit = defineEmits<{ refresh: []; retry: [message: Submission] }>();
+defineProps<{ message: Submission }>();
+const store = useWorkbenchStore();
 </script>
 
 <template>
-  <NThing class="submission-message" content-indented>
-    <template #avatar><NAvatar class="user-avatar" round size="small">你</NAvatar></template>
-    <template #header>你</template>
-    <template #description>
-      <NTag size="small" :bordered="false">{{ statusNames[message.status] }}</NTag>
-    </template>
-    <div class="text-content">{{ message.request.text }}</div>
-    <NAlert v-if="message.error" type="warning" class="message-error">{{ message.error }}</NAlert>
-    <template v-if="['uncertain', 'missing'].includes(message.status)" #action>
-      <NSpace>
-        <NButton size="small" :disabled="!ready" @click="emit('refresh')">核对状态</NButton
-        ><NButton
-          size="small"
-          :disabled="!ready || message.request.session_id !== session"
-          @click="emit('retry', message)"
+  <article class="message user-message">
+    <span class="message-avatar user-avatar"><UserRound :size="18" /></span>
+    <div class="message-body">
+      <div class="message-byline">
+        <strong>你</strong><span>{{ statusNames[message.status] }}</span>
+      </div>
+      <div class="message-text user-bubble">{{ message.request.text }}</div>
+      <p v-if="message.error" class="form-error" role="status">{{ message.error }}</p>
+      <div v-if="['uncertain', 'missing'].includes(message.status)" class="action-row">
+        <KunButton size="sm" variant="light" :disabled="!store.state.ready" @click="store.refresh()">
+          核对状态
+        </KunButton>
+        <KunButton
+          size="sm"
+          variant="flat"
+          :disabled="!store.state.ready || message.request.session_id !== store.state.session"
+          @click="store.retry(message)"
         >
           用原请求重试
-        </NButton>
-      </NSpace>
-    </template>
-  </NThing>
+        </KunButton>
+      </div>
+    </div>
+  </article>
 </template>
-
-<style scoped>
-.user-avatar {
-  color: #181818;
-  background-color: var(--aurora-complement);
-}
-
-.submission-message {
-  min-width: 0;
-}
-
-.message-error {
-  margin-top: 12px;
-}
-</style>
