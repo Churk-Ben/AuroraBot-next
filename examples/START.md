@@ -194,6 +194,31 @@ uv run --locked python examples/default_bot/main.py --data-dir build/panel-demo 
 
 连接后选择目标 Bot，Enter 发送、Shift+Enter 换行；中文输入法确认候选词不会发送消息。运行中可追加引导，模型过程及工具参数/结果按运行显示；接纳状态与完成回执分开，停止操作指定运行并等待收尾。接纳结果不确定时先核对，只有点击“用原请求重试”才再次提交相同身份；后端重启后旧请求失效，不自动重发。
 
+点击附件按钮可选择 PNG、JPEG、WebP、GIF、PDF，以及 UTF-8 的 TXT、Markdown、CSV、JSON；每条消息最多 8 个、合计 10 MiB，可只发送附件。发送前可移除，切换实例或 API 地址分别保存附件草稿；仅保存在当前页面内存。图片和 PDF 作为原生内容块发送，文本文件解码后连同文件名进入消息；模型实际支持的文件格式由供应商决定。附件随消息进入后端上下文及快照，不依赖原文件路径。重试使用原请求身份和同一份附件，不重新读取本地文件。Panel 将模型返回的思考增量显示在独立的折叠区，回答和工具活动分别展示。
+
+默认将 primary 聊天模型视为多模态模型，`capabilities.file_input` 默认为 true；仅文本部署可显式关闭。思考在 `org.aurora.adapter/model/profiles.toml` 的对应 profile 配置，例如：
+
+```toml
+[primary]
+adapter = "org.aurora.adapter:adapters/model/litellm"
+provider = "deepseek"
+model = "deepseek-flash"
+credential = "DEEPSEEK_API_KEY"
+reasoning_effort = "high"
+
+[primary.thinking]
+type = "enabled"
+
+[primary.capabilities]
+streaming = true
+tool_calls = true
+file_input = true
+```
+
+未填写 thinking 或 reasoning_effort 时沿用供应商默认，不再强制关闭 DeepSeek 思考。支持开关的服务可用 `type="disabled"`；Anthropic 显式启用时可在 thinking 表内设置 `budget_tokens=4096`。OpenAI 推理模型使用其支持的 reasoning_effort，不添加不支持的 thinking 开关；SDK/供应商拒绝的参数不会自动降级。思考文本、签名及隐藏思考块在完整响应、流式响应和工具往返中保留，签名及隐藏数据不展示为回答。旧文本快照可继续读取，不补造旧思考内容；此更新不新增公共 ID。
+
+程序内通过 `runtime.submit({"kind": "model_input", "content": [...]})` 提交结构化引导；content 使用 `{"type":"text","text":"说明"}`、`{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}` 或 `{"type":"file","file":{"filename":"报告.pdf","file_data":"data:application/pdf;base64,..."}}`。图片也支持 HTTPS URL，文件可改用 file_id 指定供应商文件 ID 或其支持的 HTTPS URL；不接受宿主本地路径。普通字符串和其他业务 JSON 引导继续保持原语义，不会自动将 QQ 附件 JSON 识别为模型文件。
+
 状态页仅浏览后端已经开放的状态，可按 ID 或 location 筛选，值作为文本显示。切页保留草稿，各实例与 API 地址的草稿分开；这些草稿、令牌和连接设置都不写浏览器存储。刷新后重新连接，通过“已保存的上下文”查看后端历史；本页观察的过程不是持久日志。刷新、断开或关闭页面仅停止观察，不取消后端任务。连接尚未完成时也可点击“断开”。
 
 生产构建与本机预览：
@@ -278,7 +303,7 @@ enabled = true
 max_chars = 128000
 ```
 
-默认关闭，最小预算为 1024。预算覆盖统一 ModelRequest 的完整 JSON 字符数，包含 system、业务观察、工具定义、历史消息及转义；不等同于供应商 token 上限。超限时只省略较早的完整交流段，保留当前交流中的引导和完整工具关系，并提供计入预算的省略提示。持久历史、笔记和归档保留原样，当前业务视图仍使用自己的 context_view 预算。正常空回复也会保存独立结束位置，连续静默观察及重启后仍可裁剪；不会添加空白回复消息。旧快照中未记录的静默结束无法可靠推断，不自动将连续输入拆为已完成交流。
+默认关闭，最小预算为 1024。预算覆盖统一 ModelRequest 的文本 JSON 字符数，包含 system、业务观察、工具定义、历史消息、思考及转义；内嵌二进制编码以元数据占位计数，并对请求内文件另设 10 MiB 合计预算；不等同于供应商 token 上限。超限时只省略较早的完整交流段，保留当前交流中的引导和完整工具关系，并提供计入预算的省略提示。持久历史、笔记和归档保留原样，当前业务视图仍使用自己的 context_view 预算。正常空回复也会保存独立结束位置，连续静默观察及重启后仍可裁剪；不会添加空白回复消息。旧快照中未记录的静默结束无法可靠推断，不自动将连续输入拆为已完成交流。
 
 system、观察、工具定义或当前交流本身放不下时，运行返回 ModelInputBudgetExceeded，不继续请求模型。可以调整预算或输入策略后显式再次激活；已经完成的工具不会因预算失败重复执行，原始结果仍留存。运行中的长任务没有完整回复边界时也可能超限。行为及恢复回归见 `tests/e2e/test_input_budget_integration.py`，详细边界见[完整请求字符预算](../docs/aurora_bot_ctx_prompt_design.md#已实现的完整请求字符预算)。
 

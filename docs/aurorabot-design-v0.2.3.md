@@ -379,7 +379,7 @@ world 的事件数据库与 ctx 变化通知配合使用，cadence 按数据库�
 - `[notes] enabled=true` 将 notes_read/write/list 接入既有工具执行器，不要求 world；默认 false。笔记以 org.aurora.bot:state/notes 按 instance_id 持久保存，使用版本校验防止过期覆盖。active 笔记不按事件窗口过期，archived 仍保留并占容量；关闭、恢复及取消不自动执行记录中的计划。
 - `[archive] enabled=true` 将 world_read_event 接入既有工具执行器，默认 false；复用已显式装配的 WorldRecords，不创建独立连接、后台任务或 world 服务。工具按 journal_id/record_id 核对引用并分页返回原始 JSON，明确区分错库、缺失及越界；不查环境观察或工具调用，不消耗或重放事件。max_chars 默认 8000，限制每页完整 value 的 JSON 长度，不限制累计工具历史或整个模型请求。存储、引用、预算和错误边界见[主动上下文设计](aurora_bot_ctx_prompt_design.md)。
 - `[actions] enabled=true` 接入 ToolRecorder 和 actions_read，默认关闭。工具批次引用、调用开始和原始结果在 bot 自有 SQLite 数据库独立事务记录；默认视图包含最近 16 次调用摘要，按 run_id/call_id 分页查询全文。记录按实例隔离，重复引用拒绝执行，取消及丢失结果保留 unknown，不因恢复或笔记声明自动重试；completed/failed 只表示工具返回。资源由默认装配持有，不反向引入 agent 对 bot 的依赖。详细语义见[行动证据](aurora_bot_ctx_prompt_design.md#已实现的行动证据)。
-- `[input_budget] enabled=true` 启用完整统一模型请求的 JSON 字符上限，默认 false、max_chars 默认 128000。每次 prepare 保留 system、当前观察、全部工具定义及最新交流段，仅省略较早的完整交流段，省略提示也计入预算；必要内容放不下时在模型调用前明确失败。持久历史和已执行结果保持原样，恢复或显式重试不重复执行工具。ReActContext.exchange_ends 以消息数记录正常 stop 边界，包括空回复；该元数据不进入模型请求，宿主裁剪历史时同步平移。旧快照只重建已有 assistant 回复能证明的边界。字符预算不等同于供应商 token 或 HTTP 大小，详见[完整请求字符预算](aurora_bot_ctx_prompt_design.md#已实现的完整请求字符预算)。
+- `[input_budget] enabled=true` 启用统一模型请求的文本 JSON 字符上限及 10 MiB 内嵌文件上限，默认 false、max_chars 默认 128000。每次 prepare 保留 system、当前观察、全部工具定义及最新交流段，仅省略较早的完整交流段，省略提示也计入预算；必要内容放不下时在模型调用前明确失败。持久历史和已执行结果保持原样，恢复或显式重试不重复执行工具。ReActContext.exchange_ends 以消息数记录正常 stop 边界，包括空回复；该元数据不进入模型请求，宿主裁剪历史时同步平移。旧快照只重建已有 assistant 回复能证明的边界。字符预算不等同于供应商 token 或 HTTP 大小，详见[完整请求字符预算](aurora_bot_ctx_prompt_design.md#已实现的完整请求字符预算)。
 - v1/v2 ctx 日志启动时明确要求迁移，不自动覆盖用户数据。停机后执行 `uv run --locked python -m aurora_world.migrate --root <数据目录>`，备份原快照，逐条导入已有记录并保留日志、记录、序号和裁剪锚点。旧日志没有通用接收时间，迁移时以导入时刻作为 received_at；已有环境记录也原样归档，新环境采样只进入环境状态。旧来源配置中的 retain_count/retain_seconds 须手动移至 `[view]` 的 time_count/weather_count/weather_seconds，模板不覆盖已有配置。
 
 最小进程内使用方式（显式内存数据库；持久宿主传入 StorageService）：
@@ -456,7 +456,7 @@ B3 已完成 HTTP、stdio、混合连接的共享关闭与失败回收验收，W
 
 装配选择适配器、连接配置和逻辑模型角色，创建服务实例并注入组件。同一服务定义可以绑定多个实例，不通过修改公共服务 ID 区分具体模型。模型 profiles、角色 bindings 与默认 bot 配置使用包内 TOML 模板；用户文件位于 `<data-dir>/config/<命名空间>/`，只复制缺失文件并保留用户内容。凭证只保存环境变量名称，运行期解析且不写入 ctx。
 
-ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 aclose。ModelFactory 异步接收 ModelConfig 和单独的 api_key 参数；工厂加载与角色绑定恢复已接入默认装配。能力包含 streaming、tool_calls，能力不足明确拒绝，不自动降级。SDK 类型不上泄，不增加独立工厂 schema ID。
+ModelClient 提供异步 complete、通过 async with 消费的 stream，以及 aclose。ModelFactory 异步接收 ModelConfig 和单独的 api_key 参数；工厂加载与角色绑定恢复已接入默认装配。能力包含 streaming、tool_calls、file_input；聊天模型默认视为多模态，file_input 可显式关闭。能力不足明确拒绝，不自动降级。Message.content 可为字符串或 text/image_url/file 内容块；模型响应和片段独立承载 reasoning_content 与可回传的 thinking_blocks，工具往返及恢复保留原始思考与签名。profile 可设置 thinking 和 reasoning_effort，未配置时使用供应商默认。DeepSeek 使用 OpenAI 兼容传输以保留结构化输入，避免 SDK 的目录型内容裁剪。SDK 类型不上泄，不增加独立工厂 schema ID。
 
 模型数据使用 TypedDict 表达普通 JSON。文本按 text chunk 增量输出；工具名称与 JSON 对象参数由适配层组装成完整 ToolCall 后输出，bot 不接收半截 JSON。ResponseBuffer 只保存累计结果，要求唯一且最后的 finish，缺失结束片段明确失败。结束原因区分 stop、tool_calls、length、content_filter，不将模型响应结束等同于对话完成。
 
@@ -529,9 +529,9 @@ ctx 编辑复用既有 get/set/delete 及状态键白名单，写入整项替换
 
 D10 已确定：空闲提交可启动一次运行，运行中提交作为引导保留当前 loop 和既有结果；接纳回执不表示任务完成，也不承诺 bot 必须回复。停止作用于指定 instance_id/run_id，取消须等待收尾；关闭或断开界面仅停止观察，不取消运行或永久停用来源/cadence。首版不把模型过程输出自动等同于对外回复。
 
-M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式选择绑定四条 POST 路径：`/conversation/info` 返回当前 session_id 和已绑定 instance_ids；`/conversation/submit` 接收 session_id、instance_id、request_id、text；`/conversation/query` 按前三项查询；`/conversation/cancel` 按 session_id、instance_id、run_id 取消并等待清理。bot 不导入 API，API 不导入 bot，端点复用同一 RunOperations 和 AgentRuntime。未开放端点时没有对应路由。
+M3.6 已登记 `org.aurora.bot:endpoints/conversation`，由 API 按宿主显式选择绑定四条 POST 路径：`/conversation/info` 返回当前 session_id 和已绑定 instance_ids；`/conversation/submit` 接收 session_id、instance_id、request_id、text 和可选 files；files 的每项含 name、media_type、base64 data，最多 8 项、合计 10 MiB，附件存在时 text 可为空。支持图片、PDF 和 UTF-8 文本，文件参与回执冲突检查；该端点单独允许 15 MiB HTTP 请求体，其余端点保留原限制。`/conversation/query` 按前三项查询；`/conversation/cancel` 按 session_id、instance_id、run_id 取消并等待清理。bot 不导入 API，API 不导入 bot，端点复用同一 RunOperations 和 AgentRuntime。未开放端点时没有对应路由。
 
-接纳回执包含 session_id、instance_id、request_id、guidance_id、sequence、run_id、accepted=true；重复提交相同身份与文本返回同一回执，改变文本返回 409 request_conflict。不同 request_id 即使文本相同也属于新引导。去重作用域为当前插件会话和 bot 实例；回执最多 4096 条，不淘汰旧身份，达到上限返回 429 receipt_limit，旧消息仍可查询。回执只留在内存，不混入业务快照；重启后旧会话返回 409 session_expired，不能将换会话重发解释为安全重试。
+接纳回执包含 session_id、instance_id、request_id、guidance_id、sequence、run_id、accepted=true；重复提交相同身份、文本与附件返回同一回执，改变文本或附件返回 409 request_conflict。不同 request_id 即使内容相同也属于新引导。去重作用域为当前插件会话和 bot 实例；回执最多 4096 条，不淘汰旧身份，达到上限返回 429 receipt_limit，旧消息仍可查询。回执只留在内存，不混入业务快照；重启后旧会话返回 409 session_expired，不能将换会话重发解释为安全重试。
 
 查询额外提供 run_status（pending/completed/cancelled/failed）和 error；pending 包括排队、执行和清理，终态只取自运行句柄，不推断残留 ctx 状态。该状态属于关联的运行，不承诺每条引导已完成业务或已对外回复。取消未知或已结束的 run 返回 cancelled=false；终态后的清理仍须等完。取消期间的新引导返回 409 busy，未启动或关闭中的实例返回 503 unavailable。HTTP 结果不确定时保留原身份查询；同会话下未知回执返回 404，重试也必须沿用相同身份与内容。客户端从不自动重发动作，关闭连接只结束观察。M3.6 不依赖 world/cadence。
 
