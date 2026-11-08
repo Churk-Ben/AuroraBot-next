@@ -1,4 +1,4 @@
-"""cadence 的来源及决策配置、持久消费和观察状态校验。"""
+"""cadence 节律及决策配置、持久消费和观察状态校验。"""
 
 from copy import deepcopy
 from typing import cast
@@ -20,8 +20,8 @@ def _identity(value: object) -> None:
 
 def _configuration(value: object) -> None:
     decision = cast(dict, value).get("decision")
-    if decision is not None and decision["max_seconds"] < decision["min_seconds"]:
-        raise ValueError("cadence 随机间隔上限不能小于下限")
+    if decision is not None and decision["idle_seconds"] < decision["active_seconds"]:
+        raise ValueError("cadence 静默间隔不能小于活跃间隔")
 
 
 CADENCE_CONFIG = ConfigSchema(
@@ -35,9 +35,10 @@ CADENCE_CONFIG = ConfigSchema(
                 "required": ["model_role"],
                 "properties": {
                     "model_role": {"type": "string", "pattern": r"\S"},
-                    "min_seconds": {"type": "number", "minimum": 1, "default": 60.0},
-                    "max_seconds": {"type": "number", "minimum": 1, "default": 180.0},
-                    "cooldown_seconds": {"type": "number", "minimum": 1, "default": 600.0},
+                    "active_seconds": {"type": "number", "minimum": 1, "default": 5.0},
+                    "idle_seconds": {"type": "number", "minimum": 1, "default": 180.0},
+                    "half_life_seconds": {"type": "number", "minimum": 1, "default": 60.0},
+                    "jitter_ratio": {"type": "number", "minimum": 0, "maximum": 0.5, "default": 0.2},
                     "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 15.0},
                     "max_chars": {"type": "integer", "minimum": 4096, "maximum": 128000, "default": 12000},
                 },

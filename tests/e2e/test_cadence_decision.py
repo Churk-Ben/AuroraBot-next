@@ -31,19 +31,22 @@ class Clock:
         self.now = 1000.0
         self.waits = asyncio.Queue()
         self.delays = []
-        self.timing = CadenceTiming(lambda: self.now, self.sleep, random.Random(7).uniform)
+        self.timing = CadenceTiming(lambda: self.now, self.sleep, random.Random(7).uniform, lambda: self.now)
 
     async def sleep(self, delay):
-        gate = asyncio.Event()
+        gate = asyncio.get_running_loop().create_future()
         self.delays.append(delay)
         self.waits.put_nowait((delay, gate))
-        await gate.wait()
+        await gate
 
     async def tick(self):
         async with asyncio.timeout(3):
-            delay, gate = await self.waits.get()
+            while True:
+                delay, gate = await self.waits.get()
+                if not gate.done():
+                    break
         self.now += delay
-        gate.set()
+        gate.set_result(None)
 
 
 class Decisions:
@@ -81,9 +84,8 @@ def configured(root, *, decision_config=None):
                 {
                     "decision": {
                         "model_role": "cadence",
-                        "min_seconds": 30,
-                        "max_seconds": 60,
-                        "cooldown_seconds": 100,
+                        "active_seconds": 5,
+                        "idle_seconds": 60,
                         **(decision_config or {}),
                     },
                 }
@@ -148,7 +150,7 @@ def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_
                 assert [record["record_id"] for record in records] == [first.record.record_id, other.record.record_id]
                 assert "不应暴露" not in encode_json(decisions.requests[-1])
             assert clients[0].requests == []
-            assert all(30 <= delay <= 60 for delay in clock.delays)
+            assert all(5 <= delay <= 72 for delay in clock.delays)
             assert len(set(clock.delays)) > 1
             decisions.choice = "attend_events"
             await tick(clock, ctx)
@@ -163,6 +165,44 @@ def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_
         finally:
             await host.stop()
         assert decisions.closed
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("stimulus", ["note", "event"])
+def test_context_activity_interrupts_idle_wait_and_feedback_eventually_settles(tmp_path, stimulus):
+    async def scenario():
+        host, assembly, ctx, _, clock, decisions, configure, _ = configured(tmp_path)
+        await host.start(configure=configure)
+        try:
+            for _ in range(35):
+                await tick(clock, ctx)
+            await until(lambda: not clock.waits.empty())
+            assert clock.delays[-1] >= 48
+            count = len(clock.delays)
+            unchanged = state(ctx)
+            ctx.set(CHECKPOINT, unchanged, location={"instance_id": "main"})
+            for _ in range(5):
+                await asyncio.sleep(0)
+            assert len(clock.delays) == count
+            if stimulus == "note":
+                note(ctx)
+            else:
+                append(assembly, payload="普通文本消息")
+            await until(lambda: len(clock.delays) > count)
+            assert 5 <= clock.delays[-1] <= 17
+            await tick(clock, ctx)
+            assert decisions.requests[-1]["state"]["business"]["notes" if stimulus == "note" else "events"]["records"]
+            assert state(ctx)["error"] is None and state(ctx)["receipts"] == []
+            records = assembly.world_records
+            assert records is not None
+            records.select("environment/time", "time")
+            decisions.choice = "attend_events"
+            records.append(source_id="environment/time", message_id="passive", payload={"trigger": "context"})
+            await tick(clock, ctx)
+            assert any(item["kind"] == "world_environment" for item in state(ctx)["receipts"][-1]["references"])
+        finally:
+            await host.stop()
 
     asyncio.run(scenario())
 
@@ -214,7 +254,7 @@ def test_selected_environment_sources_enter_decisions_without_becoming_archived_
     asyncio.run(scenario())
 
 
-def test_no_event_ticks_review_notes_with_cooldown_and_restart(tmp_path):
+def test_no_event_ticks_review_notes_and_preserve_receipts_across_restart(tmp_path):
     async def scenario():
         for restart in (False, True):
             host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path)
@@ -226,13 +266,12 @@ def test_no_event_ticks_review_notes_with_cooldown_and_restart(tmp_path):
                     await tick(clock, ctx)
                     assert len(state(ctx)["receipts"]) == 1
                     await until(lambda assembly=assembly: assembly.runtime.current is None)
+                    decisions.choice = "observe"
                     await tick(clock, ctx)
                     assert len(state(ctx)["receipts"]) == 1
-                    assert state(ctx)["observation"]["disposition"] == "cooldown"
+                    assert state(ctx)["observation"]["disposition"] == "observed"
                 else:
-                    await tick(clock, ctx)
                     assert clients[0].requests == [] and len(state(ctx)["receipts"]) == 1
-                    clock.now += 200
                     await tick(clock, ctx)
                     assert len(state(ctx)["receipts"]) == 2
                     assert state(ctx)["event_position"] is None

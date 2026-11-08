@@ -11,7 +11,7 @@ from typing import Protocol
 
 from aurora_core import entry_from, hook_handler
 from aurora_core.bootstrap import Receiver
-from aurora_core.ctx import Context
+from aurora_core.ctx import Context, StateChange
 from aurora_core.hooks import HookConnections
 from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
@@ -47,18 +47,22 @@ class SourceInstance:
     可选 run 主循环由所有者监督；stop 结束其余自有任务，aclose 释放资源。
     停止和释放失败后须能再次调用，run 退出后不自动重启。
     工厂返回前的失败和取消由工厂清理，返回后资源交给 WorldSources 托管。
+    on_context_change 同步响应有效状态变化，须自行合并重复更新；停止接纳后不再通知。
     """
 
     start: Callable[[], Awaitable[None]]
     stop: Callable[[], Awaitable[None]]
     aclose: Callable[[], Awaitable[None]]
     run: Callable[[], Awaitable[None]] | None = None
+    on_context_change: Callable[[], None] | None = None
 
     def __post_init__(self) -> None:
         if not all(callable(action) for action in (self.start, self.stop, self.aclose)):
             raise TypeError("来源实例必须提供可调用的 start/stop/aclose")
         if self.run is not None and not callable(self.run):
             raise TypeError("来源主循环必须可调用")
+        if self.on_context_change is not None and not callable(self.on_context_change):
+            raise TypeError("来源上下文通知必须可调用")
 
 
 class SourceFactory(Protocol):
@@ -124,6 +128,7 @@ class WorldSources:
         self._prepared = False
         self._start_called = False
         self._quiesced = False
+        self._context_subscription: str | None = None
 
     def _check_owner(self) -> None:
         if get_ident() != self._owner:
@@ -228,6 +233,10 @@ class WorldSources:
             return
         binding.observed = True
         binding.accepting = False
+        if binding.error == "context_update_failed":
+            if not task.cancelled():
+                task.exception()
+            return
         if task.cancelled():
             if not self._quiesced:
                 self._fail(binding, "background_cancelled")
@@ -289,15 +298,34 @@ class WorldSources:
                 if binding.instance.run is not None:
                     binding.task = asyncio.create_task(self._run(binding), name=f"world-source:{binding.source_id}")
                     binding.task.add_done_callback(partial(self._observe_task, binding))
+            if any(binding.instance and binding.instance.on_context_change for binding in self._bindings.values()):
+                self._context_subscription = self._ctx.subscribe(self._context_changed)
         except BaseException:
             self._fail(binding, "start_failed")
             self.stop_accepting()
             raise
 
+    def _context_changed(self, change: StateChange) -> None:
+        """通知有效 ctx 变化；来源可写回状态，须自行使反馈收敛。"""
+        if self._quiesced or (change.existed and change.action == "set" and change.value == change.previous):
+            return
+        for binding in self._bindings.values():
+            if binding.accepting and binding.instance and binding.instance.on_context_change:
+                try:
+                    binding.instance.on_context_change()
+                except Exception:  # noqa: BLE001 - 旁路刷新失败归属来源，不撤销已提交的 ctx 变更。
+                    binding.accepting = False
+                    self._fail(binding, "context_update_failed")
+                    if binding.task is not None:
+                        binding.task.cancel()
+
     def stop_accepting(self) -> None:
         """同步且幂等封闭所有入口，包括来源已保留的回调。"""
         self._check_owner()
         self._quiesced = True
+        if self._context_subscription is not None:
+            self._ctx.unsubscribe(self._context_subscription)
+            self._context_subscription = None
         for binding in self._bindings.values():
             if binding.accepting:
                 binding.accepting = False

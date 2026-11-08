@@ -1,6 +1,8 @@
 """用可控时钟和模拟传输验证环境采样、故障恢复及关闭边界。"""
 
 import asyncio
+import random
+import statistics
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from time import time
@@ -15,7 +17,7 @@ from aurora_core.discovery import register_plugins
 from aurora_core.hooks import HookConnections
 from aurora_core.lifecycle import install_lifecycle_slots
 from aurora_core.registry import RegistryEntry
-from aurora_world import SOURCES, SourceSpec, WorldRecords, WorldSources
+from aurora_world import SOURCE_STATUS, SOURCES, SourceSpec, WorldRecords, WorldSources
 from aurora_world.environment import TIME_CONFIG, WEATHER_CONFIG, create_time, create_weather
 from aurora_world.plugin import plugin
 
@@ -64,7 +66,17 @@ def environment(factory, config):
     return ctx, hooks, sources
 
 
-@pytest.mark.parametrize("config", [{"interval_seconds": 0}, {"interval_seconds": True}, {"unexpected": 1}])
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"interval_seconds": 60},
+        {"mean_seconds": 0},
+        {"deviation_seconds": True},
+        {"mean_seconds": 900, "deviation_seconds": 300},
+        {"deviation_seconds": 0},
+        {"unexpected": 1},
+    ],
+)
 def test_clock_configuration_rejects_invalid_parameters(config):
     with pytest.raises(ValueError):
         TIME_CONFIG.parse(config)
@@ -92,21 +104,24 @@ def test_weather_configuration_rejects_invalid_parameters(change):
 def test_clock_has_no_catch_up_and_stops_without_another_observation():
     async def scenario():
         clock = Schedule()
-        ctx, hooks, sources = environment(partial(create_time, now=clock.now, sleep=clock.sleep), {})
+        ctx, hooks, sources = environment(
+            partial(create_time, now=clock.now, sleep=clock.sleep, uniform=lambda a, b: 0.5), {}
+        )
         records = sources.records
         assert records.observations() == ()
         await sources.prepare()
         assert records.observations() == ()
         await sources.start()
-        assert await clock.waiting.get() == 60
+        assert await clock.waiting.get() == 1800
         observed = [records.observations()[0]]
         for seconds in (86400, -86400):
             clock.advance(seconds)
-            assert await clock.waiting.get() == 60
+            assert await clock.waiting.get() == 1800
             observed.append(records.observations()[0])
         values = records.observations()
         assert len(values) == 1 and values[0].position.sequence == 3
-        assert observed[0].payload == observed[2].payload
+        assert observed[0].payload["observed_at"] == observed[2].payload["observed_at"]
+        assert observed[2].payload["trigger"] == "rhythm"
         assert len({value.message_id for value in observed}) == 3
         await sources.stop()
         clock.advance(60)
@@ -116,6 +131,70 @@ def test_clock_has_no_catch_up_and_stops_without_another_observation():
         sources.records.close()
         hooks.close()
         ctx.close()
+
+    asyncio.run(scenario())
+
+
+def test_time_refreshes_on_context_changes_without_resetting_random_schedule_or_self_loop():
+    async def scenario():
+        clock = Schedule()
+        ctx, hooks, sources = environment(partial(create_time, now=clock.now, sleep=clock.sleep), {})
+        await sources.prepare()
+        await sources.start()
+        interval = await clock.waiting.get()
+        assert 900 <= interval <= 2700
+        clock.current += timedelta(seconds=1)
+        ctx.set(SOURCE_STATUS, {"value": 1}, location={"source_id": "test"})
+        observation = sources.records.observations()[0]
+        assert observation.position.sequence == 2
+        assert observation.payload["trigger"] == "context"
+        assert observation.payload["observed_at"] == clock.now().isoformat()
+        ctx.set(SOURCE_STATUS, {"value": 2}, location={"source_id": "test"})
+        assert sources.records.observations() == (observation,)
+        clock.current += timedelta(seconds=1)
+        ctx.set(SOURCE_STATUS, {"value": 2}, location={"source_id": "test"})
+        assert sources.records.observations() == (observation,)
+        assert clock.waiting.empty()
+        clock.advance(interval)
+        await clock.waiting.get()
+        assert sources.records.observations()[0].position.sequence == 3
+        assert sources.records.observations()[0].payload["trigger"] == "rhythm"
+        await sources.stop()
+        observed = sources.records.observations()
+        clock.current += timedelta(seconds=1)
+        ctx.set(SOURCE_STATUS, {"value": 3}, location={"source_id": "test"})
+        assert sources.records.observations() == observed
+        await sources.clean()
+        sources.records.close()
+        hooks.close()
+        ctx.close()
+
+    asyncio.run(scenario())
+
+
+def test_random_time_intervals_follow_truncated_normal_distribution():
+    async def scenario():
+        delays = []
+
+        async def sleep(delay):
+            delays.append(delay)
+            if len(delays) == 2000:
+                raise asyncio.CancelledError
+
+        source = await create_time(
+            source_id="test",
+            emit=lambda **kwargs: None,
+            config={},
+            sleep=sleep,
+            uniform=random.Random(7).uniform,
+        )
+        assert source.run is not None
+        with pytest.raises(asyncio.CancelledError):
+            await source.run()
+        assert min(delays) >= 900 and max(delays) <= 2700
+        assert statistics.mean(delays) == pytest.approx(1800, abs=25)
+        assert statistics.stdev(delays) == pytest.approx(300, abs=20)
+        assert len(set(delays)) == len(delays)
 
     asyncio.run(scenario())
 

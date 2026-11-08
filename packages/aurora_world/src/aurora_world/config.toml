@@ -6,7 +6,9 @@ sources = []
 # source = "org.aurora.world:sources/environment/time"
 # source_id = "environment/time"
 # [sources.config]
-# interval_seconds = 60
+# mean_seconds = 1800.0
+# deviation_seconds = 300.0
+# 主动更新时间服从三倍标准差内的截断正态分布；ctx 变化时另行刷新。
 #
 # 环境来源需要显式启用 aurora_world.environment。
 # [[sources]]

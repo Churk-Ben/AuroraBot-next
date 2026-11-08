@@ -150,6 +150,45 @@ def test_before_start_and_after_stop_callbacks_cannot_reopen(environment):
     asyncio.run(scenario())
 
 
+def test_context_callback_failure_closes_only_its_source_and_is_retained(environment):
+    registry, ctx, _, sources, _, events = environment
+    original = registry.get(SOURCE).target.factory
+
+    async def factory(**kwargs):
+        instance = await original(**kwargs)
+
+        async def run():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append(("callback", "cancelled"))
+
+        def changed():
+            raise RuntimeError("私有错误正文")
+
+        return replace(instance, run=run, on_context_change=changed)
+
+    sources.add(SOURCE, source_id="broken", factory=factory)
+    sources.add(SOURCE, source_id="healthy")
+
+    async def scenario():
+        await sources.prepare()
+        await sources.start()
+        await asyncio.sleep(0)
+        ctx.set(SOURCE_STATUS, {}, location={"source_id": "test"})
+        for _ in range(3):
+            await asyncio.sleep(0)
+        status = ctx.get(SOURCE_STATUS, location={"source_id": "broken"})
+        assert status["error"] == "context_update_failed" and not status["accepting"]
+        assert ctx.get(SOURCE_STATUS, location={"source_id": "healthy"})["accepting"]
+        assert ("callback", "cancelled") in events
+        await sources.stop()
+        await sources.clean()
+        assert ctx.get(SOURCE_STATUS, location={"source_id": "broken"})["error"] == "context_update_failed"
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("bad", ["", " ", "\ud800", None, 1])
 def test_invalid_source_id_does_not_reserve_an_instance(environment, bad):
     _, _, _, sources, _, events = environment
