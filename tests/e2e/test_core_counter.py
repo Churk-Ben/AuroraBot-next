@@ -6,7 +6,9 @@ from pathlib import Path
 
 
 def test_counter_runs_and_restores_across_processes(tmp_path):
-    application = Path(__file__).resolve().parents[2] / "examples" / "core_counter" / "main.py"
+    application = (
+        Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "core_counter" / "main.py"
+    )
 
     def run(name, amount):
         result = subprocess.run(

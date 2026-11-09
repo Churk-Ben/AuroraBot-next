@@ -16,7 +16,7 @@ from aiohttp import ClientSession
 from aurora_api.client import CtxClient, RemoteError
 from aurora_core.json_data import encode_json
 
-EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "live_workshop" / "main.py"
+EXAMPLE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "live_workshop" / "main.py"
 PREFIX = "dev.example.workshop:state/"
 LAUNCHER = """
 import asyncio

@@ -1,4 +1,4 @@
-"""通过 ctx 观察串行、条件循环、分支和并行组件；启动方法见 examples/START.md。"""
+"""通过 ctx 观察串行、条件循环、分支和并行组件；用于跨进程回归验收。"""
 
 import argparse
 import asyncio

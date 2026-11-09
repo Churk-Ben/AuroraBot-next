@@ -8,7 +8,9 @@ from pathlib import Path
 
 
 def test_control_flow_example_retains_only_latest_result(tmp_path):
-    application = Path(__file__).resolve().parents[2] / "examples" / "control_flow" / "main.py"
+    application = (
+        Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "control_flow" / "main.py"
+    )
     snapshot_path = tmp_path / "framework" / "ctx.json"
     snapshot_path.parent.mkdir()
     # 恢复数据中可包含历史调用或中断时留下的在途状态。
@@ -62,7 +64,9 @@ def test_control_flow_example_retains_only_latest_result(tmp_path):
 
 
 def test_control_flow_example_interrupt_persists_cancelled_state(tmp_path):
-    application = Path(__file__).resolve().parents[2] / "examples" / "control_flow" / "main.py"
+    application = (
+        Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "control_flow" / "main.py"
+    )
     # 两个计算均启动后发送真实 SIGINT，运行入口仍使用示例自身的 main。
     launcher = """
 import asyncio

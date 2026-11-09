@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-APPLICATION = Path(__file__).resolve().parents[2] / "examples" / "react_agent" / "main.py"
+APPLICATION = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "react_agent" / "main.py"
 
 
 def execute(root, *options):

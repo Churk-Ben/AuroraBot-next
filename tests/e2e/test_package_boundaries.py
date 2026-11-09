@@ -28,7 +28,7 @@ source = sys.argv.pop(1)
 runpy.run_path(source, run_name='__main__')
 assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 """
-    example = Path(__file__).resolve().parents[2] / "examples" / "control_flow" / "main.py"
+    example = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "control_flow" / "main.py"
     result = subprocess.run(
         [sys.executable, "-c", launcher, str(example), "--data-dir", str(tmp_path), "--delay", "0"],
         capture_output=True,
@@ -66,7 +66,7 @@ source = sys.argv.pop(1)
 runpy.run_path(source, run_name='__main__')
 assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 """
-    example = Path(__file__).resolve().parents[2] / "examples" / "react_agent" / "main.py"
+    example = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "react_agent" / "main.py"
     states = []
     for options in (["--guide", "保持计算进度"], ["--text", "无需行动"]):
         result = subprocess.run(
@@ -133,7 +133,7 @@ sys.path.insert(0, str(Path(source).parent))
 runpy.run_path(source, run_name='__main__')
 assert not any(name.split('.')[0] in {'aurora_cli', 'aurora_api'} for name in sys.modules)
 """
-    example = Path(__file__).resolve().parents[2] / "examples" / "default_bot" / "main.py"
+    example = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "default_bot" / "main.py"
     result = subprocess.run(
         [sys.executable, "-c", launcher, str(example), "--data-dir", str(tmp_path), "--text", "隔离验收"],
         capture_output=True,
