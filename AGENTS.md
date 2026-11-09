@@ -26,7 +26,7 @@
 │   ├── aurora_cli/            # 命令行交互
 │   ├── aurora_api/            # HTTP / WS 传输
 │   ├── aurora_logging/        # 日志配置
-│   ├── aurora_world/          # 世界输入与环境状态骨架
+│   ├── aurora_world/          # 世界来源、事件归档与环境观察
 │   └── aurora_client/         # TS 共享 ctx 访问与连接
 ├── apps/
 │   ├── aurora_tui/            # OpenTUI 终端界面
@@ -34,7 +34,7 @@
 │   ├── docsite/               # 文档站
 │   └── landing/               # 落地页
 ├── docs/                     # 设计与公共 ID 文档
-├── examples/                 # core、control、agent、bot 与持续宿主示例
+├── examples/                 # 首次安装配置助手：朴素 ReAct + terminal MCP
 ├── scripts/                  # 开发与按需生成脚本
 ├── tooling/                  # TS、lint 与样式工具共享配置
 └── tests/
@@ -53,7 +53,7 @@
 | `aurora_agent` | 提供 ReAct、模型调用、工具执行、默认阶段和 AgentRuntime；不依赖 bot、CLI 或 API |
 | `aurora_bot` | 提供默认配置、产品装配、资源所有权、运行操作与命令；使用 agent，不复制 agent 的执行机制 |
 | `aurora_cli` / `aurora_api` | 提供宿主、命令交互与 HTTP/WS 传输；不重复实现 agent 业务语义 |
-| `aurora_logging` / `aurora_world` | 分别提供日志配置与世界输入插件；world 当前为骨架，完整世界来源与调度示例位于 live_workshop |
+| `aurora_logging` / `aurora_world` | 分别提供日志配置与世界来源、事件归档及有界环境观察；主动调度由 bot 的 cadence 接入 |
 | `aurora_client` / `apps/*` | 客户端复用后端 ctx 语义，界面与静态站点不承担 Python 插件装配 |
 
 执行依赖方向为 `bot → agent → control → core`；agent 和 bot 也可直接使用 core 与 aurora_adapter.model。agent 仅依赖 adapter 基础包；bot 使用 litellm extra；MCP 的工具、世界和产品桥通过独立 extra 与插件显式启用。配置能力通过 aurora_config 接入。独立 `aurora_harness` 是后续目标，不提前引入尚无实际消费者的框架抽象。
@@ -99,11 +99,12 @@ uv build --all-packages --wheel --out-dir build/wheels
 - 根据改动选择有意义的验证。日常 `aurora check` 只收集快速边界测试，`--test` 跳过静态检查，`--full` 显式启用完整测试，`--coverage` 也使用完整测试范围。纯文档修改检查链接与差异，不为此运行无关测试；涉及跨包契约、生命周期或配置行为时完成相关回归和 `aurora check --full`。
 - 拆包、依赖或分发内容变更还需验证 wheel；在干净环境中确认 control 无需 agent/模型包，agent 无需 bot/CLI/API。工作区可导入不能代替安装验收。
 - 包级单元测试和协议测试分别位于 `packages/<包>/tests/unit`、`packages/<包>/tests/contract`；跨包契约测试位于根目录 `tests/contract`，工作区、真实进程及跨包集成测试位于根目录 `tests/e2e`。不通过删除有效断言或扩大容错来掩盖失败。
-- 示例保留 `core_counter`、`control_flow`、`react_agent`、`default_bot`、`live_workshop` 五条职责清晰的路径。示例和配套测试、启动指南同步维护，移除重复或过时入口。
+- `examples` 只保留 `onboarding` 安装配置助手，使用正式 ReAct 与 terminal MCP；不默认启用 QQ、世界订阅或决策模型。`examples/START.md` 保持为首次启动短指南，详细配置与操作说明放入 `docs`。旧离线应用仅作为 `tests/fixtures/runtime_apps` 回归夹具保留，不作为用户示例。
 - 真实模型验收使用当前 CLI 和独立数据目录中的宿主、模型及工具配置，须由用户明确要求调用供应商；普通回归使用假模型或模拟传输，不因检查代码而自行调用真实服务。
 
 ## 参考入口
 
+- [当前文档索引](docs/INDEX.md)
 - [示例启动指南](examples/START.md)
 - [架构设计](docs/aurorabot-design-v0.2.3.md)
 - [公共 ID 目录](docs/aurorabot-id-catalog-v0.2.3.md)
