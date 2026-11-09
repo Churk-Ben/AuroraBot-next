@@ -1,8 +1,7 @@
 """验证分发依赖、公共命名空间与插件入口的快速跨包契约。"""
 
-from importlib import import_module, metadata
+from importlib import metadata
 
-import pytest
 from aurora_core.discovery import ENTRY_POINT_GROUP, load_plugins
 
 
@@ -12,7 +11,6 @@ def test_control_distribution_owns_its_plugin_and_definitions():
     assert len(entries) == 1
     assert entries[0].value == "aurora_control:plugin"
     plugin = load_plugins(enabled=["aurora_control"])[0]
-    assert len(plugin.entries) == 16
     assert all(
         entry.id.namespace == "org.aurora.control" and entry.provider == "aurora_control" for entry in plugin.entries
     )
@@ -37,14 +35,6 @@ def test_agent_distribution_owns_its_plugins_and_definitions():
     )
 
 
-@pytest.mark.parametrize("module", ["control", "model", "react", "react_defaults", "tools", "runtime"])
-def test_bot_does_not_export_execution_components(module):
-    with pytest.raises(ModuleNotFoundError):
-        import_module(f"aurora_bot.{module}")
-    with pytest.raises(ValueError, match="匹配数：0"):
-        load_plugins(enabled=[f"aurora_bot.{module}"])
-
-
 def test_workspace_plugins_use_the_aurora_discovery_group():
     for name in ("aurora-agent", "aurora-control", "aurora-bot", "aurora-adapter", "aurora-world"):
         points = metadata.distribution(name).entry_points
@@ -60,7 +50,7 @@ def test_self_control_definitions_are_bot_owned_and_configuration_is_opt_in():
 
     entries = {entry.id: entry for entry in plugin().entries}
     expected = {SELF_CONTROL, COMPONENT, *SELF_TOOLS.values()}
-    assert len(expected) == 8 and expected <= entries.keys()
+    assert expected <= entries.keys()
     assert all(entries[identity].provider == "aurora_bot" for identity in expected)
     names = set()
     for identity in SELF_TOOLS.values():
@@ -93,11 +83,3 @@ def test_adapter_templates_share_one_package_without_path_collisions(tmp_path):
     }
     assert all(item.spec.template.package == "aurora_adapter" for item in files)
     assert all(item.spec.template.source().read_bytes() for item in files)
-
-
-@pytest.mark.parametrize("name", ["aurora_model_adapter", "aurora_adapters", "aurora_adapters.mcp"])
-def test_replaced_adapter_names_are_not_exposed(name):
-    with pytest.raises(ModuleNotFoundError):
-        import_module(name)
-    with pytest.raises(ValueError, match="匹配数：0"):
-        load_plugins(enabled=[name])

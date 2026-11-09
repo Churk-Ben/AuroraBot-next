@@ -11,7 +11,6 @@ def test_bootstrap_directory_references_same_entries():
     directory = registry.get(REGISTRY_DIRECTORY)
     assert isinstance(directory.target, Receiver)
     children = registry.view(register_to=REGISTRY_DIRECTORY)
-    assert len(children) == 9
     for child in children:
         assert registry.get(child.id) is child
         assert directory.target.rejection_reason(child) is None

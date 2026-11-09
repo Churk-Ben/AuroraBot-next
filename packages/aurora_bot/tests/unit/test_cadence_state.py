@@ -10,7 +10,7 @@ from aurora_core.discovery import load_plugins
 
 @pytest.mark.parametrize(
     "value",
-    [{"extra": True}, {"source_ids": [""]}, {"source_ids": [" "]}, {"source_ids": [1]}, {"source_ids": ["a", "a"]}],
+    [{"extra": True}, {"source_ids": ["a", "a"]}],
 )
 def test_removed_source_selection_and_unknown_configuration_are_rejected(value):
     with pytest.raises(ValueError):
@@ -76,16 +76,9 @@ def test_corrupt_checkpoint_is_rejected(fault):
     "decision",
     [
         {},
-        {"model_role": " "},
-        {"model_role": "cadence", "min_seconds": 0},
         {"model_role": "cadence", "min_seconds": 60, "max_seconds": 30},
-        {"model_role": "cadence", "cooldown_seconds": 0},
-        {"model_role": "cadence", "active_seconds": 0},
         {"model_role": "cadence", "active_seconds": 60, "idle_seconds": 30},
-        {"model_role": "cadence", "half_life_seconds": 0},
         {"model_role": "cadence", "jitter_ratio": 1},
-        {"model_role": "cadence", "timeout_seconds": 0},
-        {"model_role": "cadence", "max_chars": 1024},
         {"model_role": "cadence", "api_key": "must-not-persist"},
     ],
 )

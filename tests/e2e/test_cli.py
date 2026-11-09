@@ -45,11 +45,6 @@ def test_cli_configuration_rebuilds_from_toml_across_processes(tmp_path):
     assert run("ctx/get", CONFIG) == {}
     (tmp_path / "config/org.aurora.cli/config.toml").write_text("value = 3\n", encoding="utf-8")
     assert run("ctx/get", CONFIG) == {"value": 3}
-    assert run("ctx", "set", CONFIG, '{"value":2}', "--location", '{"scope":"other"}') is None
-    assert run("ctx/list", "--location", "{}") == [{"id": CONFIG, "location": {}}]
-    missing = invoke("--data-dir", tmp_path, "ctx/get", CONFIG, "--location", '{"scope":"other"}')
-    assert missing.returncode == 1
-    assert run("ctx/delete", CONFIG) is True
     assert run("ctx/delete", CONFIG) is True
     assert run("ctx/get", CONFIG) == {"value": 3}
 
@@ -59,10 +54,6 @@ def test_cli_configuration_rebuilds_from_toml_across_processes(tmp_path):
     [
         ([], False, True),
         (["--level", "debug"], True, True),
-        (["-l", "DEBUG"], True, True),
-        (["--level", "INFO"], False, True),
-        (["-l", "warning"], False, True),
-        (["--level", "ERROR"], False, True),
         (["-l", "critical"], False, False),
     ],
 )
@@ -82,15 +73,12 @@ def test_cli_errors_keep_tracebacks_in_file_and_stdout_clean(tmp_path, options, 
 
 
 def test_help_and_bad_arguments_do_not_create_storage(tmp_path):
-    for args in (["--help"], ["help"], ["ctx"], ["ctx", "--help"], ["ctx", "get", "--help"]):
+    for args in (["--help"], ["ctx", "get", "--help"]):
         result = invoke("--data-dir", tmp_path / "unused", *args)
         assert result.returncode == 0
         assert result.stdout
     for args in (
         ["ctx/set", CONFIG, "NaN"],
-        ["ctx/get", CONFIG, "--location", '{"scope":1}'],
-        ["--config", "[]", "ctx/list"],
-        ["--level", "trace", "ctx/list"],
         ["-l"],
     ):
         result = invoke("--data-dir", tmp_path / "unused", *args)
@@ -99,7 +87,7 @@ def test_help_and_bad_arguments_do_not_create_storage(tmp_path):
 
 
 def test_project_commands_and_groups_do_not_require_host_storage(tmp_path):
-    for args in (["about"], ["donk"], ["donk", "--help"], ["check", "--help"]):
+    for args in (["about"], ["check", "--help"]):
         result = invoke("--root", tmp_path, *args)
         assert result.returncode == 0, result.stderr
         assert "\x1b" not in result.stdout

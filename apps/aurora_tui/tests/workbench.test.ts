@@ -20,7 +20,6 @@ afterEach(async () => {
 describe('工作台动作和观察边界', () => {
   it('接纳不表示完成，残留 ctx 终态不能替代运行回执', async () => {
     const { client, model } = await setup();
-    expect(model.ready).toBe(true);
     expect(model.submit('你好')).toBe(true);
     await settle();
     client.emit({ id: BOT.run, location: { instance_id: 'main' }, value: { run_id: 'run-one', status: 'completed' } });

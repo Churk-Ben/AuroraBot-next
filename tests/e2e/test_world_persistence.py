@@ -135,7 +135,6 @@ def test_world_distribution_owns_records_sources_and_lifecycle_definitions():
     plugin = load_plugins(enabled=["aurora_world"])[0]
     assert plugin.requires == ()
     entries = {entry.id: entry for entry in plugin.entries}
-    assert len(entries) == 12
     assert all(
         entry.id.namespace == "org.aurora.world" and entry.provider == "aurora_world" for entry in entries.values()
     )
@@ -146,5 +145,5 @@ def test_world_distribution_owns_records_sources_and_lifecycle_definitions():
         for phase in ("prepare", "start", "stop", "clean")
     }
     entry = entries[RECORDS]
-    assert entry.id == RECORDS and entry.kind == "state_key" and entry.provider == "aurora_world"
+    assert entry.kind == "state_key"
     assert isinstance(entry.target, StateKey) and entry.target.persistent

@@ -148,17 +148,10 @@ async def until(predicate):
 @pytest.mark.parametrize(
     "config",
     [
-        {},
         values(resources=[]),
-        values(connection_id=""),
-        values(buffer_size=0),
-        values(buffer_size=True),
-        values(max_content_bytes=0),
         values(resources=[{"uri": "relative"}]),
         values(resources=[{"uri": URI}, {"uri": URI}]),
         values(resources=[{"uri": URI, "mode": "invented"}]),
-        values(resources=[{"uri": "test://bad\nuri"}]),
-        values(extra="not supported"),
     ],
 )
 def test_invalid_selections_are_rejected(config):

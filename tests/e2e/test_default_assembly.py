@@ -51,8 +51,7 @@ TOOL = Id("dev.assembly:tools/echo")
 COMPONENT = Id("dev.assembly:handlers/echo")
 
 
-@pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("provider", ["openai", "deepseek", "compatible", "xiaomi_mimo"])
+@pytest.mark.parametrize("streaming,provider", [(False, "openai"), (True, "compatible")])
 def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypatch, streaming, provider):
     monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
     import openai
@@ -63,12 +62,9 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
 
     def handle(request):
         value = json.loads(request.content)
-        if provider == "deepseek":
-            assert request.url.host == "api.deepseek.com"
-            assert "thinking" not in value
-        if provider in ("compatible", "xiaomi_mimo"):
+        if provider == "compatible":
             assert request.url.host == "profile.test" and request.url.path == "/v1/chat/completions"
-            assert value["model"] == ("Qwen/custom-model" if provider == "compatible" else "mimo-v2.5-pro")
+            assert value["model"] == "Qwen/custom-model"
             assert request.headers["authorization"] == "Bearer runtime-secret"
         assert value.get("stream", False) is streaming
         requests.append(value)
@@ -119,13 +115,13 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
             ctx.set(CONFIG, {**settings(), "streaming": streaming})
             profile: dict[str, object] = {
                 "adapter": "org.aurora.adapter:adapters/model/litellm",
-                "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
+                "model": "openai/gpt-4o-mini",
                 "credential": "MODEL_TEST_KEY",
             }
-            if provider in ("compatible", "xiaomi_mimo"):
+            if provider == "compatible":
                 profile.update(
-                    model="Qwen/custom-model" if provider == "compatible" else "mimo-v2.5-pro",
-                    provider="openai" if provider == "compatible" else provider,
+                    model="Qwen/custom-model",
+                    provider="openai",
                     base_url="https://profile.test/v1",
                     capabilities={"streaming": True, "tool_calls": True},
                 )

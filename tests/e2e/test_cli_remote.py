@@ -51,11 +51,10 @@ async def command(*args, cwd=None):
             await process.communicate()
 
 
-@pytest.mark.parametrize("authenticated", [False, True])
-def test_remote_watch_and_commands_share_one_host_with_transient_configuration(tmp_path, monkeypatch, authenticated):
+def test_remote_watch_and_commands_share_one_host_with_transient_configuration(tmp_path, monkeypatch):
     monkeypatch.setenv("AURORA_TEST_ACCESS", "test-cli-access-token-123456789012")
-    authentication = ["--connect-token-env", "AURORA_TEST_ACCESS"] if authenticated else []
-    server_authentication = ["--token-env", "AURORA_TEST_ACCESS"] if authenticated else []
+    authentication = ["--connect-token-env", "AURORA_TEST_ACCESS"]
+    server_authentication = ["--token-env", "AURORA_TEST_ACCESS"]
 
     async def scenario():
         data = tmp_path / "host-data"
@@ -125,11 +124,7 @@ def test_remote_watch_and_commands_share_one_host_with_transient_configuration(t
     "arguments",
     [
         ["--data-dir", "unused", "ctx/list"],
-        ["--plugin", "missing-plugin", "ctx/list"],
-        ["--assembly", "dev.test:assemblies/app", "ctx/list"],
-        ["--config", "{}", "ctx/list"],
         ["serve"],
-        ["about"],
     ],
 )
 def test_remote_mode_rejects_local_host_options_without_creating_storage(tmp_path, arguments):

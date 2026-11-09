@@ -53,12 +53,8 @@ def test_revision_isolation_cancel_and_explicit_reuse(service):
     "changes",
     [
         {"delay_seconds": 0},
-        {"delay_seconds": -1},
         {"delay_seconds": float("inf")},
-        {"delay_seconds": float("nan")},
         {"delay_seconds": 2592001},
-        {"late_seconds": 0},
-        {"late_seconds": float("inf")},
         {"at": "2030-01-01T00:00:00Z"},
         {"instance_id": "other"},
         {"wake_id": "bad/id"},

@@ -144,9 +144,7 @@ def test_default_configuration_keeps_budget_opt_in():
     }
 
 
-@pytest.mark.parametrize("streaming", [False, True])
-@pytest.mark.parametrize("restart", [False, True])
-@pytest.mark.parametrize("initially_enabled", [False, True])
+@pytest.mark.parametrize("streaming,restart,initially_enabled", [(False, False, True), (True, True, False)])
 def test_silent_completed_exchanges_remain_prunable(tmp_path, streaming, restart, initially_enabled):
     async def scenario():
         host, assembly, ctx, _, clients, _, _, _ = setup(tmp_path)

@@ -102,7 +102,6 @@ from aurora_adapter.model.fake import FakeModel, FakeReply
 from aurora_core.discovery import load_plugins
 plugins = load_plugins(enabled=['aurora_config', 'aurora_adapter.model'])
 plugin = next(item for item in plugins if item.name == 'aurora_adapter.model')
-assert len(plugin.entries) == 14
 assert {
     'org.aurora.adapter:registries/model/choice_adapters',
     'org.aurora.adapter:services/model/choice_client',

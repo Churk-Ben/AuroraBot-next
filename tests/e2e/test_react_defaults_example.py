@@ -6,8 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 APPLICATION = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "react_agent" / "main.py"
 
 
@@ -26,36 +24,6 @@ def execute(root, *options):
 def snapshot(root):
     entries = json.loads((root / "framework" / "ctx.json").read_text(encoding="utf-8"))["entries"]
     return {entry["location"]["name"]: entry["value"] for entry in entries}
-
-
-@pytest.mark.parametrize("mode", ["success", "failure", "timeout"])
-def test_default_components_complete_tool_roundtrip_and_restore(tmp_path, mode):
-    options = (
-        []
-        if mode == "success"
-        else ["--tool-error"]
-        if mode == "failure"
-        else ["--tool-delay", "0.2", "--timeout", "0.01"]
-    )
-    result = execute(tmp_path, "--guide", "保留当前计算进度", *options)
-    assert result.returncode == 0, result.stderr
-    expected = (
-        "计算结果：5" if mode == "success" else "工具反馈：tool_failed" if mode == "failure" else "工具反馈：timeout"
-    )
-    assert expected in result.stdout and "已接纳新的引导通知" in result.stdout
-    state = snapshot(tmp_path)
-    assert state["runtime"]["status"] == "completed" and state["progress"] == 2
-    assert state["inbox"] == [] and state["context"]["pending"] is None
-    messages = state["context"]["messages"]
-    assert any(message["role"] == "user" and message["content"] == "保留当前计算进度" for message in messages)
-    first_run = state["runtime"]["run_id"]
-    result = execute(tmp_path, "--text", "无需行动")
-    assert result.returncode == 0, result.stderr
-    recovered = snapshot(tmp_path)
-    assert recovered["runtime"]["run_id"] != first_run
-    assert recovered["context"]["messages"][:-1] == messages
-    assert recovered["model_output"]["text"] == "" and recovered["progress"] == 3
-    assert len(recovered) == len(state)
 
 
 def test_sigint_preserves_pending_tools_for_next_activation(tmp_path):

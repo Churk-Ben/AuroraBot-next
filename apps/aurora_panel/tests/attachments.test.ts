@@ -6,7 +6,7 @@ describe('附件读取边界', () => {
   it('按文件扩展名生成受支持的附件，保留完整字节', async () => {
     const files = await readAttachments([new File(['hello'], '说明.txt'), new File(['pdf'], 'paper.PDF')], []);
     expect(files[0]).toEqual({ name: '说明.txt', media_type: 'text/plain', data: btoa('hello') });
-    expect(files[1]?.media_type).toBe('application/pdf');
+    expect(files[1]).toEqual({ name: 'paper.PDF', media_type: 'application/pdf', data: btoa('pdf') });
     const first = files[0];
     if (!first) throw new Error('附件缺失');
     expect(attachmentBytes(first)).toBe(5);

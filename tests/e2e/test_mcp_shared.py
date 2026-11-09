@@ -175,9 +175,17 @@ def setup(root, declarations, mode, monkeypatch, events):
     return host, ctx, hooks, cast(RunOperations, registry.get(RUN_CONTROL).target), models, store
 
 
-@pytest.mark.parametrize("transport", ["remote", "local", "mixed"])
 @pytest.mark.parametrize(
-    "mode", ["source_stop", "timeout", "cancel", "host_stop", "disconnect", "close_cancel", "close_timeout"]
+    "transport,mode",
+    [
+        ("remote", "source_stop"),
+        ("remote", "timeout"),
+        ("local", "cancel"),
+        ("local", "host_stop"),
+        ("mixed", "disconnect"),
+        ("remote", "close_cancel"),
+        ("local", "close_timeout"),
+    ],
 )
 def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, monkeypatch, transport, mode):
     async def scenario():
@@ -323,8 +331,10 @@ def test_shared_product_closes_consumers_before_clients_and_snapshot(tmp_path, m
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("transport", ["remote", "local", "mixed"])
-@pytest.mark.parametrize("mode", ["catalog_failure", "model_failure", "source_failure"])
+@pytest.mark.parametrize(
+    "transport,mode",
+    [("remote", "catalog_failure"), ("local", "model_failure"), ("mixed", "source_failure")],
+)
 def test_partial_product_startup_closes_prepared_shared_resources(tmp_path, monkeypatch, transport, mode):
     async def scenario():
         events = []

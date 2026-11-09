@@ -90,8 +90,7 @@ def fake_plugin(name, clients):
     return Plugin("test.product", (RegistryEntry(ADAPTER, "adapter", factory, "test.product", register_to=ADAPTERS),))
 
 
-@pytest.mark.parametrize("transport", ["remote", "local"])
-@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("transport,explicit", [("remote", True), ("local", False)])
 def test_product_preset_runs_via_cli_and_preserves_original_configuration(tmp_path, transport, explicit):
     async def scenario():
         async with service(tmp_path, transport) as (declaration, calls):

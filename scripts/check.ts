@@ -1,5 +1,5 @@
 /** 工作区检查入口：先 uv sync --all-packages 与 pnpm install，再 pnpm check。 */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -51,7 +51,7 @@ export function planChecks(options: CheckOptions): CheckTask[] {
     if (options.full || options.coverage) {
       pnpm('run', 'test');
       pnpm('--filter', '@aurorabot/tui', 'test:terminal');
-      uv('pytest', ...(options.coverage ? ['--cov', '--cov-report=term-missing'] : []));
+      uv('pytest', '-n', '4', '--dist=worksteal', ...(options.coverage ? ['--cov', '--cov-report=term-missing'] : []));
     } else {
       pnpm('exec', 'vitest', 'run', 'packages/aurora_client', 'scripts/__tests__/check-plan.test.ts');
       uv('pytest', 'tests/contract');
@@ -62,15 +62,21 @@ export function planChecks(options: CheckOptions): CheckTask[] {
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-function run(command: string, args: string[], cwd = root): boolean {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
-  if (result.error) {
-    console.error(result.error.message);
-  }
-  if (result.error || result.status !== 0) {
-    return false;
-  }
-  return true;
+/** 按任务集中输出 UTF-8 日志，避免并行检查的输出交错。 */
+function run(command: string, args: string[], cwd = root): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    let output = '';
+    child.stdout.on('data', (chunk) => (output += chunk));
+    child.stderr.on('data', (chunk) => (output += chunk));
+    child.on('error', (error) => (output += `${error.message}\n`));
+    child.on('close', (code) => {
+      process.stdout.write(output);
+      resolve(code === 0);
+    });
+  });
 }
 
 if (import.meta.main) {
@@ -97,8 +103,7 @@ if (import.meta.main) {
         values.full || values.coverage ? '测试范围：完整测试。' : '测试范围：快速边界测试；完整测试使用 --full。',
       );
     }
-    let failures = 0;
-    for (const task of tasks) {
+    const execute = (task: CheckTask) => {
       let command: string = task.tool;
       let args = task.args;
       if (task.tool === 'pnpm') {
@@ -107,10 +112,17 @@ if (import.meta.main) {
       } else if (task.tool === 'node') {
         command = process.execPath;
       }
-      if (!run(command, args, task.cwd ? resolve(root, task.cwd) : root)) {
-        failures++;
+      return run(command, args, task.cwd ? resolve(root, task.cwd) : root);
+    };
+    const results: boolean[] = [];
+    if (values.fix) {
+      for (const task of tasks) {
+        results.push(await execute(task));
       }
+    } else {
+      results.push(...(await Promise.all(tasks.map((task) => execute(task)))));
     }
+    const failures = results.filter((passed) => !passed).length;
     console.log(failures ? `${failures} 项检查失败。` : '全部检查通过。');
     process.exitCode = failures ? 1 : 0;
   } catch (error) {
