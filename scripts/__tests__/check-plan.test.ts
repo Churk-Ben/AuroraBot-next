@@ -32,7 +32,7 @@ describe('工作区检查选项', () => {
     expect(tasks).toEqual([
       { tool: 'pnpm', args: ['run', 'test'] },
       { tool: 'pnpm', args: ['--filter', '@aurorabot/tui', 'test:terminal'] },
-      { tool: 'uv', args: ['run', '--locked', 'pytest'] },
+      { tool: 'uv', args: ['run', '--locked', 'pytest', '-n', '4', '--dist=worksteal'] },
     ]);
     expect(planChecks({ full: true })).toContainEqual({ tool: 'pnpm', args: ['run', 'typecheck'] });
   });
