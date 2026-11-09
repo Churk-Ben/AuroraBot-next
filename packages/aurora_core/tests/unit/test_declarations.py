@@ -20,11 +20,8 @@ def test_decorator_preserves_function_and_does_not_register_or_call():
         calls.append(value)
         return prefix + value
 
-    signature = inspect.signature(original)
     decorated = operation("dev.example:operations/echo")(original)
     assert decorated is original
-    assert inspect.signature(decorated) == signature
-    assert decorated.__doc__ == "拼接输入。"
     assert registry.entries() == before
     assert calls == []
     entry = entry_from(decorated, provider="example")

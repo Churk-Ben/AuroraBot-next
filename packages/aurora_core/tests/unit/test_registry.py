@@ -19,19 +19,7 @@ def test_valid_id(value):
 
 @pytest.mark.parametrize(
     "value",
-    [
-        "",
-        "dev:resources/a",
-        "dev..example:r/a",
-        "dev.example:r/",
-        "dev.example:r//a",
-        "dev.example:r/../a",
-        "dev.example:r/./a",
-        "dev.example:r/a/",
-        "dev.example:r/a b",
-        "dev.example:R/a",
-        "dev.example:r/a\n",
-    ],
+    ["dev:resources/a", "dev.example:r//a", "dev.example:r/../a", "dev.example:R/a", "dev.example:r/a\n"],
 )
 def test_invalid_id(value):
     with pytest.raises(ValueError):

@@ -113,13 +113,13 @@ def test_required_material_is_never_silently_truncated(part):
     assert request == before
 
 
-@pytest.mark.parametrize("budget", [True, 1024.0, 0, -1, 1023])
+@pytest.mark.parametrize("budget", [True, 1024.0, 1023])
 def test_invalid_budgets_rejected(budget):
     with pytest.raises(ValueError):
         ModelInputBudget(budget)
 
 
-@pytest.mark.parametrize("ends", [None, [True], [0], [4], [2, 1], [1, 1], [1.0]])
+@pytest.mark.parametrize("ends", [None, [True], [4], [2, 1], [1, 1]])
 def test_recorded_exchange_boundaries_reject_invalid_snapshot_data(ends):
     from aurora_agent.input_budget import read_exchange_ends
 

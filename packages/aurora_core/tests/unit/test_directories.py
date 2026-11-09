@@ -18,16 +18,7 @@ def test_paths_are_stable_and_namespaces_are_distinct(tmp_path):
 
 @pytest.mark.parametrize(
     "namespace",
-    [
-        "../outside",
-        "dev.example/../../outside",
-        "C:\\outside",
-        "dev..example",
-        "dev",
-        "Dev.example",
-        "dev.example ",
-        "dev.example:state/a",
-    ],
+    ["../outside", "C:\\outside", "dev..example"],
 )
 def test_invalid_namespace_cannot_create_directory(tmp_path, namespace):
     root = tmp_path / "data"

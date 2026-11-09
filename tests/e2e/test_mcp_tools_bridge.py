@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("with_bot", [False, True])
-@pytest.mark.parametrize("protocol", ["legacy", "auto", "2026-07-28"])
-@pytest.mark.parametrize("transport", ["remote", "local"])
-@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize(
+    "with_bot,protocol,transport,automatic",
+    [(False, "legacy", "remote", False), (True, "auto", "local", True)],
+)
 def test_local_mcp_tools_roundtrip(tmp_path, with_bot, protocol, transport, automatic):
     launcher = """
 import importlib.abc

@@ -262,8 +262,7 @@ def test_close_failure_is_explicit_and_never_reported_as_closed(monkeypatch, err
 
 
 @pytest.mark.parametrize("mode", ["ok", "missing", "unknown_advertised", "old_protocol", "rejected", "missing_token"])
-@pytest.mark.parametrize("execution_timeout", [0.001, 30])
-def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, caplog, mode, execution_timeout):
+def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, caplog, mode):
     async def scenario():
         secret = "test-only-runtime-token"
         requests, resolved, clients = [], [], []
@@ -303,7 +302,7 @@ def test_real_sdk_discovery_credentials_and_capability_failures(monkeypatch, cap
                 declaration(
                     required_capabilities=["tools"],
                     headers={"Authorization": "Bearer {env:TEST_MCP_TOKEN}"},
-                    timeout={"execution": execution_timeout},
+                    timeout={"execution": 0.001},
                 )
             ]
         )

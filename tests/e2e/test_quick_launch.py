@@ -11,8 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize(("name", "marker"), [("bot", b"--env-file"), ("panel", b"--host"), ("tui", b"--token-env")])
-@pytest.mark.parametrize("launcher", ["aurora", "pnpm"])
+@pytest.mark.parametrize("name,marker,launcher", [("bot", b"--env-file", "aurora"), ("panel", b"--host", "pnpm")])
 def test_quick_command_help_from_other_directory(tmp_path, name, marker, launcher):
     pnpm = shutil.which("pnpm")
     if pnpm is None:

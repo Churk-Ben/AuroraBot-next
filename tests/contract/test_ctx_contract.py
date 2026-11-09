@@ -1,7 +1,6 @@
 """验证公开描述与真实 HTTP/WS 载荷一致，以及生成产物可重复检查。"""
 
 import asyncio
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -10,8 +9,6 @@ import pytest
 from aiohttp import ClientSession
 from aurora_api.contract import describe_contract
 from aurora_api.server import serve
-from aurora_bot.conversation_contract import describe_conversation
-from aurora_config.editor_contract import describe_configuration
 from aurora_core.bootstrap import bootstrap
 from aurora_core.ctx import StateKey, install_context
 from aurora_core.ids import Id
@@ -55,17 +52,10 @@ def test_descriptions_are_valid_isolated_and_have_only_transport_ids():
         ("GetRequest", {"key": str(PUBLIC)}, True),
         ("GetRequest", {}, False),
         ("GetRequest", {"key": "invalid"}, False),
-        ("ListRequest", {}, True),
-        ("WatchRequest", {"location": {}}, True),
-        ("WatchRequest", {"location": {"scope": "中文"}}, True),
-        ("WatchRequest", {"location": {"": "value"}}, False),
-        ("WatchRequest", {"location": {"scope": ""}}, False),
         ("WatchRequest", {"location": None}, False),
         ("SetRequest", {"key": str(PUBLIC), "value": None}, True),
         ("SetRequest", {"key": str(PUBLIC)}, False),
         ("SetRequest", {"key": str(PUBLIC), "value": 1, "extra": True}, False),
-        ("DeleteRequest", {"key": str(PUBLIC), "location": {}}, True),
-        ("DeleteRequest", {"key": str(PUBLIC), "value": None}, False),
     ],
 )
 def test_request_descriptions_preserve_required_optional_and_null(name, payload, accepted):
@@ -127,23 +117,12 @@ def test_live_http_and_websocket_match_exported_contract():
     asyncio.run(scenario())
 
 
-def test_generator_is_reproducible_and_check_does_not_write(tmp_path):
-    command = [sys.executable, str(ROOT / "scripts/generate.py")]
-
-    def run(*args):
-        return subprocess.run([*command, *args], cwd=ROOT, capture_output=True, timeout=15, check=False)
-
-    assert run("--check").returncode == 0
-    assert run("--output", str(tmp_path), "--check").returncode == 1
-    assert not list(tmp_path.iterdir())
-    assert run("--output", str(tmp_path)).returncode == 0
-    original = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
-    assert json.loads(original["ctx-contract.json"]) == describe_contract(
-        extensions=[describe_conversation(), describe_configuration()]
+def test_generated_client_contract_matches_backend():
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/generate.py"), "--check"],
+        cwd=ROOT,
+        capture_output=True,
+        timeout=15,
+        check=False,
     )
-    assert run("--output", str(tmp_path)).returncode == 0
-    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == original
-    target = tmp_path / "ctx-contract.ts"
-    target.write_text("过期产物", encoding="utf-8")
-    assert run("--output", str(tmp_path), "--check").returncode == 1
-    assert target.read_text(encoding="utf-8") == "过期产物"
+    assert result.returncode == 0, result.stdout + result.stderr

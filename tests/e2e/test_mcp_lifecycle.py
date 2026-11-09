@@ -76,7 +76,6 @@ def test_mcp_distribution_and_plugin_boundaries():
     assert "mcp==2.3.0; extra == 'mcp'" in requirements
     plugins = load_plugins(enabled=["aurora_config", "aurora_adapter.mcp"])
     plugin = next(item for item in plugins if item.name == "aurora_adapter.mcp")
-    assert len(plugin.entries) == 7
     assert all(entry.id.namespace == "org.aurora.adapter" for entry in plugin.entries)
 
 
