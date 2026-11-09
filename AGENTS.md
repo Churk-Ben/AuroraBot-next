@@ -97,6 +97,7 @@ uv build --all-packages --wheel --out-dir build/wheels
 ```
 
 - 根据改动选择有意义的验证。日常 `aurora check` 只收集快速边界测试，`--test` 跳过静态检查，`--full` 显式启用完整测试，`--coverage` 也使用完整测试范围。纯文档修改检查链接与差异，不为此运行无关测试；涉及跨包契约、生命周期或配置行为时完成相关回归和 `aurora check --full`。
+- 新增测试须覆盖现有用例无法验证的关键行为或真实缺陷，优先扩展、合并或替换既有用例，并在变更说明中交代独有价值；不为同一行为堆叠跨层重复测试、同类边界枚举或参数笛卡尔积，不添加仅复述实现步骤的断言，集成测试只保留代表链路。新增或扩大测试范围后，须在依赖已安装的同一开发环境实测完整命令墙钟时间，确保 `aurora check` 不超过 15 秒、`aurora check --full` 不超过 60 秒；超预算优先精简重复覆盖或改用可控夹具，不通过跳过检查、削弱有效断言或继续增加 worker 数规避。
 - 拆包、依赖或分发内容变更还需验证 wheel；在干净环境中确认 control 无需 agent/模型包，agent 无需 bot/CLI/API。工作区可导入不能代替安装验收。
 - 包级单元测试和协议测试分别位于 `packages/<包>/tests/unit`、`packages/<包>/tests/contract`；跨包契约测试位于根目录 `tests/contract`，工作区、真实进程及跨包集成测试位于根目录 `tests/e2e`。不通过删除有效断言或扩大容错来掩盖失败。
 - `examples` 只保留 `onboarding` 安装配置助手，使用正式 ReAct 与 terminal MCP；不默认启用 QQ、世界订阅或决策模型。`examples/START.md` 保持为首次启动短指南，详细配置与操作说明放入 `docs`。旧离线应用仅作为 `tests/fixtures/runtime_apps` 回归夹具保留，不作为用户示例。
