@@ -2,6 +2,14 @@
 
 ## 2026-11-09
 
+### 精简启动指南并归档、对齐文档
+
+- examples/START.md 从 843 行收敛为 47 行，只保留安装配置助手的初始化、模型配置、单次使用及连续对话路径；详细内容按配置、操作、上下文、架构和开发验证组织，由 docs/INDEX.md 统一导航。
+- 旧启动大全、架构、公共 ID、拆包评估及八份历史计划、交接、讨论和审查资料保存到 docs/archive/2026-11-09；增加历史状态说明，修正相对链接，保留当时的设计与验收语境。CHAGELOG 历史记录保留，仅更新迁移后的引用。
+- 当前架构和执行包边界保留既有文件名并重写为代码现状，明确 world、MCP 产品装配与主动行为已实现，独立 harness 未实现；公共 ID 目录与 17 个插件及宿主基础定义实际枚举结果核对，共 179 项，不混入规划身份或未发现的动态工具。
+- 文档验收：22 份 Markdown 的 269 个本地链接与章节锚点检查通过，代码围栏平衡，3 段当前 TOML 示例可解析，git diff 空白检查通过。
+- 完整验收：pnpm exec uv run --locked aurora check --full 通过，包括格式、lint、Python/TypeScript 类型、140 项前端测试、5 项原生终端测试和 1408 项 Python 测试。Python 报告 3 条依赖警告，无测试失败；未调用真实模型供应商。
+
 ### 收敛用户示例为安装配置助手
 
 - examples 仅提供 onboarding：真实模型驱动的朴素 ReAct Bot，复用现有 CLI 宿主与 MCP 产品装配；支持只补缺模板的 --init、单次 --text 和供 TUI / Panel 连接的持续后端。
@@ -401,7 +409,7 @@
 
 ### 整理以 ctx 为中心的主动 bot 上下文设计
 
-- 新增独立讨论稿 [以 ctx 为中心的主动 bot 上下文设计](aurora_bot_ctx_prompt_design.md)：稳定的世界规则和人格进入 system，本次唤起原因与业务 ctx 视图通过 user 提供，运行中保留 assistant/tool 关系；关注与行动选择交给 bot，框架维护来源、身份和执行事实。
+- 新增独立讨论稿 [以 ctx 为中心的主动 bot 上下文设计](archive/2026-11-09/aurora_bot_ctx_prompt_design.md)：稳定的世界规则和人格进入 system，本次唤起原因与业务 ctx 视图通过 user 提供，运行中保留 assistant/tool 关系；关注与行动选择交给 bot，框架维护来源、身份和执行事实。
 - 区分完整业务记录、有限模型视图、持久工作笔记与实际行动证据；明确引导接纳不等于事项完成，模型笔记不替代工具回执，当前快照不逐轮追加到永久历史。
 - 以现有 world 事件数据库、近期视图和独立环境状态为基线，列出插件分工、已有能力、最小验证场景和待讨论问题。仅整理设计，不新增运行实现、公共 ID、插件、配置或快照格式，不改变 M4.W3 契约或将 W4 标记完成。
 - 验证通过：两份文档的 Prettier/Ruff 格式检查、新文档及本条记录的 11 个本地链接、代码围栏闭合与 git diff 空白检查。纯文档变更未运行业务测试；README.md、AGENTS.md 和用户数据未修改。
@@ -465,7 +473,7 @@
 
 ### 复核设计一致性审查报告
 
-- 更新[审查报告](review-report_2026-11-03.md)，保留 F1–F16 编号，区分已确认缺陷、条件性风险、维护建议和规划能力；修正双调度、MCP 原子登记与作用域、实例切换、持久化频率、配置启用和 Node 运行入口等判断，重排整改优先级。
+- 更新[审查报告](archive/2026-11-09/review-report_2026-11-03.md)，保留 F1–F16 编号，区分已确认缺陷、条件性风险、维护建议和规划能力；修正双调度、MCP 原子登记与作用域、实例切换、持久化频率、配置启用和 Node 运行入口等判断，重排整改优先级。
 - 分开保留原基线验证与同日复核记录：192 项 Python 定向测试、58 项前端测试、2 项 TUI e2e 及生成契约检查通过；最小场景确认世界记录可删除、配置失败后编辑入口仍绑定、405 非 JSON 和空来源异常覆盖。上述验证不构成对并行 MCP 未提交改动的完整验收。
 - 本次仅修改报告与本条记录，未修改实现或用户配置；文档本地链接、锚点和差异检查通过，保留其他任务已有改动。
 
@@ -488,11 +496,11 @@
 - B5.1 的可运行路径仍为 remote + 显式 protocol=2026-07-28、显式工具 include 与 aliases。新声明默认 legacy，启用尚未实现的 legacy/auto/local 时在创建任何连接前报 unsupported_protocol/unsupported_transport；默认通配或缺少别名的自动工具选择报 unsupported_tool_selection。自动命名与产品装配不冒充已交付；后续顺序为 B5.2 HTTP 协商、B5.3 stdio、B5.4 产品接线、扩展后的 B3。
 - 新增 70 项验证，覆盖声明分支与控制字符、惰性凭证、未实现模式预检、禁用项、迁移保留/冲突/不覆盖、独立操作预算与关闭等待重试；原工具、假模型默认装配和世界通知恢复仍通过。完整检查最终通过 861 项 Python、97 项 TS、5 项原生终端测试，格式、lint、Python/TS 类型检查通过；普通回归仅使用假模型、模拟 HTTP 与本机测试进程，没有调用外部 MCP 服务或真实模型。
 - 12 个 wheel 构建完成，最终 adapters wheel 在 `build/b5-1-{base,client,world,tools,agent}` 的五个干净环境验证基础 adapters/control 无 agent/模型、客户端无 world/agent/bot、通知桥无 agent/bot、工具桥无 world/bot、agent 无 adapters/world/bot/CLI/API。安装后的迁移命令、包内模板、本机客户端/工具往返和 world 跨进程恢复均通过。MCP extra 新增 tomli-w 以发布迁移命令，基础包依赖不变。
-- 同步[设计与实现边界](mcp_unified_access_design.md)、架构、公共 ID、计划和[启动指南](../examples/START.md)；57 个现行文档本地链接/锚点、8 段 TOML 示例和差异检查通过。无旧公共 ID/插件替换，无业务快照迁移；用户配置与数据未修改，README.md、AGENTS.md 保持原状。
+- 同步[设计与实现边界](archive/2026-11-09/mcp_unified_access_design.md)、架构、公共 ID、计划和[启动指南](archive/2026-11-09/START.md)；57 个现行文档本地链接/锚点、8 段 TOML 示例和差异检查通过。无旧公共 ID/插件替换，无业务快照迁移；用户配置与数据未修改，README.md、AGENTS.md 保持原状。
 
 ### 编写 MCP 通用接入需求与设计草案
 
-- 新增 [MCP 通用接入需求与设计草案](mcp_unified_access_design.md)，明确由 Aurora 自身支持 HTTP/stdio，复用一套连接所有权和工具执行契约，不要求第三方服务改传输。区分已交付 B1/B2/B4、样本观察和未实现设计。
+- 新增 [MCP 通用接入需求与设计草案](archive/2026-11-09/mcp_unified_access_design.md)，明确由 Aurora 自身支持 HTTP/stdio，复用一套连接所有权和工具执行契约，不要求第三方服务改传输。区分已交付 B1/B2/B4、样本观察和未实现设计。
 - 提出按服务名组织的 v2 TOML、local/remote、独立 protocol、运行期 headers/environment 引用、自动工具命名与过滤、可选产品装配及显式迁移。新配置默认 legacy，旧配置迁移显式保留固定新版；auto 的回退边界按锁定 SDK 行为说明，不把 RPC 错误当作版本证据，不重放工具动作。
 - 明确 Windows/跨平台子进程回收、共享关闭、错误诊断、包依赖及 CLI/API 产品验收；业务事件扩展和带游标事件日志独立于传输与工具兼容。增加计划 B5 切片，B3 扩展到两种传输；同步主架构与计划入口，拟议公共 ID/插件尚不登记为已实现。
 - 本轮仅修改文档，不修改实现、宿主配置、README.md 或 AGENTS.md；用户的 OpenCode 配置及参考文件不纳入本次提交。2 段 TOML 示例及合并结果解析通过，57 个本地链接/锚点、代码块格式与差异检查通过；修正主架构中公共 ID 第 6 节的既有失效锚点。不运行无关业务测试或真实 MCP/模型调用。
@@ -595,7 +603,7 @@
 
 ### 单列 TUI 全面优化待办
 
-- 按用户要求新增 [TUI 全面优化待办](tui_optimization_todo.md)，记录操作与反馈、编辑体验、布局与文本、性能、偏好及终端兼容的分级任务和验收要求；条目保持未完成，不将评估方向写成已确认缺陷。
+- 按用户要求新增 [TUI 全面优化待办](archive/2026-11-09/tui_optimization_todo.md)，记录操作与反馈、编辑体验、布局与文本、性能、偏好及终端兼容的分级任务和验收要求；条目保持未完成，不将评估方向写成已确认缺陷。
 - 计划明确该队列独立于主线，当前继续 M3.9 多客户端、断线与重启联调；影响正确性的问题仍随主线修复。仅修改文档，检查格式、相对链接与差异，不改 README.md 或 AGENTS.md。
 
 ### M3.7：TUI ctx 操作与 TOML 编辑
@@ -616,7 +624,7 @@
 
 ### M3.7：TUI 连接设置与本地偏好
 
-- 启动按命令行参数、本地偏好、内置默认值依次选择连接和实例。新增 `--save-preferences` 保存连接选择后退出，不连接后端；普通启动参数仅本次生效。切换到不同后端而未指定实例时恢复自动选择，避免沿用旧后端的目标。`--preferences PATH` 可隔离不同界面的设置，默认文件位于用户配置目录，详见[启动指南](../examples/START.md)。
+- 启动按命令行参数、本地偏好、内置默认值依次选择连接和实例。新增 `--save-preferences` 保存连接选择后退出，不连接后端；普通启动参数仅本次生效。切换到不同后端而未指定实例时恢复自动选择，避免沿用旧后端的目标。`--preferences PATH` 可隔离不同界面的设置，默认文件位于用户配置目录，详见[启动指南](archive/2026-11-09/START.md)。
 - 正常退出自动保存改变的页面及 Ctrl+T 全局工具展开偏好，重新启动恢复页面、焦点和工具详情展示。按运行展开状态、筛选词、草稿、消息、回执及凭证不持久化；偏好不进入后端 TOML、ctx 或业务快照。保存前重新读取文件并合并改动；并发写同一文件时最后一次完整写入生效。
 - 版本化 JSON 校验拒绝未知字段、无效类型和版本；HTTP(S) 地址拒绝 URL 凭证、查询参数及片段。无效文件保留原内容并报告错误，帮助入口无需读取文件。完整临时文件通过重命名替换旧文件；退出保存位于连接清理和终端恢复之后，保存失败不妨碍后端运行。
 - 验收：完整 `pnpm exec uv run --locked aurora check` 通过，556 项 Python、87 项 TS 和 4 项原生终端测试通过。新增 22 项偏好及命令入口测试，覆盖加载/保存、覆盖优先级、临时连接隔离、后端切换、坏文件保护与无终端保存；新增原生界面重开测试，检查状态页焦点、工具展开及不恢复请求/草稿。执行环境拒绝交互式 PTY，界面通过 OpenTUI 原生测试渲染器与模拟按键验收；未调用真实模型，保留既有 FFI 实验性与 Pydantic ReadOnly 提示。
@@ -645,7 +653,7 @@
 ### 使用现有 data 配置启动 TUI 的真实模型后端
 
 - 检查本地 `data` 的默认装配、`reasoning → primary` 绑定、DeepSeek `deepseek-flash` 配置与流式开关，并确认 `.env` 可提供 profile 引用的环境凭证，未输出密钥内容。仅在本地宿主插件列表补充 `aurora_api`，保留模型、工具和业务数据配置。
-- 使用现有 `aurora --data-dir data serve` 开放本机 `10270`、直接交流端点和四项 bot 状态；`/conversation/info` 确认 `main` 实例和宿主会话就绪。未发送模型测试消息，未执行真实模型验收。可复用的启动及关闭方式写入[示例指南](../examples/START.md#使用已有配置启动真实模型后端)。无产品代码或契约变化。
+- 使用现有 `aurora --data-dir data serve` 开放本机 `10270`、直接交流端点和四项 bot 状态；`/conversation/info` 确认 `main` 实例和宿主会话就绪。未发送模型测试消息，未执行真实模型验收。可复用的启动及关闭方式写入[示例指南](archive/2026-11-09/START.md#使用已有配置启动真实模型后端)。无产品代码或契约变化。
 
 ### 整理 TUI 目录并加入分组快捷键帮助
 
@@ -669,7 +677,7 @@
 - 接纳与调用完成分开，结束状态由回执查询确认；观察到的 ctx 终态单独标注。断线禁用新提交但保留草稿，恢复后刷新状态并核对回执，不自动重发；F4 明确重试原身份，后端会话改变后旧请求失效。Ctrl+X/运行内停止按钮等待取消收尾；Ctrl+C 只关闭观察连接、释放原生资源和恢复终端，不取消 bot。
 - 原生渲染验收纳入 `aurora check`。新增控制器回归、真实 OpenTUI 布局/输入/切页/滚动验收及 Python API + Node 原生 TUI 联调，覆盖提交、同 run 追加引导、退出观察后继续运行、重新连接后取消、工具与模型关闭顺序；全部使用假模型。实际读取并检查 100×30 终端帧，另覆盖 48×18 窄终端。
 - `pnpm install --frozen-lockfile`、完整 `pnpm exec uv run --locked aurora check` 和全工作区 wheel 构建通过：556 项 Python 测试、65 项 TS 测试、1 项原生终端测试，格式/lint/类型及生成契约检查通过。测试执行环境拒绝分配交互式 PTY，原生界面通过测试渲染器与按键输入模拟验收，尚未在该环境完成真实终端人工操作；启动帮助入口通过。保留 Node FFI 实验性接口和既有供应商 SDK Pydantic 提示。
-- 启动方式见[示例指南](../examples/START.md)。本次交付交流页与只读状态页；M3.7 的配置编辑、ctx 写操作及本地偏好持久化仍待实现，M3.9 尚需完整多客户端/断线联调，M3 不标记整体完成。无公共 ID、后端配置、快照格式或插件入口变更。
+- 启动方式见[示例指南](archive/2026-11-09/START.md)。本次交付交流页与只读状态页；M3.7 的配置编辑、ctx 写操作及本地偏好持久化仍待实现，M3.9 尚需完整多客户端/断线联调，M3 不标记整体完成。无公共 ID、后端配置、快照格式或插件入口变更。
 
 ### 升级 Node 26 并验证 OpenTUI 原生运行路径
 
@@ -685,7 +693,7 @@
 - 请求去重作用域为 session_id/instance_id/request_id。同身份同文本返回原回执，异文返回 409 request_conflict；不同身份的同文属于新引导。回执最多保留 4096 条，满额返回 429 receipt_limit，不通过淘汰身份允许旧请求重新执行。回执仅存内存，重启后旧会话统一返回 409 session_expired；客户端不自动重放 HTTP 动作，不承诺跨重启去重。
 - query 返回关联句柄的 pending/completed/cancelled/failed 与异常类型，pending 覆盖排队、执行及清理，不根据残留 ctx 推断结束。取消限定 instance_id/run_id，等待收尾；未知或已结束返回 cancelled=false，取消期间新引导返回 409 busy。API 关闭、客户端关闭与 HTTP 等待取消不隐式停止 bot。失败的原回执仍可核对，重复提交不会重试业务。
 - `CtxClient.conversation` 提供 info、submit、query、cancel，共用 HTTP 超时、主动关闭和错误处理；响应校验拒绝会话、实例、请求和运行身份错配。契约生成显式合并 API ctx 描述与 bot 直接交流描述，保留 API 独立导出；info/query 不伪造 operation ID。生成 JSON 与 TS 类型/绑定同步更新。
-- `examples/default_bot/main.py --serve` 提供无需世界插件、网络模型或凭证的常驻演示；启动及客户端代码见[示例指南](../examples/START.md)。更新[计划](plan.md)、[架构](aurorabot-design-v0.2.3.md)和[公共 ID](aurorabot-id-catalog-v0.2.3.md)，接续 M3.7 OpenTUI。新增接收方与端点 ID，无旧 ID 重命名、配置或快照迁移；README.md 和 AGENTS.md 保持不变。
+- `examples/default_bot/main.py --serve` 提供无需世界插件、网络模型或凭证的常驻演示；启动及客户端代码见[示例指南](archive/2026-11-09/START.md)。更新[计划](archive/2026-11-09/plan.md)、[架构](archive/2026-11-09/aurorabot-design-v0.2.3.md)和[公共 ID](archive/2026-11-09/aurorabot-id-catalog-v0.2.3.md)，接续 M3.7 OpenTUI。新增接收方与端点 ID，无旧 ID 重命名、配置或快照迁移；README.md 和 AGENTS.md 保持不变。
 - 新增 6 项 Python 场景及 11 项 TS 测试，覆盖重复/冲突、实例隔离、运行中引导、结束边界、清理期间查询与取消、失败/关闭、API 断开、宿主重启和真实 Node/Python bot 联通。完整 `uv run --locked aurora check` 通过：555 项 Python、59 项 TS/工具链测试，以及格式、lint 和 Python/TS 类型检查；供应商 SDK 保留既有 1 项 Pydantic ReadOnly 提示，未调用真实模型。
 - 全部 11 个 wheel 构建通过，产物位于 `build/m3.6-wheels`。四个隔离环境使用实际 wheel 验证 API 无 bot/agent/模型/CLI、control 无 agent/模型、agent 无 bot/CLI/API、bot 无 CLI/API；插件发现、直接交流声明及 bot 模板资源通过。文档 50 条相对链接和 git diff 空白检查通过。
 
@@ -693,9 +701,9 @@
 
 - D10 确定面对面交流由 bot 产品入口向目标实例的既有 AgentRuntime 提交引导；首版默认 Panel/TUI/CLI 使用此路径，外部消息与环境变化经 world/cadence 接入。路由按交流性质配置，不把平台永久绑定到某条路径；直接交流不要求先进入 world。两条路径共用一个调度所有者，运行中保留当前 loop，接纳不等于完成，关闭界面不取消后端运行。
 - 首版界面确定为 bot 工作台，展示直接交流、运行与工具活动，不提前实现多会话上下文隔离。M3.6 接续专用提交/取消入口、回执、重复请求与运行关联；复用 run 操作，不新增 conversation/send、conversation/cancel 同义实现。具体信封和 URL 待实现时同步契约与测试。
-- [设计文档](aurorabot-design-v0.2.3.md)补充两条路径与包边界：world 负责独立的世界记录与来源，cadence 先作为 bot 包内可选插件逐条原样转发，不做语义聚类、合并或延迟调度。agent 不依赖 world，cadence 不另建激活调度循环；直接对话与世界记录分别保留来源身份。
-- [计划](plan.md)新增 D11 与 M4.W1–M4.W4：世界记录及接口、模拟来源与生命周期、原样转发 cadence、双路径与隔离安装验收。M4-W 排在 M3 工作台之后，不阻塞 M3.6；明确重复来源、消费位置、转交结果不确定及关闭恢复边界，后续将 live_workshop 改为正式能力消费者。移除 bot 编码落点中重复的 world 职责。
-- [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)补充 world/cadence 的命名空间归属，明确 world 当前为空插件、cadence 尚未实现；保留的 conversation 端点规划改为复用已有 run 操作，未预占新的世界业务 ID。同步[主动 bot 设计摘要](aurora_bot_react_design.md)，原始讨论记录保留为历史草案。
+- [设计文档](archive/2026-11-09/aurorabot-design-v0.2.3.md)补充两条路径与包边界：world 负责独立的世界记录与来源，cadence 先作为 bot 包内可选插件逐条原样转发，不做语义聚类、合并或延迟调度。agent 不依赖 world，cadence 不另建激活调度循环；直接对话与世界记录分别保留来源身份。
+- [计划](archive/2026-11-09/plan.md)新增 D11 与 M4.W1–M4.W4：世界记录及接口、模拟来源与生命周期、原样转发 cadence、双路径与隔离安装验收。M4-W 排在 M3 工作台之后，不阻塞 M3.6；明确重复来源、消费位置、转交结果不确定及关闭恢复边界，后续将 live_workshop 改为正式能力消费者。移除 bot 编码落点中重复的 world 职责。
+- [公共 ID 目录](archive/2026-11-09/aurorabot-id-catalog-v0.2.3.md)补充 world/cadence 的命名空间归属，明确 world 当前为空插件、cadence 尚未实现；保留的 conversation 端点规划改为复用已有 run 操作，未预占新的世界业务 ID。同步[主动 bot 设计摘要](archive/2026-11-09/aurora_bot_react_design.md)，原始讨论记录保留为历史草案。
 - 本次仅更新文档，不改 README.md、AGENTS.md、运行代码、已登记 ID、插件清单、配置或快照，无需数据迁移。M3.6 和 M4-W 未标记为已交付。
 - 验证通过：5 份文档的 Prettier 与 Ruff 格式检查、39 条相对链接、4 项 M4-W 任务编号唯一性及 git diff 空白检查。现行设计已移除过期的 M3/D10 状态和 cadence 自建调度要求；历史聊天和旧变更记录保留原文。纯文档修改未运行业务测试或真实模型验收。
 
@@ -776,13 +784,13 @@ try {
 ### 文档基线 v0.2.3
 
 - 设计文档与公共 ID 目录升版为 v0.2.3，同步 control、agent、bot 的包职责、命名空间、依赖方向、模型适配器状态与 M2 完成情况；补充 `aurora_config` 的配置声明、校验、模板与 config 阶段边界；旧版本号只保留在修订记录中。
-- [计划](plan.md) 更新实现基线、M2 完成状态、D03/D05/D06/D07 结论、模块落点与 M3 接续队列；[M2 交接](m2-handoff.md) 标注为已完成的交接语境，并修正模型、CLI 与依赖方向；[主动 bot 设计](aurora_bot_react_design.md) 与[拆包评估](aurora_agent_extraction_assessment.md) 补充实施位置与阶段状态。
-- `AGENTS.md` 的项目结构补齐 `aurora_config`、`aurora_control`、`aurora_agent`、`aurora_logging`、`aurora_world`；[示例指南](../examples/START.md) 的公共 ID 链接指向 v0.2.3。
+- [计划](archive/2026-11-09/plan.md) 更新实现基线、M2 完成状态、D03/D05/D06/D07 结论、模块落点与 M3 接续队列；[M2 交接](archive/2026-11-09/m2-handoff.md) 标注为已完成的交接语境，并修正模型、CLI 与依赖方向；[主动 bot 设计](archive/2026-11-09/aurora_bot_react_design.md) 与[拆包评估](archive/2026-11-09/aurora_agent_extraction_assessment.md) 补充实施位置与阶段状态。
+- `AGENTS.md` 的项目结构补齐 `aurora_config`、`aurora_control`、`aurora_agent`、`aurora_logging`、`aurora_world`；[示例指南](archive/2026-11-09/START.md) 的公共 ID 链接指向 v0.2.3。
 - 本次仅改动文档，不改变运行行为。文档更新前的基线 `7b84b6b` 完整检查通过（488 项测试）；当前工作区另有进行中的 `aurora_config` 迁移，未重新取得全绿检查，该差异不归因于文档更新。`docs/`、`examples/START.md` 与 `AGENTS.md` 的 71 条相对链接全部有效。
 
 ### 示例入口与独立运行管理
 
-- 示例提供 core 计数器、control 控制流、独立 agent、默认 bot 和持续巡检宿主五条路径，完整启动方式见 [示例指南](../examples/START.md)。真实模型验收统一使用 `scripts/accept_m2.py` 的 TOML profile 与 CLI 流程。
+- 示例提供 core 计数器、control 控制流、独立 agent、默认 bot 和持续巡检宿主五条路径，完整启动方式见 [示例指南](archive/2026-11-09/START.md)。真实模型验收统一使用 `scripts/accept_m2.py` 的 TOML profile 与 CLI 流程。
 - 独立 agent 示例使用 AgentRuntime 提交输入、接纳流式期间引导并等待结果；宿主关闭时停止提交、等待 runtime 收尾，再关闭模型并保存状态。模型失败、部分输出和取消语义由模型组件测试覆盖。
 - 公共 ID 目录第 6 节按实际插件清单列出 control、agent 和 bot 定义，源码链接与示例命令使用当前包路径。
 - 完整 `uv run --locked aurora check` 通过：488 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型检查。干净 wheel 环境验证新插件入口、独立控制流、agent 调度、模型工具往返和恢复；bot wheel 不包含执行组件兼容模块。变更文档中的 54 项相对链接检查通过。
@@ -1002,7 +1010,7 @@ uv run --locked --env-file .env aurora @botPlugins @botData --assembly org.auror
 ### DeepSeek 真实模型验收
 
 - LiteLLM 工厂支持 `deepseek/` 模型，通过实例自有 AsyncHTTPHandler 管理连接，默认端点为 `https://api.deepseek.com`，允许显式配置 base_url。请求指定 `thinking={"type":"disabled"}`；当前公共消息协议不保存 reasoning_content，DeepSeek 工具往返使用[官方非思考模式](https://api-docs.deepseek.com/guides/tool_calls/)。
-- 真实模型验收入口为 `scripts/accept_m2.py`，通过 TOML profile、默认装配和 CLI 验证流式与完整响应的工具往返；使用独立的新数据目录，凭证从指定环境变量读取。运行方式见 [示例指南](../examples/START.md#真实模型验收)。
+- 真实模型验收入口为 `scripts/accept_m2.py`，通过 TOML profile、默认装配和 CLI 验证流式与完整响应的工具往返；使用独立的新数据目录，凭证从指定环境变量读取。运行方式见 [示例指南](archive/2026-11-09/START.md#真实模型验收)。
 - DeepSeek 官方模型列表接口鉴权成功。真实 `deepseek-flash` 流式请求输出“Aurora 连接成功。”；正式 DefaultAssembly 的流式、非流式激活分别完成一次本地 echo 工具调用、观察回填及后续推理，均以 completed 收束并输出“验收成功”。两种装配关闭后重新启动，消息与引导消费位置恢复一致，快照不含运行期密钥。
 - 真实验收快照位于忽略目录 `build/deepseek-smoke-5ff05490/{stream,complete}/framework/ctx.json`。本次共执行一次简短文本请求和两次工具往返；真实模型取消与超时未重复调用，相关路径由既有离线测试覆盖。M2.3 的真实模型连接与工具往返已有验收证据，M2 的后续运行入口与 CLI 整体验收继续推进。
 - 完整 `uv run --locked aurora check` 通过：405 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。SDK 的 Pydantic 类型加载产生 1 项 ReadOnly 限定符提示，测试无失败。
@@ -1014,7 +1022,7 @@ uv run --locked --env-file .env aurora @botPlugins @botData --assembly org.auror
 - 文本逐段交付，工具按 index 汇集名称与参数，完整严格 JSON 对象通过验证后才输出 ToolCall。重复工具 ID、非法参数、缺失或无效结束片段明确失败；usage 与 SDK 尾部空片段不作为业务内容。请求中的工具描述、assistant 工具请求和 tool 结果转换为 SDK 格式，不修改调用方输入。
 - SDK 请求、读取和关闭错误转换为 ModelError，供应商超时转换为标准 TimeoutError，取消保持 CancelledError。错误摘要只包含异常类型，不复制供应商请求或凭证。响应流在正常结束、提前退出、消费方异常、取消与超时时关闭；宿主最终关闭客户端。SDK 重试与响应缓存显式禁用。
 - 离线验收使用真实 LiteLLM/OpenAI SDK 与模拟 HTTP/SSE，覆盖 OpenAI 与 Anthropic 流式响应、工具往返、能力拒绝、参数错误、取消及资源释放；正式 DefaultAssembly 分别验证流式与非流式工具循环、终态、凭证不落盘和重启恢复。
-- 真实模型验收入口为 `scripts/accept_m2.py`，通过 TOML profile、默认装配和 CLI 验证流式与完整响应的工具往返；使用独立的新数据目录，凭证从指定环境变量读取。运行方式见 [示例指南](../examples/START.md#真实模型验收)。
+- 真实模型验收入口为 `scripts/accept_m2.py`，通过 TOML profile、默认装配和 CLI 验证流式与完整响应的工具往返；使用独立的新数据目录，凭证从指定环境变量读取。运行方式见 [示例指南](archive/2026-11-09/START.md#真实模型验收)。
 - 真实供应商连接尚未执行；本条仅验收适配器与默认装配的离线路径，M2 整体验收仍待真实模型连接及后续运行入口切片。
 - 完整 `uv run --locked aurora check` 通过：401 项 Python 测试、9 项工具链测试，以及格式、lint、Python/TypeScript 类型与工作区入口检查。SDK 的 Pydantic 类型加载产生 1 项 ReadOnly 限定符提示，测试无失败；真实连接示例的帮助入口验证通过。
 

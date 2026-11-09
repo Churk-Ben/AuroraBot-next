@@ -1,5 +1,7 @@
 # 以 ctx 为中心的主动 bot 上下文设计
 
+> 历史归档：2026-11-09。保留当时的设计、计划与验收语境，不作为当前功能承诺或操作指南；当前入口见 [文档索引](../../INDEX.md)。
+
 状态：设计讨论稿；每轮世界视图、持久工作笔记及按引用读取事件归档已实现，真实模型行为尚待验收。更新：2026-11-06。
 
 bot 面对一个持续存在的世界，每次被唤起时读取当前状态，结合自己留下的目标、记录与实际行动结果，决定接下来做什么。稳定的世界规则和人格放在 system 提示中；本次唤起原因与 bot 可见的 ctx 视图通过 user 消息提供；运行中的模型行动和工具反馈保留 assistant/tool 关系。
@@ -130,15 +132,15 @@ flowchart LR
 
 当前实现提供了世界视图、显式工作笔记、事件归档读取和按调用引用查询的行动证据：
 
-- [ReActDefaults](../packages/aurora_agent/src/aurora_agent/react_defaults.py) 将字符串引导直接作为 user 内容，其他 JSON 编码后仍作为 user 内容；system 来自静态 system_prompt。装配可注入同步 context_view 回调，每轮生成独立的临时 user 消息，排列为 system、当前观察、原有历史。视图不写入持久消息；历史接纳、重试去重和未收束工具轮次沿用原机制。
-- [AgentRuntime](../packages/aurora_agent/src/aurora_agent/runtime.py) 已负责单一调度、运行中接纳、取消与关闭；[ReActAgent](../packages/aurora_agent/src/aurora_agent/react.py) 在每次推理前调用 prepare，可作为视图刷新的接入边界。
-- [cadence](../packages/aurora_bot/src/aurora_bot/cadence/forwarder.py) 默认逐条提交原始 payload；显式 decision 模式由受控随机时钟触发类型化判断，以固定模板携带观察时间、业务视图及决策身份提交引导。观察位置、事件引导位置和投递回执分开保存，均不表示业务完成；配置与恢复边界见[启动指南](../examples/START.md#决策-cadence受控随机时钟与类型化判断)。
-- [world 记录服务](../packages/aurora_world/src/aurora_world/records.py) 已提供事件数据库、近期事件视图与独立环境状态。ctx 中的近期窗口不能代替完整事件归档，也不是每个 bot 的待办清单。
-- [默认装配](../packages/aurora_bot/src/aurora_bot/assembly.py) 已保留消息上下文并清理部分运行临时状态，按配置接入笔记、归档和行动证据。执行证据独立事务保存，运行中间状态不充当长期记录。
+- [ReActDefaults](../../../packages/aurora_agent/src/aurora_agent/react_defaults.py) 将字符串引导直接作为 user 内容，其他 JSON 编码后仍作为 user 内容；system 来自静态 system_prompt。装配可注入同步 context_view 回调，每轮生成独立的临时 user 消息，排列为 system、当前观察、原有历史。视图不写入持久消息；历史接纳、重试去重和未收束工具轮次沿用原机制。
+- [AgentRuntime](../../../packages/aurora_agent/src/aurora_agent/runtime.py) 已负责单一调度、运行中接纳、取消与关闭；[ReActAgent](../../../packages/aurora_agent/src/aurora_agent/react.py) 在每次推理前调用 prepare，可作为视图刷新的接入边界。
+- [cadence](../../../packages/aurora_bot/src/aurora_bot/cadence/forwarder.py) 默认逐条提交原始 payload；显式 decision 模式由受控随机时钟触发类型化判断，以固定模板携带观察时间、业务视图及决策身份提交引导。观察位置、事件引导位置和投递回执分开保存，均不表示业务完成；配置与恢复边界见[启动指南](START.md#决策-cadence受控随机时钟与类型化判断)。
+- [world 记录服务](../../../packages/aurora_world/src/aurora_world/records.py) 已提供事件数据库、近期事件视图与独立环境状态。ctx 中的近期窗口不能代替完整事件归档，也不是每个 bot 的待办清单。
+- [默认装配](../../../packages/aurora_bot/src/aurora_bot/assembly.py) 已保留消息上下文并清理部分运行临时状态，按配置接入笔记、归档和行动证据。执行证据独立事务保存，运行中间状态不充当长期记录。
 
 ### 已实现的世界视图边界
 
-[BusinessContextView](../packages/aurora_bot/src/aurora_bot/context_view.py) 在已装配 WorldRecords 时读取近期事件和环境观察，每次 prepare 先刷新 world 窗口。单条保留来源、消息、记录、数据库身份及接收时间；环境正文以 JSON 文本呈现，和事件归档分区。直接交流仍在原消息历史中，cadence 仍原样提交 payload；视图不提供引导与来源的新增映射，也不把所有 user 消息解释为人的请求。
+[BusinessContextView](../../../packages/aurora_bot/src/aurora_bot/context_view.py) 在已装配 WorldRecords 时读取近期事件和环境观察，每次 prepare 先刷新 world 窗口。单条保留来源、消息、记录、数据库身份及接收时间；环境正文以 JSON 文本呈现，和事件归档分区。直接交流仍在原消息历史中，cadence 仍原样提交 payload；视图不提供引导与来源的新增映射，也不把所有 user 消息解释为人的请求。
 
 bot TOML 的 `[context_view]` 默认 enabled/events/environment/notes/actions 均为 true，max_chars 为 12000、最小 1024。预算包括整个视图 JSON 的说明、正文及元数据；各类非空材料平分预算，各自优先保留最新条目。正文截短标记 abridged，保留完整引用；身份本身放不下时省略整条，以 omitted 计数。omitted 只统计当前候选材料中因本次预算被省略的条目，不是归档数量。视图预算不限制历史消息、system 或工具定义，也不删除归档。
 

@@ -1,5 +1,7 @@
 # AuroraBot 设计一致性审查报告
 
+> 历史归档：2026-11-09。保留当时的设计、计划与验收语境，不作为当前功能承诺或操作指南；当前入口见 [文档索引](../../INDEX.md)。
+
 日期：2026-11-03
 
 初次审查基线：提交 `8b46dd2`。同日复核对照该基线、已提交的 `dce7ad4` 及当时工作区代码；保留 F1–F16 编号，以下问题定性和优先级以复核结论为准。复核期间出现了并行进行的 MCP 未提交改动，定向测试只代表执行时的工作区状态，不构成对这些改动的完整验收。
@@ -74,7 +76,7 @@
 
 **判断：成立。优先级：高，数据完整性缺陷。**
 
-- 当时的 `scripts/serve_bot.py` 在 --world 模式把 RECORDS、SOURCE_STATUS 放入 --keys（现入口为 [scripts/bot.py](../scripts/bot.py)，相关状态已改为只读）；[server.py](../packages/aurora_api/src/aurora_api/server.py) 对同一集合开放 get/list/set/delete。
+- 当时的 `scripts/serve_bot.py` 在 --world 模式把 RECORDS、SOURCE_STATUS 放入 --keys（现入口为 [scripts/bot.py](../../../scripts/bot.py)，相关状态已改为只读）；[server.py](../../../packages/aurora_api/src/aurora_api/server.py) 对同一集合开放 get/list/set/delete。
 - 世界记录要求通过 WorldRecords 追加、去重和裁剪，结构校验无法保证写入经过该入口。最小复核中，删除 RECORDS 返回 HTTP 200、result=true，记录地址随即消失。
 - 当前监听范围是本机回环，不能将此问题扩大为已经存在的远程攻击面。CLIENT_STATUS 只读是同类设计建议，并非该启动脚本已经暴露它的证据。
 
@@ -84,7 +86,7 @@
 
 **判断：成立。优先级：中，契约一致性问题。**
 
-[workbench.ts](../apps/aurora_tui/src/state/workbench.ts) 硬编码 bot 状态 ID，并解释 model_output、tool_calls、tool_current、tool_results 等布局。这些字段没有进入生成契约，后端变化可能只表现为界面少显示内容。
+[workbench.ts](../../../apps/aurora_tui/src/state/workbench.ts) 硬编码 bot 状态 ID，并解释 model_output、tool_calls、tool_current、tool_results 等布局。这些字段没有进入生成契约，后端变化可能只表现为界面少显示内容。
 
 读取业务状态不等于把后端 callable、服务对象或插件执行树复制到前端，因此初稿引用设计第 10.1 节作为违规依据不充分；第 10.3 节关于跨语言公开描述的约定才是主要依据。当前未证明已有字段不匹配，严重度由高降为中。
 
@@ -94,8 +96,8 @@
 
 **判断：部分成立。清理异常值得优先修复；结构拆分属于后续复用建议。**
 
-- [assembly.py](../packages/aurora_bot/src/aurora_bot/assembly.py) 的 _activate 在 finally 中调用 _compact。若清理抛错，原始失败或取消可能被替代，应保留原异常及清理失败信息；没有原始异常时也不能仅记录日志后宣称成功。
-- 显式 activate 在 runtime.current 非空时拒绝执行；[runtime.py](../packages/aurora_agent/src/aurora_agent/runtime.py) 也会拒绝在显式激活占用期间接管。两个入口不等于两个调度者同时执行，不能直接认定违反单一调度所有者。
+- [assembly.py](../../../packages/aurora_bot/src/aurora_bot/assembly.py) 的 _activate 在 finally 中调用 _compact。若清理抛错，原始失败或取消可能被替代，应保留原异常及清理失败信息；没有原始异常时也不能仅记录日志后宣称成功。
+- 显式 activate 在 runtime.current 非空时拒绝执行；[runtime.py](../../../packages/aurora_agent/src/aurora_agent/runtime.py) 也会拒绝在显式激活占用期间接管。两个入口不等于两个调度者同时执行，不能直接认定违反单一调度所有者。
 - 模型和工具所有权、地址分配、保留策略本来属于装配职责。[拆包评估第 4.3 节](aurora_agent_extraction_assessment.md#43-恢复与清理需要可复用实现) 支持提取中断修正和 pending 保留等小范围辅助，不要求把所有策略迁入 agent。
 
 不将“上帝类”作为独立缺陷，也不预先要求拆出 ModelResources、ToolOwnership、BotRuntimeHost。若收敛激活入口，须处理显式 ExecutionRequest 身份及异常传播差异，不能直接把现有 activate(request) 替换为无参数 runtime.activate() + wait()。
@@ -104,9 +106,9 @@
 
 **判断：容量风险成立，初稿部分描述不准确。类别：长期运行能力。**
 
-- [WorldRecords](../packages/aurora_world/src/aurora_world/records.py) 每次操作复制保留日志；默认完整保存。MCP 来源没有声明 RecordRetention，默认 bot 的 messages 也没有上下文裁剪策略。
+- [WorldRecords](../../../packages/aurora_world/src/aurora_world/records.py) 每次操作复制保留日志；默认完整保存。MCP 来源没有声明 RecordRetention，默认 bot 的 messages 也没有上下文裁剪策略。
 - 环境时间默认保留最新 1 条，天气保留一小时内最多 4 条，并可配置。不能泛称所有环境消息都会无限增长。
-- [ContextPersistence](../packages/aurora_core/src/aurora_core/persistence.py) 等待状态变化后，默认延迟 0.5 秒再 flush；快照只包含 persistent 状态，相同修订不会再次保存。初稿“每 0.5 秒对完整 ctx 做快照并写入”不准确。
+- [ContextPersistence](../../../packages/aurora_core/src/aurora_core/persistence.py) 等待状态变化后，默认延迟 0.5 秒再 flush；快照只包含 persistent 状态，相同修订不会再次保存。初稿“每 0.5 秒对完整 ctx 做快照并写入”不准确。
 - 有限规模限制、默认保留全部及应用决定保留策略已在设计和 WorldRecords docstring 中说明，因此不是未说明的架构偏离。长期增长仍会增加复制、序列化和模型输入成本。
 
 建议按产品需要补 MCP 来源 retention 和对话上下文窗口，保留 system、未完成工具轮次等必要关联；裁剪会影响去重和消费位置，须同时明确缺口处理。先测量成本，不因本条直接进行增量存储重构。
@@ -115,9 +117,9 @@
 
 **判断：部分成立。类别：宿主复用边界，初稿影响范围夸大。**
 
-- [world.py](../packages/aurora_adapter/src/aurora_adapter/mcp/world.py) 将 ctx/clients 写入 SourceSpec 的工厂 binding，并拒绝第二次绑定；关闭不解除该绑定。同一份定义对象的重新装配确实受限。
-- [tools.py](../packages/aurora_adapter/src/aurora_adapter/mcp/tools.py) 的工厂持有宿主 MCPTools，定义仍会留在该 registry 中。但工具目录在初次审查基线就已先构建 entries，再调用 register_many 原子登记；“先构建临时目录、全部校验后原子登记”是现有行为。
-- [DefinitionRegistry](../packages/aurora_core/src/aurora_core/registry.py) 是实例对象，不是进程级单例；插件工厂每次创建新对象。因此同进程使用新 registry 和新插件对象重建宿主，并不必然遇到旧绑定。
+- [world.py](../../../packages/aurora_adapter/src/aurora_adapter/mcp/world.py) 将 ctx/clients 写入 SourceSpec 的工厂 binding，并拒绝第二次绑定；关闭不解除该绑定。同一份定义对象的重新装配确实受限。
+- [tools.py](../../../packages/aurora_adapter/src/aurora_adapter/mcp/tools.py) 的工厂持有宿主 MCPTools，定义仍会留在该 registry 中。但工具目录在初次审查基线就已先构建 entries，再调用 register_many 原子登记；“先构建临时目录、全部校验后原子登记”是现有行为。
+- [DefinitionRegistry](../../../packages/aurora_core/src/aurora_core/registry.py) 是实例对象，不是进程级单例；插件工厂每次创建新对象。因此同进程使用新 registry 和新插件对象重建宿主，并不必然遇到旧绑定。
 - Lifecycle 本身只允许启动一次。若要求失败后复用原 registry 或原插件对象，应先明确该支持范围，不能把重启宿主和复用已经关闭的宿主混为一谈。
 
 后续产品装配如需定义复用，可采用独立实例工厂或显式资源注入，并验证关闭后复用及失败清理。暂不据此新增全局撤销登记机制。并行进行的 MCP 协商改动不包含在本条的完整验收范围内。
@@ -126,7 +128,7 @@
 
 **判断：字段缺失属实，初稿所述当前触发场景不成立。类别：实例切换功能的前置约束。**
 
-[workbench.ts](../apps/aurora_tui/src/state/workbench.ts) 的 RunGroup 只有 run/session，取消时使用当前 instance。但当前 Workbench 首次选择实例后保留该目标，目标不可用时置为未就绪，不自动切换；[main.ts](../apps/aurora_tui/src/main.ts) 在启动时按参数和偏好构造 Workbench，没有运行中切换实例的产品入口。
+[workbench.ts](../../../apps/aurora_tui/src/state/workbench.ts) 的 RunGroup 只有 run/session，取消时使用当前 instance。但当前 Workbench 首次选择实例后保留该目标，目标不可用时置为未就绪，不自动切换；[main.ts](../../../apps/aurora_tui/src/main.ts) 在启动时按参数和偏好构造 Workbench，没有运行中切换实例的产品入口。
 
 因此撤回“当前切换实例后可能取消错对象”的中高严重度定性。未来增加切换或跨实例分组时，应保存 session_id/instance_id/run_id，并按分组身份取消、查询和隔离展示。
 
@@ -160,7 +162,7 @@ Panel 接入前应确定来源、认证和同源部署规则，并做真实浏�
 
 **判断：实现事实成立，初稿认定违反 requires 规则过重。类别：宿主规则说明。**
 
-[commander.py](../packages/aurora_cli/src/aurora_cli/commander.py) 把配置插件加入 explicit 清单，[host.py](../packages/aurora_cli/src/aurora_cli/host.py) 固定装配配置组件。这是 CLI 宿主选择的内置基础设施，不是 load_plugins 根据 requires 隐式加载依赖；后者仍只校验已启用集合。
+[commander.py](../../../packages/aurora_cli/src/aurora_cli/commander.py) 把配置插件加入 explicit 清单，[host.py](../../../packages/aurora_cli/src/aurora_cli/host.py) 固定装配配置组件。这是 CLI 宿主选择的内置基础设施，不是 load_plugins 根据 requires 隐式加载依赖；后者仍只校验已启用集合。
 
 用户的 --plugin 不是全部内置能力的唯一来源，文档应明确“CLI 内置基础设施 + 用户选择插件”的范围。可以进一步讨论是否允许退出该默认值，但不据此直接移除配置服务，也不要求当前硬依赖 config 的 CLI 支持无 config 安装。
 
@@ -168,7 +170,7 @@ Panel 接入前应确定来源、认证和同源部署规则，并做真实浏�
 
 **判断：成立。优先级：中，失败清理缺陷。**
 
-[lifecycle.py](../packages/aurora_core/src/aurora_core/lifecycle.py) 只对进入 prepare 的组件调用 stop_accepting，对已进入 config 的组件执行 CLEAN。[ConfigurationService](../packages/aurora_config/src/aurora_config/service.py) 只通过 stop_accepting 解绑 endpoint.files，没有 CLEAN handler。
+[lifecycle.py](../../../packages/aurora_core/src/aurora_core/lifecycle.py) 只对进入 prepare 的组件调用 stop_accepting，对已进入 config 的组件执行 CLEAN。[ConfigurationService](../../../packages/aurora_config/src/aurora_config/service.py) 只通过 stop_accepting 解绑 endpoint.files，没有 CLEAN handler。
 
 最小复核在配置服务完成后令后续 configure 回调失败：Lifecycle 最终为 stopped，但 endpoint.files 仍非空，直接调用 configurationList 返回 200。后续 CONFIG handler 失败也沿同一收尾路径。
 
@@ -186,7 +188,7 @@ world/configuration、MCPClients 和配置服务使用同一 aurora_config 字�
 
 **判断：条件成立。优先级：中，异常可观察性。**
 
-[subscriptions.ts](../packages/aurora_client/src/subscriptions.ts) 的 observerFailed 将句柄 status 更新为 failed、结束连接和订阅，但不会再次通知失败的观察者。TUI 只从回调更新 connection，首次 ready 完成后的观察者失败可能留下 connected/ready 的旧显示。
+[subscriptions.ts](../../../packages/aurora_client/src/subscriptions.ts) 的 observerFailed 将句柄 status 更新为 failed、结束连接和订阅，但不会再次通知失败的观察者。TUI 只从回调更新 connection，首次 ready 完成后的观察者失败可能留下 connected/ready 的旧显示。
 
 不能表述为“订阅完全没有终态”：句柄 status 已可读，已有测试验证观察者失败只终止自身订阅。风险在于 TUI 没有独立消费终态的路径。
 
@@ -196,7 +198,7 @@ world/configuration、MCPClients 和配置服务使用同一 aurora_config 字�
 
 **判断：成立。优先级：中低，契约维护。**
 
-[transport.ts](../packages/aurora_client/src/transport.ts) 手工校验身份、枚举与 revision；[editor_contract.py](../packages/aurora_config/src/aurora_config/editor_contract.py) 对 revision 只描述 string，而客户端要求 64 位十六进制。生成检查只保证产物与描述一致，不覆盖这些手工约束。
+[transport.ts](../../../packages/aurora_client/src/transport.ts) 手工校验身份、枚举与 revision；[editor_contract.py](../../../packages/aurora_config/src/aurora_config/editor_contract.py) 对 revision 只描述 string，而客户端要求 64 位十六进制。生成检查只保证产物与描述一致，不覆盖这些手工约束。
 
 建议补齐公开约束并验证两端一致性。是否生成运行时校验器应按维护成本决定，设计没有强制该方案；请求和响应身份一致等语义校验仍需保留，不能认为通用 JSON Schema 能替代全部逻辑。
 

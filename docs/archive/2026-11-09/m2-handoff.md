@@ -1,6 +1,8 @@
 # M2 最小 bot：实现交接
 
-M2 已于 2026-10-31 完成并通过整体验收；本文保留 M2 期间的交接语境，不能作为当前待办清单。当前执行包定义见 [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)，可运行入口见 [示例指南](../examples/START.md)，交付与验收范围见 [变更记录](CHAGELOG.md)。
+> 历史归档：2026-11-09。保留当时的设计、计划与验收语境，不作为当前功能承诺或操作指南；当前入口见 [文档索引](../../INDEX.md)。
+
+M2 已于 2026-10-31 完成并通过整体验收；本文保留 M2 期间的交接语境，不能作为当前待办清单。当前执行包定义见 [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)，可运行入口见 [示例指南](START.md)，交付与验收范围见 [变更记录](../../CHAGELOG.md)。
 
 ## 1. 从哪里继续
 
@@ -10,12 +12,12 @@ M2 的内部顺序是从确定性本地工具开始，再用假模型完成“�
 
 阅读顺序：
 
-1. [AGENTS.md](../AGENTS.md)：协作与编码规范。
+1. [AGENTS.md](../../../AGENTS.md)：协作与编码规范。
 2. 本文件与 [计划](plan.md)：当前进度、接续任务和决策点。
 3. [设计文档](aurorabot-design-v0.2.3.md)：第 4、5、7、8 节的已实现边界。
 4. [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)：第 5 节模型协议与第 6 节 control、agent、bot 定义。
-5. [示例指南](../examples/START.md)：core、control、独立 agent、默认 bot 与持续宿主的启动方式。
-6. [变更记录](CHAGELOG.md)：按日期及条目上下文阅读，历史描述不覆盖当前接口。
+5. [示例指南](START.md)：core、control、独立 agent、默认 bot 与持续宿主的启动方式。
+6. [变更记录](../../CHAGELOG.md)：按日期及条目上下文阅读，历史描述不覆盖当前接口。
 
 接手时先检查工作区和最新提交，保留用户改动，不重新实现已交付切片。
 
@@ -44,7 +46,7 @@ M2 的内部顺序是从确定性本地工具开始，再用假模型完成“�
 
 ### 2.2 控制接口与状态
 
-源码：[control/execution.py](../packages/aurora_control/src/aurora_control/execution.py)、[control/components.py](../packages/aurora_control/src/aurora_control/components.py)。
+源码：[control/execution.py](../../../packages/aurora_control/src/aurora_control/execution.py)、[control/components.py](../../../packages/aurora_control/src/aurora_control/components.py)。
 
 - `ExecutionSlot(Serial.definition_id, hooks, instance_id="root")` 创建串行组件的插槽；Serial(ctx, slot) 要求插槽与自身定义匹配。
 - `ExecutionPlug(definition_id, execute, instance_id="worker", states=...)` 暴露执行和地址；slot.connect(plug, priority=...) 返回两端地址与 schema 的握手信息。
@@ -66,7 +68,7 @@ Controller 是公共基类定义，不是可独立运行的第五种控制流程
 
 ### 3.1 aurora_adapter.model
 
-源码：[models.py](../packages/aurora_adapter/src/aurora_adapter/model/models.py)、[protocols.py](../packages/aurora_adapter/src/aurora_adapter/model/protocols.py)、[fake.py](../packages/aurora_adapter/src/aurora_adapter/model/fake.py)。
+源码：[models.py](../../../packages/aurora_adapter/src/aurora_adapter/model/models.py)、[protocols.py](../../../packages/aurora_adapter/src/aurora_adapter/model/protocols.py)、[fake.py](../../../packages/aurora_adapter/src/aurora_adapter/model/fake.py)。
 
 - Message、ToolDefinition、ToolCall、ModelRequest、ModelResponse 与 ModelChunk 用 TypedDict 表达普通 JSON 数据，不包含 SDK 对象。
 - ToolCall 包含完整 id、name、arguments；参数必须是完整 JSON 对象。供应商的参数片段由适配层组装，bot 不消费半截 JSON；文本仍逐段输出。
@@ -82,7 +84,7 @@ Controller 是公共基类定义，不是可独立运行的第五种控制流程
 
 ### 3.2 aurora_agent.model
 
-源码：[model.py](../packages/aurora_agent/src/aurora_agent/model.py)。
+源码：[model.py](../../../packages/aurora_agent/src/aurora_agent/model.py)。
 
 `ModelCall(ctx, client, *, instance_id=None, request_state, output_state, streaming=True)` 使用注入客户端，从 request_state 读取请求，在 output_state 更新同一个 ModelCallState。插头通过 states 的 input/output 交换地址。
 
@@ -116,7 +118,7 @@ CLI 基础能力：
 
 ## 5. 接续任务与待定决策
 
-M2 全部任务已完成，整体验收见 [变更记录](CHAGELOG.md) 的 M2.8 条目；当前 M3 的接续队列见 [计划第 11 节](plan.md)。
+M2 全部任务已完成，整体验收见 [变更记录](../../CHAGELOG.md) 的 M2.8 条目；当前 M3 的接续队列见 [计划第 11 节](plan.md)。
 
 | 决策 | M2 已确定 | M2 后仍需处理 |
 | --- | --- | --- |
@@ -147,10 +149,10 @@ uv run aurora --plugin aurora_control --plugin aurora_agent.model --plugin auror
 
 行为证据：
 
-- [组件身份](../packages/aurora_control/tests/unit/test_component_identity.py)：定义层级、实例隔离与展示引用。
-- [模型协议](../packages/aurora_adapter/tests/contract/test_model_protocol.py)：流关闭、能力拒绝、结束和工具请求。
-- [控制组件](../packages/aurora_control/tests/unit/test_control.py)、[模型组件](../packages/aurora_agent/tests/unit/test_model_call.py)：组合、失败、取消、临时状态清理与部分文本。
-- [控制示例](../tests/e2e/test_control_flow_example.py)、[独立 Agent 示例](../tests/e2e/test_react_defaults_example.py)：真实进程、退出码与最终快照。
-- [宿主关闭](../tests/e2e/test_lifecycle_persistence.py)、[CLI 进程](../tests/e2e/test_cli.py)：在途写入、最终落盘和重启恢复。
+- [组件身份](../../../packages/aurora_control/tests/unit/test_component_identity.py)：定义层级、实例隔离与展示引用。
+- [模型协议](../../../packages/aurora_adapter/tests/contract/test_model_protocol.py)：流关闭、能力拒绝、结束和工具请求。
+- [控制组件](../../../packages/aurora_control/tests/unit/test_control.py)、[模型组件](../../../packages/aurora_agent/tests/unit/test_model_call.py)：组合、失败、取消、临时状态清理与部分文本。
+- [控制示例](../../../tests/e2e/test_control_flow_example.py)、[独立 Agent 示例](../../../tests/e2e/test_react_defaults_example.py)：真实进程、退出码与最终快照。
+- [宿主关闭](../../../tests/e2e/test_lifecycle_persistence.py)、[CLI 进程](../../../tests/e2e/test_cli.py)：在途写入、最终落盘和重启恢复。
 
 检查范围与改动相称，真实模型冒烟与离线测试分别报告；没有实际连接时不宣称真实模型已验证。注释、docstring 和提交使用中文，提交以动词开头、小步交付；README.md、AGENTS.md 修改须先经用户确认，变更叙述集中在 docs/CHAGELOG.md。
