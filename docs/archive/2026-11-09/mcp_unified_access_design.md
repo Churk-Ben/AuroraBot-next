@@ -1,8 +1,10 @@
 # MCP 通用接入需求与设计草案
 
+> 历史归档：2026-11-09。保留当时的设计、计划与验收语境，不作为当前功能承诺或操作指南；当前入口见 [文档索引](../../INDEX.md)。
+
 状态：B5.1 配置与迁移、B5.2 HTTP 协商、B5.3 stdio、B5.4 工具自动选择与产品装配已实现。日期：2026-11-03。基线：M4.B1/B2/B4 已交付，M4.B3 扩展共享关闭验收已完成。
 
-本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口、HTTP 协商和 stdio 已实现；自动工具命名与精确过滤已实现，产品装配仍为拟议设计。remote/local 均支持 legacy/auto/固定新版，工具桥默认自动发现，可显式 include/exclude 和 aliases；local 由宿主通过 MCPClients 的 workspace_root 明确提供工作区根目录。既有能力以[启动指南](../examples/START.md#mcp-工具桥)和当前代码为准。
+本文确定 Aurora 自身支持 HTTP 与 stdio 的方向，不要求第三方 MCP 服务更改传输。v2 配置、迁移入口、HTTP 协商和 stdio 已实现；自动工具命名与精确过滤已实现，产品装配仍为拟议设计。remote/local 均支持 legacy/auto/固定新版，工具桥默认自动发现，可显式 include/exclude 和 aliases；local 由宿主通过 MCPClients 的 workspace_root 明确提供工作区根目录。既有能力以[启动指南](START.md#mcp-工具桥)和当前代码为准。
 
 ## 1. 目标与范围
 
@@ -33,7 +35,7 @@
 | 世界来源 | 精确资源 URI、资源更新通知及单事件正文 | 保留原边界，扩展通知或事件日志另行接入 |
 | 关闭 | 已有连接借用、停止接纳和依赖顺序 | 增加子进程与后代回收，扩展 B3 矩阵 |
 
-相关代码：[客户端](../packages/aurora_adapter/src/aurora_adapter/mcp/clients.py)、[配置](../packages/aurora_adapter/src/aurora_adapter/mcp/configuration.py)、[工具桥](../packages/aurora_adapter/src/aurora_adapter/mcp/tools.py)、[资源通知桥](../packages/aurora_adapter/src/aurora_adapter/mcp/world.py)。
+相关代码：[客户端](../../../packages/aurora_adapter/src/aurora_adapter/mcp/clients.py)、[配置](../../../packages/aurora_adapter/src/aurora_adapter/mcp/configuration.py)、[工具桥](../../../packages/aurora_adapter/src/aurora_adapter/mcp/tools.py)、[资源通知桥](../../../packages/aurora_adapter/src/aurora_adapter/mcp/world.py)。
 
 已核对的接入样本：
 
@@ -295,7 +297,7 @@ MCP 配置、客户端/工具组件和资源来源的现有公共定义原则上
 | B3 扩展验收（已完成） | 世界来源和工具共用客户端、跨传输关闭矩阵 | 资源独立、停止接纳、收尾、最后落盘、独立安装 |
 | 事件后续切片 | world-events 或事件日志的明确契约 | 另按交付保证排期，不以工具验收替代 |
 
-B5.1 迁移入口为 `python -m aurora_adapter.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。local 在 prepare 解析目录和环境后启动；工具桥已支持默认通配及缺少别名的自动命名，显式 include=[] 仍不暴露工具。迁移及运行示例见[启动指南](../examples/START.md#mcp-独立客户端验收)。
+B5.1 迁移入口为 `python -m aurora_adapter.mcp.migrate <旧文件> --output <新候选>`，打印忽略注释和排版的规范化差异；不覆盖已有文件或读取凭证。保留 bot 显式工具选择、各实例身份和 world 引用，不合并消费者。新读取器不接受旧布局。local 在 prepare 解析目录和环境后启动；工具桥已支持默认通配及缺少别名的自动命名，显式 include=[] 仍不暴露工具。迁移及运行示例见[启动指南](START.md#mcp-独立客户端验收)。
 
 B5.1 的 startup/catalog/execution 分别提供操作预算；SDK 请求与 HTTP 空闲读取上限取三者最大值，避免执行超时提前截断目录或握手。shutdown 限制每服务每次 stop/clean 等待，超时保留清理任务供再次等待；迁移显式写出默认 10 秒。
 

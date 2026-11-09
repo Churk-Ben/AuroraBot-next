@@ -1,4 +1,4 @@
-"""仅依赖 aurora_core 的持久化计数器应用；启动方法见 examples/START.md。"""
+"""仅依赖 aurora_core 的持久化计数器应用；用于跨进程回归验收。"""
 
 import argparse
 import asyncio

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from aiohttp import ClientSession
 
-APPLICATION = Path(__file__).resolve().parents[2] / "examples" / "default_bot" / "main.py"
+APPLICATION = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "runtime_apps" / "default_bot" / "main.py"
 
 
 def invoke(root, *options):

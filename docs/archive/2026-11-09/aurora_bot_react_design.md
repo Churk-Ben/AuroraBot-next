@@ -1,5 +1,7 @@
 # 主动 bot、ReActAgent 与外围环境的设计决策
 
+> 历史归档：2026-11-09。保留当时的设计、计划与验收语境，不作为当前功能承诺或操作指南；当前入口见 [文档索引](../../INDEX.md)。
+
 > 实施位置：ReActAgent、六个阶段插槽、ReActDefaults 与 AgentRuntime 现由 `aurora_agent` 提供；`aurora_control` 提供执行契约。本文保留设计讨论语境，当前 ID 见 [公共 ID 目录](aurorabot-id-catalog-v0.2.3.md)。
 
 > 当前接续决策（2026-11-01）：直接交流经 bot 产品入口向既有 AgentRuntime 提交引导；世界消息经 world/cadence 进入同一入口。首版为 bot 工作台；M3.6 实现直接交流，M4-W 单独交付世界记录与原样转发 cadence。详见[设计第 7.7、10.2 节](aurorabot-design-v0.2.3.md)与[里程碑计划](plan.md)。下方聊天原文保留历史草案，不作为新增调度所有者的实施要求。
