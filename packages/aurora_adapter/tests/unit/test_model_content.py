@@ -3,9 +3,9 @@
 import base64
 
 import pytest
-from aurora_adapter.model import ModelCapabilities, ModelConfig, UnsupportedCapability, require_capabilities
+from aurora_adapter.model import ChatCapabilities, ModelConfig, UnsupportedCapability, require_capabilities
 from aurora_adapter.model.content import MAX_FILE_BYTES, request_size, validate_content
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.testing import FakeModel, FakeReply
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,7 @@ def test_binary_size_and_primary_multimodal_default():
     require_capabilities(FakeModel(lambda _: FakeReply()), request, streaming=True)
     with pytest.raises(UnsupportedCapability, match="文件输入"):
         require_capabilities(
-            FakeModel(lambda _: FakeReply(), capabilities=ModelCapabilities(file_input=False)), request, streaming=True
+            FakeModel(lambda _: FakeReply(), capabilities=ChatCapabilities(file_input=False)), request, streaming=True
         )
 
 

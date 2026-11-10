@@ -28,7 +28,7 @@
 
 ```toml
 [primary]
-adapter = "org.aurora.adapter:adapters/model/litellm"
+adapter = "org.aurora.adapter:adapters/model/litellm/chat"
 provider = "deepseek"
 model = "deepseek-flash"
 credential = "AURORA_MODEL_API_KEY"
@@ -43,24 +43,40 @@ file_input = false
 
 需要思考时，在支持的 profile 中添加 `thinking` 表或 `reasoning_effort`；未填写时沿用供应商默认。文件输入须与模型真实能力一致，不能仅靠声明获得多模态能力。
 
+聊天、choice 和 embedding 共用 `aurora-adapter[litellm]`，分别选择 `org.aurora.adapter:adapters/model/litellm/chat`、`.../choice`、`.../embedding`。三类角色都通过同一注册表解析并检查用途；choice 和 embedding 不接受 `capabilities`、`thinking`、`reasoning_effort`。模型路由、供应商参数与响应转换使用 LiteLLM；客户端保留实例连接所有权，不共享全局路由器或修改 SDK 全局设置。请求不自动重试、不跟随重定向。
+
+### 从旧模型配置升级
+
+已有 TOML 不会被模板覆盖，请在停止宿主后手动替换 profile 的 `adapter`：
+
+| 旧值（均以 `org.aurora.adapter:adapters/model/` 开头） | 新值（相同前缀） |
+| --- | --- |
+| `litellm` | `litellm/chat` |
+| `litellm_choice` | `litellm/choice` |
+| `openai_embedding` | `litellm/embedding` |
+
+旧 `openai_embedding` profile 还需增加 `provider = "openai"`，继续使用原有模型和 API 根地址。角色绑定名、凭证变量名和配置文件位置保持不变；安装依赖将 `aurora-adapter[embedding]` 改为 `aurora-adapter[litellm]`。没有旧 ID 别名或自动迁移。
+
+本次没有改名业务状态 ID 或改变消息 JSON，既有业务快照无需改写。记忆索引指纹包含 adapter ID，因此升级后须显式调用 `memory_reindex` 才能搜索旧记忆；原文仍可读取或删除，升级过程不会调用供应商、重建索引或清理用户数据。自定义插件的 Python 接口与服务/schema ID 迁移见[模型边界](aurorabot-design-v0.2.3.md#模型边界)。
+
 ## 显式文本记忆（朴素 RAG）
 
 `aurora_bot.memory` 是独立启用的 Bot 插件，首次安装助手不默认启用。插件使用普通 ReAct 工具，按需保存和检索文本，不自动收集聊天、笔记、工具输出或世界事件。
 
 先补齐以下配置，再在 `config/host.toml` 的现有 `plugins` 列表中添加 `"aurora_bot.memory"`。保留默认 Bot 的依赖插件，包括 `aurora_bot.assembly`、`aurora_adapter.model`、`aurora_config`、`aurora_agent.tools`；只安装包不等于启用插件。
 
-在模型 `profiles.toml` 添加独立向量 profile，模型名称和地址按实际供应商修改。内置适配器支持 OpenAI 兼容的 `/embeddings` 端点，`base_url` 填包含 `/v1` 的 API 根路径，不填完整 `/embeddings` 路径；不接受聊天能力和思考配置。
+在模型 `profiles.toml` 添加独立向量 profile，模型名称和地址按实际供应商修改。向量请求通过 LiteLLM `aembedding`，支持已接入实例传输的 OpenAI 兼容供应商，以及 Voyage、Cohere 等原生协议。下例使用 OpenAI 兼容的 `/embeddings` 端点，`base_url` 填包含 `/v1` 的 API 根路径，不填完整 `/embeddings` 路径；不接受聊天能力和思考配置。当前传输范围以 [LiteLLMClient](../packages/aurora_adapter/src/aurora_adapter/model/litellm.py) 为准，不等于 LiteLLM 的全部供应商；未接入的兼容服务可显式选择 `provider = "openai"`。
 
 ```toml
 [memory_embedding]
-adapter = "org.aurora.adapter:adapters/model/openai_embedding"
+adapter = "org.aurora.adapter:adapters/model/litellm/embedding"
 provider = "openai"
 model = "text-embedding-3-small"
 base_url = "https://api.openai.com/v1"
 credential = "AURORA_EMBEDDING_API_KEY"
 ```
 
-在模型 `bindings.toml` 增加 `memory = "memory_embedding"`，保留原有 `reasoning` 等绑定。凭证从运行期环境读取；无鉴权的本地兼容服务可省略 `credential`。适配器的 HTTP 依赖属于 `aurora-adapter[embedding]`，Bot 分发已包含此 extra；基础 adapter 和独立 agent 不因此依赖 HTTP 客户端。
+在模型 `bindings.toml` 增加 `memory = "memory_embedding"`，保留原有 `reasoning` 等绑定。凭证从运行期环境读取；无鉴权的本地兼容服务可省略 `credential`。供应商依赖统一属于 `aurora-adapter[litellm]`，Bot 分发已包含此 extra；基础 adapter 和独立 agent 不因此依赖 HTTP 客户端或模型 SDK。
 
 `config/org.aurora.bot/memory.toml` 在首次加载插件时从[包模板](../packages/aurora_bot/src/aurora_bot/memory/config.tomls/memory.toml)补缺，也可预先写入：
 

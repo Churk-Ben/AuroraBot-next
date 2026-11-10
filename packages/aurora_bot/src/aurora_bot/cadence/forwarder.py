@@ -8,7 +8,7 @@ from typing import cast
 from uuid import uuid4
 
 from aurora_adapter.model import JsonValue
-from aurora_adapter.model.decisions import ChoiceClient, ChoiceRequest
+from aurora_adapter.model.contract import ChoiceClient, ChoiceRequest
 from aurora_agent.react import AgentBusyError
 from aurora_agent.runtime import AgentRuntime
 from aurora_control import ExecutionRequest

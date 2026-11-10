@@ -98,17 +98,23 @@ class AbsentPackages(importlib.abc.MetaPathFinder):
         if fullname.split('.')[0] in blocked:
             raise ModuleNotFoundError('模型发现环境不提供：' + fullname)
 sys.meta_path.insert(0, AbsentPackages())
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.testing import FakeModel, FakeReply
+from aurora_adapter.model.config import ADAPTERS, ModelAdapter
 from aurora_core.discovery import load_plugins
 plugins = load_plugins(enabled=['aurora_config', 'aurora_adapter.model'])
 plugin = next(item for item in plugins if item.name == 'aurora_adapter.model')
 assert {
-    'org.aurora.adapter:registries/model/choice_adapters',
+    'org.aurora.adapter:registries/model/adapters',
+    'org.aurora.adapter:services/model/chat_client',
     'org.aurora.adapter:services/model/choice_client',
-    'org.aurora.adapter:adapters/model/litellm_choice',
-    'org.aurora.adapter:registries/model/embedding_adapters',
-    'org.aurora.adapter:adapters/model/openai_embedding',
+    'org.aurora.adapter:adapters/model/litellm/choice',
+    'org.aurora.adapter:services/model/embedding_client',
+    'org.aurora.adapter:adapters/model/litellm/chat',
+    'org.aurora.adapter:adapters/model/litellm/embedding',
 } <= {str(entry.id) for entry in plugin.entries}
+adapters = [entry for entry in plugin.entries if entry.kind == 'adapter']
+assert all(isinstance(entry.target, ModelAdapter) and entry.register_to == ADAPTERS for entry in adapters)
+assert {entry.target.kind for entry in adapters} == {'chat', 'choice', 'embedding'}
 assert all(entry.id.namespace == 'org.aurora.adapter' for entry in plugin.entries)
 assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
 """

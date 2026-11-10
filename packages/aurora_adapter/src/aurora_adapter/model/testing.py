@@ -6,8 +6,18 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 
-from .models import FinishReason, ModelCapabilities, ModelChunk, ModelRequest, ModelResponse, ReasoningBlock, ToolCall
-from .protocols import ModelError, collect_response, require_capabilities
+from .content import require_capabilities
+from .contract import (
+    ChatCapabilities,
+    ChatChunk,
+    ChatRequest,
+    ChatResponse,
+    FinishReason,
+    ModelError,
+    ReasoningBlock,
+    ToolCall,
+)
+from .response import collect_response
 
 
 @dataclass(frozen=True)
@@ -30,19 +40,19 @@ class FakeModel:
 
     def __init__(
         self,
-        respond: Callable[[ModelRequest], FakeReply],
+        respond: Callable[[ChatRequest], FakeReply],
         *,
-        capabilities: ModelCapabilities | None = None,
+        capabilities: ChatCapabilities | None = None,
         delay: float = 0,
     ) -> None:
         self.respond = respond
-        self.capabilities = capabilities or ModelCapabilities(streaming=True, tool_calls=True)
+        self.capabilities = capabilities or ChatCapabilities(streaming=True, tool_calls=True)
         self.delay = delay
-        self.requests: list[ModelRequest] = []
+        self.requests: list[ChatRequest] = []
         self.active_streams = 0
         self.closed = False
 
-    async def _chunks(self, request: ModelRequest) -> AsyncIterator[ModelChunk]:
+    async def _chunks(self, request: ChatRequest) -> AsyncIterator[ChatChunk]:
         reply = self.respond(request)
         for text in reply.reasoning:
             await asyncio.sleep(self.delay)
@@ -61,7 +71,7 @@ class FakeModel:
         yield {"type": "finish", "reason": reply.finish_reason or ("tool_calls" if reply.tool_calls else "stop")}
 
     @asynccontextmanager
-    async def _open(self, request: ModelRequest, *, streaming: bool) -> AsyncIterator[AsyncIterator[ModelChunk]]:
+    async def _open(self, request: ChatRequest, *, streaming: bool) -> AsyncIterator[AsyncIterator[ChatChunk]]:
         if self.closed:
             raise ModelError("模型客户端已关闭")
         require_capabilities(self, request, streaming=streaming)
@@ -74,10 +84,10 @@ class FakeModel:
             await chunks.aclose()
             self.active_streams -= 1
 
-    def stream(self, request: ModelRequest) -> AbstractAsyncContextManager[AsyncIterator[ModelChunk]]:
+    def stream(self, request: ChatRequest) -> AbstractAsyncContextManager[AsyncIterator[ChatChunk]]:
         return self._open(request, streaming=True)
 
-    async def complete(self, request: ModelRequest) -> ModelResponse:
+    async def complete(self, request: ChatRequest) -> ChatResponse:
         async with self._open(request, streaming=False) as chunks:
             return await collect_response(chunks)
 

@@ -3,9 +3,9 @@
 import asyncio
 
 import pytest
-from aurora_adapter.model.configuration import ADAPTERS, BINDINGS, CONFIG, resolve_model
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.config import ADAPTERS, BINDINGS, CONFIG, ModelAdapter, resolve_model
 from aurora_adapter.model.plugin import plugin
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_bot.assembly import environment_credential
 from aurora_bot.assembly_config import parse_config
 from aurora_core.bootstrap import bootstrap
@@ -78,7 +78,7 @@ def test_model_binding_resolves_selected_profile_without_caching_clients():
         calls.append((config, api_key))
         return FakeModel(lambda _: FakeReply((config.model,)))
 
-    registry.register(RegistryEntry(ADAPTER, "adapter", factory, "test", register_to=ADAPTERS))
+    registry.register(RegistryEntry(ADAPTER, "adapter", ModelAdapter("chat", factory), "test", register_to=ADAPTERS))
     profiles = {
         "first": {
             "adapter": str(ADAPTER),

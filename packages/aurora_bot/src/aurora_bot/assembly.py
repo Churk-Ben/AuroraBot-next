@@ -7,10 +7,10 @@ from functools import partial
 from pathlib import Path
 from typing import cast
 
-from aurora_adapter.model import ModelClient, require_capabilities
-from aurora_adapter.model.configuration import BINDINGS, resolve_choice, resolve_model
-from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
-from aurora_adapter.model.decisions import ChoiceClient
+from aurora_adapter.model import ChatClient, require_capabilities
+from aurora_adapter.model.config import BINDINGS, resolve_model
+from aurora_adapter.model.config import CONFIG as MODEL_CONFIG
+from aurora_adapter.model.contract import ChoiceClient
 from aurora_agent.input_budget import ModelInputBudget
 from aurora_agent.model import ModelCall
 from aurora_agent.react import AgentBusyError, ReActAgent
@@ -107,7 +107,7 @@ class DefaultAssembly:
         self._world_component_factory = world_component_factory
         self._cadence_timing = cadence_timing
         self._self_control_timing = self_control_timing or CadenceTiming()
-        self.client: ModelClient | None = None
+        self.client: ChatClient | None = None
         self.agent: ReActAgent | None = None
         self.defaults: ReActDefaults | None = None
         self.config: BotConfig | None = None
@@ -203,7 +203,7 @@ class DefaultAssembly:
         )
 
     async def _create_decision_client(self, role: str) -> ChoiceClient:
-        resolved = resolve_choice(self.registry, self.ctx.get(MODEL_CONFIG), self.ctx.get(BINDINGS), role)
+        resolved = resolve_model(self.registry, self.ctx.get(MODEL_CONFIG), self.ctx.get(BINDINGS), role, kind="choice")
         api_key = None if resolved.credential is None else self.credential_resolver(resolved.credential)
         return await resolved.factory(resolved.config, api_key=api_key)
 

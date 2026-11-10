@@ -6,15 +6,16 @@ import json
 import httpx
 import pytest
 from aurora_adapter.model import ModelConfig, ModelError, ModelProtocolError
-from aurora_adapter.model.adapters.openai_embedding import OpenAIEmbeddingClient
-from aurora_adapter.model.configuration import resolve_embedding, resolve_model
-from aurora_adapter.model.embeddings import normalize_vectors
+from aurora_adapter.model.config import resolve_model
+from aurora_adapter.model.litellm import LiteLLMClient
 from aurora_adapter.model.plugin import plugin
+from aurora_adapter.model.response import normalize_vectors
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import register_plugins
 
 
-def test_embedding_transport_orders_vectors_and_sanitizes_errors():
+@pytest.mark.parametrize("provider", ["openai", "voyage"])
+def test_embedding_transport_orders_vectors_and_sanitizes_errors(provider):
     async def scenario():
         seen = []
 
@@ -27,14 +28,17 @@ def test_embedding_transport_orders_vectors_and_sanitizes_errors():
                 "input": ["茶", "咖啡"],
                 "encoding_format": "float",
             }
-            if len(seen) > 1:
+            if len(seen) == 3:
+                return httpx.Response(307, headers={"Location": "https://redirect.test/embeddings"})
+            if len(seen) == 2:
                 return httpx.Response(429, text="runtime-secret 私密记忆")
             return httpx.Response(
                 200, json={"data": [{"index": 1, "embedding": [0, 3]}, {"index": 0, "embedding": [2, 0]}]}
             )
 
-        client = OpenAIEmbeddingClient(
-            ModelConfig("small", "https://embedding.test/v1"),
+        client = LiteLLMClient(
+            kind="embedding",
+            config=ModelConfig("small", "https://embedding.test/v1", provider=provider),
             api_key="runtime-secret",
             transport=httpx.MockTransport(handle),
         )
@@ -44,6 +48,9 @@ def test_embedding_transport_orders_vectors_and_sanitizes_errors():
                 await client.embed(["茶", "咖啡"])
             assert "runtime-secret" not in str(failure.value) and "私密记忆" not in str(failure.value)
             assert len(seen) == 2
+            with pytest.raises(ModelError):
+                await client.embed(["茶", "咖啡"])
+            assert len(seen) == 3
         finally:
             await client.aclose()
         with pytest.raises(ModelError, match="关闭"):
@@ -58,12 +65,12 @@ def test_embedding_contract_rejects_invalid_vectors_and_chat_adapters():
             normalize_vectors(value, count)
     registry = bootstrap()
     register_plugins(registry, (plugin(),))
-    profiles = {"vector": {"adapter": "org.aurora.adapter:adapters/model/openai_embedding", "model": "small"}}
+    profiles = {"vector": {"adapter": "org.aurora.adapter:adapters/model/litellm/embedding", "model": "small"}}
     bindings = {"memory": "vector"}
-    resolved = resolve_embedding(registry, profiles, bindings, "memory")
+    resolved = resolve_model(registry, profiles, bindings, "memory", kind="embedding")
     assert resolved.config.model == "small"
-    with pytest.raises(TypeError, match="adapters"):
+    with pytest.raises(TypeError, match="需要 chat"):
         resolve_model(registry, profiles, bindings, "memory")
-    profiles["vector"]["adapter"] = "org.aurora.adapter:adapters/model/litellm"
-    with pytest.raises(TypeError, match="embedding_adapters"):
-        resolve_embedding(registry, profiles, bindings, "memory")
+    profiles["vector"]["adapter"] = "org.aurora.adapter:adapters/model/litellm/chat"
+    with pytest.raises(TypeError, match="需要 embedding"):
+        resolve_model(registry, profiles, bindings, "memory", kind="embedding")

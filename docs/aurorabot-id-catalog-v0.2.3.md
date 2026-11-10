@@ -41,9 +41,9 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 
 | ID | kind | provider |
 | --- | --- | --- |
-| `org.aurora.adapter:adapters/model/litellm` | `adapter` | `aurora_adapter.model` |
-| `org.aurora.adapter:adapters/model/litellm_choice` | `adapter` | `aurora_adapter.model` |
-| `org.aurora.adapter:adapters/model/openai_embedding` | `adapter` | `aurora_adapter.model` |
+| `org.aurora.adapter:adapters/model/litellm/chat` | `adapter` | `aurora_adapter.model` |
+| `org.aurora.adapter:adapters/model/litellm/choice` | `adapter` | `aurora_adapter.model` |
+| `org.aurora.adapter:adapters/model/litellm/embedding` | `adapter` | `aurora_adapter.model` |
 | `org.aurora.adapter:assemblies/mcp/default_bot` | `assembly` | `aurora_adapter.mcp.bot` |
 | `org.aurora.adapter:components/mcp/tool` | `component` | `aurora_adapter.mcp.tools` |
 | `org.aurora.adapter:components/mcp/tool/execute` | `hook_handler` | `aurora_adapter.mcp.tools` |
@@ -56,14 +56,12 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | `org.aurora.adapter:handlers/mcp/stop` | `hook_handler` | `aurora_adapter.mcp` |
 | `org.aurora.adapter:handlers/mcp/tools/prepare` | `hook_handler` | `aurora_adapter.mcp.tools` |
 | `org.aurora.adapter:registries/model/adapters` | `registry` | `aurora_adapter.model` |
-| `org.aurora.adapter:registries/model/choice_adapters` | `registry` | `aurora_adapter.model` |
-| `org.aurora.adapter:registries/model/embedding_adapters` | `registry` | `aurora_adapter.model` |
-| `org.aurora.adapter:schemas/model/capabilities` | `schema` | `aurora_adapter.model` |
-| `org.aurora.adapter:schemas/model/chunk` | `schema` | `aurora_adapter.model` |
-| `org.aurora.adapter:schemas/model/request` | `schema` | `aurora_adapter.model` |
-| `org.aurora.adapter:schemas/model/response` | `schema` | `aurora_adapter.model` |
+| `org.aurora.adapter:schemas/model/chat/capabilities` | `schema` | `aurora_adapter.model` |
+| `org.aurora.adapter:schemas/model/chat/chunk` | `schema` | `aurora_adapter.model` |
+| `org.aurora.adapter:schemas/model/chat/request` | `schema` | `aurora_adapter.model` |
+| `org.aurora.adapter:schemas/model/chat/response` | `schema` | `aurora_adapter.model` |
+| `org.aurora.adapter:services/model/chat_client` | `service` | `aurora_adapter.model` |
 | `org.aurora.adapter:services/model/choice_client` | `service` | `aurora_adapter.model` |
-| `org.aurora.adapter:services/model/client` | `service` | `aurora_adapter.model` |
 | `org.aurora.adapter:services/model/embedding_client` | `service` | `aurora_adapter.model` |
 | `org.aurora.adapter:sources/mcp/resources` | `source` | `aurora_adapter.mcp.world` |
 | `org.aurora.adapter:state/mcp/clients` | `state_key` | `aurora_adapter.mcp` |

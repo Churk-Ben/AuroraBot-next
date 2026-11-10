@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import NotRequired, TypedDict, cast
 
-from aurora_adapter.model import Message, ModelProtocolError, ModelRequest, ToolCall
+from aurora_adapter.model import ChatRequest, Message, ModelProtocolError, ToolCall
 from aurora_adapter.model.content import validate_content
 from aurora_control import ExecutionLink, ExecutionPlug, ExecutionRequest, InstanceStateBinding, component_entries
 from aurora_core.ctx import Context
@@ -186,7 +186,7 @@ class ReActDefaults:
                 messages.insert(0, {"role": "user", "content": view})
         if self.system_prompt:
             messages.insert(0, {"role": "system", "content": self.system_prompt})
-        model_request: ModelRequest = {"messages": messages}
+        model_request: ChatRequest = {"messages": messages}
         definitions = self.tools.definitions()
         if definitions:
             model_request["tools"] = definitions

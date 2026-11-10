@@ -4,7 +4,7 @@ import asyncio
 import base64
 
 from aiohttp import ClientSession
-from aurora_adapter.model.fake import FakeReply
+from aurora_adapter.model.testing import FakeReply
 from aurora_api.access import AccessPolicy
 from aurora_api.server import serve
 from aurora_bot.conversation import CONVERSATION

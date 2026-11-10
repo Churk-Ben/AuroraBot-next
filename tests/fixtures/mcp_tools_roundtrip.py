@@ -132,8 +132,8 @@ async def run(
         components = [bridge.component(), clients.component(), configuration_component(registry, ctx, hooks, storage)]
         assembly = None
         if with_bot:
-            from aurora_adapter.model.configuration import ADAPTERS
-            from aurora_adapter.model.fake import FakeModel, FakeReply
+            from aurora_adapter.model.config import ADAPTERS, ModelAdapter
+            from aurora_adapter.model.testing import FakeModel, FakeReply
             from aurora_bot.assembly import DefaultAssembly
 
             async def model_factory(config, *, api_key=None):
@@ -150,7 +150,9 @@ async def run(
                 return FakeModel(reply)
 
             adapter = Id("dev.mcp:adapters/fake")
-            registry.register(RegistryEntry(adapter, "adapter", model_factory, "test", register_to=ADAPTERS))
+            registry.register(
+                RegistryEntry(adapter, "adapter", ModelAdapter("chat", model_factory), "test", register_to=ADAPTERS)
+            )
             config_file("org.aurora.adapter/model/profiles.toml", {"test": {"adapter": str(adapter), "model": "fake"}})
             config_file("org.aurora.adapter/model/bindings.toml", {"reasoning": "test"})
             config_file(

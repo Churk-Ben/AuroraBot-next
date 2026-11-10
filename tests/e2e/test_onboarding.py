@@ -9,8 +9,8 @@ from uuid import uuid4
 
 import pytest
 import tomli_w
-from aurora_adapter.model.configuration import ADAPTERS
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.config import ADAPTERS, ModelAdapter
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_cli.commander import run_cli
 from aurora_config import read_toml
 from aurora_config.files import configuration_files
@@ -87,7 +87,7 @@ def test_onboarding_roundtrip_restores_history_without_automatic_activation(tmp_
     )
     clients = []
 
-    async def create_model(config, *, api_key):
+    async def create_model(config, *, api_key=None):
         assert api_key is None
 
         def respond(request):
@@ -106,7 +106,12 @@ def test_onboarding_roundtrip_restores_history_without_automatic_activation(tmp_
         return client
 
     plugin = Plugin(
-        "onboarding_test", (RegistryEntry(adapter, "adapter", create_model, "onboarding_test", register_to=ADAPTERS),)
+        "onboarding_test",
+        (
+            RegistryEntry(
+                adapter, "adapter", ModelAdapter("chat", create_model), "onboarding_test", register_to=ADAPTERS
+            ),
+        ),
     )
 
     async def offline_cli(arguments):

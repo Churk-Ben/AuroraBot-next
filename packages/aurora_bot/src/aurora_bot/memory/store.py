@@ -6,7 +6,7 @@ from pathlib import Path
 from time import time
 from uuid import uuid4
 
-from aurora_adapter.model.embeddings import EmbeddingClient, normalize_vectors
+from aurora_adapter.model import EmbeddingClient, normalize_vectors
 from aurora_agent.tools import ToolExecutionError
 
 MAX_MEMORIES = 1000

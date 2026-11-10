@@ -21,8 +21,8 @@ from aurora_adapter.mcp.errors import MCPClientError
 from aurora_adapter.mcp.preset import initialize
 from aurora_adapter.mcp.tool_execution import MCPTool
 from aurora_adapter.mcp.world import WORLD_SOURCE, WORLD_STATUS, MCPWorldError, _ResourceSource
-from aurora_adapter.model.configuration import ADAPTERS
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.config import ADAPTERS, ModelAdapter
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_bot.operations import RUN_CONTROL, RunOperations
 from aurora_config import configuration_component
 from aurora_core import Id
@@ -118,7 +118,7 @@ def setup(root, declarations, mode, monkeypatch, events):
         models.append(model)
         return model
 
-    registry.register(RegistryEntry(ADAPTER, "adapter", factory, "test", register_to=ADAPTERS))
+    registry.register(RegistryEntry(ADAPTER, "adapter", ModelAdapter("chat", factory), "test", register_to=ADAPTERS))
     declarations = {
         name: {**value, "timeout": {"execution": 0.5 if mode == "timeout" else 30}}
         for name, value in declarations.items()

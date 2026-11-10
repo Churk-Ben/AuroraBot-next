@@ -225,13 +225,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-embedding = [
-    { name = "aurora-config" },
-    { name = "httpx" },
-]
 litellm = [
     { name = "aurora-config" },
-    { name = "litellm", extra = ["mcp"] },
+    { name = "litellm" },
 ]
 mcp = [
     { name = "anyio" },
@@ -276,7 +272,6 @@ requires-dist = [
     { name = "aurora-adapter", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapter" },
     { name = "aurora-adapter", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapter" },
     { name = "aurora-adapter", extras = ["mcp-tools", "mcp-world"], marker = "extra == 'mcp-bot'", editable = "packages/aurora_adapter" },
-    { name = "aurora-adapter", extras = ["model"], marker = "extra == 'embedding'", editable = "packages/aurora_adapter" },
     { name = "aurora-adapter", extras = ["model"], marker = "extra == 'litellm'", editable = "packages/aurora_adapter" },
     { name = "aurora-agent", marker = "extra == 'mcp-tools'", editable = "packages/aurora_agent" },
     { name = "aurora-bot", marker = "extra == 'mcp-bot'", editable = "packages/aurora_bot" },
@@ -284,13 +279,12 @@ requires-dist = [
     { name = "aurora-config", marker = "extra == 'model'", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-world", extras = ["config"], marker = "extra == 'mcp-world'", editable = "packages/aurora_world" },
-    { name = "httpx", marker = "extra == 'embedding'", specifier = ">=0.28,<1" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.16,<3" },
-    { name = "litellm", extras = ["mcp"], marker = "extra == 'litellm'", specifier = ">=1.106.6,<1.107" },
+    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.106.6,<1.107" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
     { name = "tomli-w", marker = "extra == 'mcp'", specifier = ">=1.2,<2" },
 ]
-provides-extras = ["model", "embedding", "litellm", "mcp", "mcp-world", "mcp-tools", "mcp-bot"]
+provides-extras = ["model", "litellm", "mcp", "mcp-world", "mcp-tools", "mcp-bot"]
 
 [[package]]
 name = "aurora-agent"
@@ -333,7 +327,7 @@ name = "aurora-bot"
 version = "0.1.0"
 source = { editable = "packages/aurora_bot" }
 dependencies = [
-    { name = "aurora-adapter", extra = ["embedding", "litellm"] },
+    { name = "aurora-adapter", extra = ["litellm"] },
     { name = "aurora-agent" },
     { name = "aurora-config" },
     { name = "aurora-control" },
@@ -343,7 +337,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aurora-adapter", extras = ["litellm", "embedding"], editable = "packages/aurora_adapter" },
+    { name = "aurora-adapter", extras = ["litellm"], editable = "packages/aurora_adapter" },
     { name = "aurora-agent", editable = "packages/aurora_agent" },
     { name = "aurora-config", editable = "packages/aurora_config" },
     { name = "aurora-control", editable = "packages/aurora_control" },
@@ -1460,13 +1454,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/68/09fe44229fc980bdc4b799dc7ef85ba9d918e440f21094c966342209c7d7/litellm-1.106.6-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:a51f2a7317ab9cb1ef01a93c619f3c7ff69fe1fe13a59b409d0130748b5d8af9", size = 35724862, upload-time = "2026-10-28T22:49:07.595Z" },
     { url = "https://files.pythonhosted.org/packages/e0/b9/80ef424a6aa86e5a9aeff5e7a71d1060fea56914f0e2d8916340fee29289/litellm-1.106.6-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a2876545a652de5070fa5905849b479cee977680b0616b603a6ab21fd5599524", size = 36622070, upload-time = "2026-10-28T22:49:10.542Z" },
     { url = "https://files.pythonhosted.org/packages/4a/41/8c5076437a5a56cf8e788eafe9ca36b649375bb14811d2401e6520acba86/litellm-1.106.6-cp310-abi3-win_amd64.whl", hash = "sha256:42ce43ffb0161c9a844e8b0cd02a8796d0423b11d84fe304bff925378ca55085", size = 37383305, upload-time = "2026-10-28T22:49:13.624Z" },
-]
-
-[package.optional-dependencies]
-mcp = [
-    { name = "httpx2" },
-    { name = "mcp" },
-    { name = "pydantic" },
 ]
 
 [[package]]

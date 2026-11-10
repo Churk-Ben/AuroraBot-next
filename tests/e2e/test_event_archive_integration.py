@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 from aurora_adapter.model import JsonValue, ToolCall
-from aurora_adapter.model.fake import FakeReply
+from aurora_adapter.model.testing import FakeReply
 from aurora_bot.assembly_config import CONFIG, MESSAGES
 from aurora_bot.event_archive import READ_EVENT
 from aurora_bot.work_notes import NOTES

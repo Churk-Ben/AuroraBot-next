@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from aurora_core.json_data import encode_json
 
-from .models import MessageContent, ModelRequest
+from .contract import ChatClient, ChatRequest, MessageContent, ModelProtocolError, UnsupportedCapability
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_CONTENT_PARTS = 32
@@ -93,7 +93,7 @@ def validate_content(value: object) -> MessageContent:
     return cast(MessageContent, value)
 
 
-def request_size(request: ModelRequest) -> tuple[int, int]:
+def request_size(request: ChatRequest) -> tuple[int, int]:
     """计算文本 JSON 字符与内嵌文件字节；二进制编码不冒充文本 token。"""
     compact = {**request, "messages": [deepcopy(message) for message in request["messages"]]}
     size = 0
@@ -113,3 +113,20 @@ def request_size(request: ModelRequest) -> tuple[int, int]:
                 size += len(encoded) // 4 * 3 - padding
                 source[key] = f"{header},[binary]"
     return len(encode_json(compact)), size
+
+
+def require_capabilities(client: ChatClient, request: ChatRequest, *, streaming: bool) -> None:
+    for message in request["messages"]:
+        content = validate_content(message["content"])
+        if isinstance(content, list) and any(part["type"] != "text" for part in content):
+            if message["role"] != "user":
+                raise ModelProtocolError("文件输入仅接受 user 消息")
+            if not client.capabilities.file_input:
+                raise UnsupportedCapability("模型不支持文件输入")
+    if streaming and not client.capabilities.streaming:
+        raise UnsupportedCapability("模型不支持流式响应")
+    uses_tools = request.get("tools") or any(
+        message.get("tool_calls") or message["role"] == "tool" for message in request["messages"]
+    )
+    if uses_tools and not client.capabilities.tool_calls:
+        raise UnsupportedCapability("模型不支持工具调用")

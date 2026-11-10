@@ -1,7 +1,9 @@
 """可由 ctx 保存的模型数据；工具参数由适配器组装完整后交付。"""
 
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, Protocol, TypedDict
 
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
 type FinishReason = Literal["stop", "tool_calls", "length", "content_filter"]
@@ -85,14 +87,14 @@ class Message(TypedDict):
     tool_call_id: NotRequired[str]
 
 
-class ModelRequest(TypedDict):
+class ChatRequest(TypedDict):
     """一次模型推理的输入；模型与连接选择由注入的客户端实例承担。"""
 
     messages: list[Message]
     tools: NotRequired[list[ToolDefinition]]
 
 
-class ModelResponse(TypedDict):
+class ChatResponse(TypedDict):
     """一次推理结果；length/content_filter 结束不等于完整业务回答。"""
 
     text: str
@@ -131,11 +133,11 @@ class FinishChunk(TypedDict):
     reason: FinishReason
 
 
-type ModelChunk = TextDelta | ReasoningDelta | ThinkingBlockChunk | ToolCallChunk | FinishChunk
+type ChatChunk = TextDelta | ReasoningDelta | ThinkingBlockChunk | ToolCallChunk | FinishChunk
 
 
 @dataclass(frozen=True)
-class ModelCapabilities:
+class ChatCapabilities:
     """客户端实际支持的能力；不隐式降级。"""
 
     streaming: bool = True
@@ -150,7 +152,7 @@ class ModelConfig:
     model: str
     base_url: str | None = None
     provider: str | None = None
-    capabilities: ModelCapabilities | None = None
+    capabilities: ChatCapabilities | None = None
     thinking: ThinkingConfig | None = None
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None = None
 
@@ -158,7 +160,7 @@ class ModelConfig:
         if self.provider is not None and (not isinstance(self.provider, str) or not self.provider.strip()):
             raise ValueError("provider 必须为非空字符串")
         if self.capabilities is not None and (
-            not isinstance(self.capabilities, ModelCapabilities)
+            not isinstance(self.capabilities, ChatCapabilities)
             or type(self.capabilities.streaming) is not bool
             or type(self.capabilities.tool_calls) is not bool
             or type(self.capabilities.file_input) is not bool
@@ -180,3 +182,66 @@ class ModelConfig:
             raise ValueError("thinking 配置无效；启用时可设置至少 1024 的 budget_tokens")
         if self.reasoning_effort not in (None, "none", "minimal", "low", "medium", "high", "xhigh", "max"):
             raise ValueError("reasoning_effort 无效")
+
+
+class ModelError(RuntimeError):
+    """适配器对外报告的模型错误；取消与超时保留 Python 标准异常。"""
+
+
+class UnsupportedCapability(ModelError):
+    """请求使用了客户端未声明支持的能力。"""
+
+
+class ModelProtocolError(ModelError):
+    """响应流缺少结束片段或违反片段顺序。"""
+
+
+class ChatClient(Protocol):
+    """调用方关闭每次响应流，创建客户端的宿主在全部调用结束后 aclose。
+
+    stream 必须通过 async with 使用，提前退出、失败或取消均释放该次响应资源。
+    取消传播为 CancelledError，不生成成功结束片段；超时由调用方设置 asyncio.timeout。
+    并发能力由具体客户端约定，本协议不保证所有适配器可同时接受多次调用。
+    """
+
+    @property
+    def capabilities(self) -> ChatCapabilities: ...
+
+    async def complete(self, request: ChatRequest) -> ChatResponse: ...
+
+    def stream(self, request: ChatRequest) -> AbstractAsyncContextManager[AsyncIterator[ChatChunk]]: ...
+
+    async def aclose(self) -> None: ...
+
+
+class ChoiceRequest(TypedDict):
+    state: JsonValue
+    instructions: str
+    criteria: dict[str, str]
+
+
+class ChoiceClient(Protocol):
+    async def choose(self, request: ChoiceRequest) -> str:
+        """返回 criteria 中的一个键；错误与取消不得伪装为选择。"""
+        ...
+
+    async def aclose(self) -> None:
+        """关闭自有连接；调用方须先结束在途判断。"""
+        ...
+
+
+class EmbeddingClient(Protocol):
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """按输入顺序返回等维、有限且非零的向量。"""
+        ...
+
+    async def aclose(self) -> None: ...
+
+
+type ModelKind = Literal["chat", "choice", "embedding"]
+
+
+class ModelFactory[T](Protocol):
+    """创建独立客户端；凭证只在运行期传入。"""
+
+    async def __call__(self, config: ModelConfig, *, api_key: str | None = None) -> T: ...

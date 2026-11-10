@@ -1,7 +1,16 @@
 """统一模型数据、调用协议及响应收集工具。"""
 
-from .models import (
+from .content import require_capabilities
+from .contract import (
+    ChatCapabilities,
+    ChatChunk,
+    ChatClient,
+    ChatRequest,
+    ChatResponse,
+    ChoiceClient,
+    ChoiceRequest,
     ContentPart,
+    EmbeddingClient,
     FilePart,
     FinishChunk,
     FinishReason,
@@ -9,11 +18,11 @@ from .models import (
     JsonValue,
     Message,
     MessageContent,
-    ModelCapabilities,
-    ModelChunk,
     ModelConfig,
-    ModelRequest,
-    ModelResponse,
+    ModelError,
+    ModelFactory,
+    ModelKind,
+    ModelProtocolError,
     ReasoningBlock,
     ReasoningDelta,
     TextDelta,
@@ -22,20 +31,20 @@ from .models import (
     ToolCall,
     ToolCallChunk,
     ToolDefinition,
-)
-from .protocols import (
-    ModelClient,
-    ModelError,
-    ModelFactory,
-    ModelProtocolError,
-    ResponseBuffer,
     UnsupportedCapability,
-    collect_response,
-    require_capabilities,
 )
+from .response import ResponseBuffer, collect_response, normalize_vectors
 
 __all__ = [
+    "ChatCapabilities",
+    "ChatChunk",
+    "ChatClient",
+    "ChatRequest",
+    "ChatResponse",
+    "ChoiceClient",
+    "ChoiceRequest",
     "ContentPart",
+    "EmbeddingClient",
     "FilePart",
     "FinishChunk",
     "FinishReason",
@@ -43,15 +52,11 @@ __all__ = [
     "JsonValue",
     "Message",
     "MessageContent",
-    "ModelCapabilities",
-    "ModelChunk",
-    "ModelClient",
     "ModelConfig",
     "ModelError",
     "ModelFactory",
+    "ModelKind",
     "ModelProtocolError",
-    "ModelRequest",
-    "ModelResponse",
     "ReasoningBlock",
     "ReasoningDelta",
     "ResponseBuffer",
@@ -63,5 +68,6 @@ __all__ = [
     "ToolDefinition",
     "UnsupportedCapability",
     "collect_response",
+    "normalize_vectors",
     "require_capabilities",
 ]

@@ -3,8 +3,8 @@
 import asyncio
 
 import pytest
-from aurora_adapter.model import ModelCapabilities, ModelError, ToolCall, UnsupportedCapability
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model import ChatCapabilities, ModelError, ToolCall, UnsupportedCapability
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import ModelCall
 from aurora_agent.model import plugin as model_plugin
 from aurora_control import CONTROL_STATE, ExecutionRequest, ExecutionSlot, Serial, StateBinding, plugin
@@ -159,7 +159,7 @@ def test_nonstreaming_mode_is_explicit(runtime, streaming):
     ctx, hooks = runtime
 
     async def scenario():
-        client = FakeModel(lambda _: FakeReply(("回答",)), capabilities=ModelCapabilities(streaming=False))
+        client = FakeModel(lambda _: FakeReply(("回答",)), capabilities=ChatCapabilities(streaming=False))
         root, request, output = assemble(ctx, hooks, client, streaming=streaming)
         if streaming:
             with pytest.raises(UnsupportedCapability):

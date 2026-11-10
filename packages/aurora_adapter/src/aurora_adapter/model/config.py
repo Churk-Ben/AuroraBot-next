@@ -2,20 +2,24 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, NotRequired, TypedDict, cast
+from typing import Any, Literal, NotRequired, TypedDict, cast, overload
 
 from aurora_config import ConfigSchema
 from aurora_core.ids import Id
 from aurora_core.registry import DefinitionRegistry
 
-from .decisions import ChoiceFactory
-from .embeddings import EmbeddingFactory
-from .models import ModelCapabilities, ModelConfig, ThinkingConfig
-from .protocols import ModelFactory
+from .contract import (
+    ChatCapabilities,
+    ChatClient,
+    ChoiceClient,
+    EmbeddingClient,
+    ModelConfig,
+    ModelFactory,
+    ModelKind,
+    ThinkingConfig,
+)
 
 ADAPTERS = Id("org.aurora.adapter:registries/model/adapters")
-CHOICE_ADAPTERS = Id("org.aurora.adapter:registries/model/choice_adapters")
-EMBEDDING_ADAPTERS = Id("org.aurora.adapter:registries/model/embedding_adapters")
 CONFIG = Id("org.aurora.adapter:state/model/config")
 BINDINGS = Id("org.aurora.adapter:state/model/bindings")
 
@@ -89,64 +93,57 @@ def check_bindings(values: Mapping[Id, object]) -> None:
 
 
 @dataclass(frozen=True)
-class ResolvedModel:
-    """根据公开 adapter 定义解析出的运行时工厂及其非秘密配置。"""
+class ModelAdapter[T]:
+    """同一注册表中的类型化工厂，防止聊天、决策与向量角色混用。"""
 
-    profile_name: str
-    factory: ModelFactory
-    config: ModelConfig
-    credential: str | None
+    kind: ModelKind
+    factory: ModelFactory[T]
 
 
 @dataclass(frozen=True)
-class ResolvedChoice:
-    """类型化决策模型工厂，与聊天模型使用同一份 profile 和角色绑定。"""
+class ResolvedModel[T]:
+    """已解析的实例工厂、公开配置和运行期凭证引用。"""
 
     profile_name: str
-    factory: ChoiceFactory
-    config: ModelConfig
-    credential: str | None
-
-
-@dataclass(frozen=True)
-class ResolvedEmbedding:
-    """向量模型工厂及公开索引身份；凭证变更不改变向量空间。"""
-
-    profile_name: str
-    factory: EmbeddingFactory
+    factory: ModelFactory[T]
     config: ModelConfig
     credential: str | None
     adapter: str
 
 
-def resolve_embedding(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedEmbedding:
+@overload
+def resolve_model(
+    registry: DefinitionRegistry, profiles: object, bindings: object, role: str, *, kind: Literal["chat"] = "chat"
+) -> ResolvedModel[ChatClient]: ...
+
+
+@overload
+def resolve_model(
+    registry: DefinitionRegistry, profiles: object, bindings: object, role: str, *, kind: Literal["choice"]
+) -> ResolvedModel[ChoiceClient]: ...
+
+
+@overload
+def resolve_model(
+    registry: DefinitionRegistry, profiles: object, bindings: object, role: str, *, kind: Literal["embedding"]
+) -> ResolvedModel[EmbeddingClient]: ...
+
+
+def resolve_model(
+    registry: DefinitionRegistry, profiles: object, bindings: object, role: str, *, kind: ModelKind = "chat"
+) -> ResolvedModel:
+    """只解析已登记的匹配工厂；不导入用户模块、不创建客户端。"""
     name, profile, config = _profile(profiles, bindings, role)
     entry = registry.get(Id(profile["adapter"]))
-    if entry.kind != "adapter" or entry.register_to != EMBEDDING_ADAPTERS or not callable(entry.target):
-        raise TypeError("向量配置目标必须为 embedding_adapters 注册表中的可调用工厂")
-    if config.capabilities is not None or config.thinking is not None or config.reasoning_effort is not None:
-        raise ValueError("向量模型不接受聊天能力或思考配置")
-    return ResolvedEmbedding(
-        name, cast(EmbeddingFactory, entry.target), config, profile.get("credential"), str(entry.id)
-    )
-
-
-def resolve_model(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedModel:
-    """只解析已登记适配器，不导入配置提供的模块路径，也不创建或缓存客户端。"""
-    name, profile, config = _profile(profiles, bindings, role)
-    entry = registry.get(Id(profile["adapter"]))
-    if entry.kind != "adapter" or entry.register_to != ADAPTERS or not callable(entry.target):
-        raise TypeError("模型配置目标必须为 adapters 注册表中的可调用工厂")
-    return ResolvedModel(name, cast(ModelFactory, entry.target), config, profile.get("credential"))
-
-
-def resolve_choice(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedChoice:
-    """只接受 choice 注册表中的工厂，防止将决策端点当作聊天端点。"""
-    name, profile, config = _profile(profiles, bindings, role)
-    entry = registry.get(Id(profile["adapter"]))
-    if entry.kind != "adapter" or entry.register_to != CHOICE_ADAPTERS or not callable(entry.target):
-        raise TypeError("决策配置目标必须为 choice_adapters 注册表中的可调用工厂")
-    return ResolvedChoice(name, cast(ChoiceFactory, entry.target), config, profile.get("credential"))
+    if entry.kind != "adapter" or entry.register_to != ADAPTERS or not isinstance(entry.target, ModelAdapter):
+        raise TypeError("模型配置目标必须为 adapters 注册表中的 ModelAdapter 工厂")
+    if entry.target.kind != kind:
+        raise TypeError(f"模型角色需要 {kind} 适配器，不能使用 {entry.target.kind}")
+    if kind != "chat" and (
+        config.capabilities is not None or config.thinking is not None or config.reasoning_effort is not None
+    ):
+        raise ValueError("非聊天模型不接受聊天能力或思考配置")
+    return ResolvedModel(name, entry.target.factory, config, profile.get("credential"), str(entry.id))
 
 
 def _profile(profiles: object, bindings: object, role: str) -> tuple[str, ModelProfile, ModelConfig]:
@@ -168,7 +165,7 @@ def _profile(profiles: object, bindings: object, role: str) -> tuple[str, ModelP
             profile["model"],
             profile.get("base_url"),
             provider=profile.get("provider"),
-            capabilities=None if capabilities is None else ModelCapabilities(**capabilities),
+            capabilities=None if capabilities is None else ChatCapabilities(**capabilities),
             thinking=profile.get("thinking"),
             reasoning_effort=cast(Any, profile.get("reasoning_effort")),
         ),

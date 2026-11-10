@@ -10,10 +10,10 @@ from functools import partial
 from typing import cast
 from uuid import uuid4
 
-from aurora_adapter.model.configuration import ADAPTERS, BINDINGS
-from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.config import ADAPTERS, BINDINGS, ModelAdapter
+from aurora_adapter.model.config import CONFIG as MODEL_CONFIG
 from aurora_adapter.model.plugin import plugin as adapter_plugin
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import plugin as react_plugin
 from aurora_agent.react_defaults import ReActContext
@@ -306,7 +306,7 @@ def assemble(*, registry, ctx, hooks, storage, workspace_root):
             target=ToolSpec(INSPECT, entry.target.definition, factory=partial(create_inspector, registry=registry)),
         )
     )
-    registry.replace(replace(registry.get(ADAPTER), target=partial(create_model, ctx=ctx)))
+    registry.replace(replace(registry.get(ADAPTER), target=ModelAdapter("chat", partial(create_model, ctx=ctx))))
     app = Workshop(registry, ctx, hooks, storage)
     for owner, phase, method in (
         ("workshop/settings", PREPARE, app.prepare),
@@ -346,7 +346,7 @@ def plugins(*, with_world=True):
         NAMESPACE,
         (
             RegistryEntry(ASSEMBLY, "assembly", assemble, NAMESPACE),
-            RegistryEntry(ADAPTER, "adapter", create_model, NAMESPACE, register_to=ADAPTERS),
+            RegistryEntry(ADAPTER, "adapter", ModelAdapter("chat", create_model), NAMESPACE, register_to=ADAPTERS),
             RegistryEntry(SOURCE, "source", SourceSpec(declared_source), NAMESPACE, register_to=SOURCES),
             *(
                 RegistryEntry(key, "state_key", StateKey(validator), NAMESPACE)

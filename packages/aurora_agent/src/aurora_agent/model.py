@@ -5,9 +5,9 @@ from typing import Literal, NotRequired, TypedDict, cast
 from uuid import uuid4
 
 from aurora_adapter.model import (
+    ChatClient,
+    ChatRequest,
     FinishReason,
-    ModelClient,
-    ModelRequest,
     ReasoningBlock,
     ResponseBuffer,
     ToolCall,
@@ -35,7 +35,7 @@ class ModelCallState(TypedDict):
 class ModelCall:
     """可连接到控制组件的模型调用实例；服务对象由装配持有，调用不关闭客户端。
 
-    request_state 保存 ModelRequest 普通数据，output_state 保存 ModelCallState。
+    request_state 保存 ChatRequest 普通数据，output_state 保存 ModelCallState。
     同一输出地址的调用应由装配串行化；不同 run_id 使用不同地址，客户端并发能力另行约定。
     completed 表示推理请求正常结束，业务是否完成仍须结合 finish_reason 判断。
     """
@@ -45,7 +45,7 @@ class ModelCall:
     def __init__(
         self,
         ctx: Context,
-        client: ModelClient,
+        client: ChatClient,
         *,
         instance_id: str | None = None,
         request_state: StateBinding,
@@ -95,9 +95,9 @@ class ModelCall:
         try:
             value = self.request_state.get(self.ctx, execution)
             if not isinstance(value, dict):
-                raise TypeError("模型输入必须为 ModelRequest 字典")
+                raise TypeError("模型输入必须为 ChatRequest 字典")
             # 地址的具体结构由装配或 StateKey 校验器约定，不建立全局 schema 匹配系统。
-            request = cast(ModelRequest, value)
+            request = cast(ChatRequest, value)
             require_capabilities(self.client, request, streaming=self.streaming)
             if self.streaming:
                 async with self.client.stream(request) as chunks:
