@@ -1,6 +1,6 @@
 # 配置与 MCP
 
-核对日期：2026-11-09。首次启动见[助手指南](../examples/START.md)，运行入口见[操作指南](operations.md)。
+核对日期：2026-11-10。首次启动见[助手指南](../examples/START.md)，运行入口见[操作指南](operations.md)。
 
 ## 配置与数据目录
 
@@ -15,6 +15,7 @@
 | `config/org.aurora.adapter/mcp.toml` | MCP 连接和工具选择 |
 | `config/org.aurora.world/config.toml` | 已启用 world 配置插件时的来源与视图 |
 | `config/org.aurora.bot/cadence.toml` | 已启用 cadence 时的决策节律配置 |
+| `config/org.aurora.bot/memory.toml` | 已启用记忆插件时的向量角色与分块配置 |
 | `framework/ctx.json` | 持久业务快照 |
 | `namespaces/` | 按命名空间隔离的文件及 SQLite 归档 |
 | `logs/` | 宿主日志 |
@@ -41,6 +42,72 @@ file_input = false
 这是助手的示例 profile；按你的供应商修改。`credential` 只填变量名，密钥由用户在环境或本机 `.env` 中设置。角色文件使用 `reasoning = "primary"`，Bot 使用 `model_role = "reasoning"`。首次助手只需要一个聊天模型，不需要 choice 模型。
 
 需要思考时，在支持的 profile 中添加 `thinking` 表或 `reasoning_effort`；未填写时沿用供应商默认。文件输入须与模型真实能力一致，不能仅靠声明获得多模态能力。
+
+## 显式文本记忆（朴素 RAG）
+
+`aurora_bot.memory` 是独立启用的 Bot 插件，首次安装助手不默认启用。插件使用普通 ReAct 工具，按需保存和检索文本，不自动收集聊天、笔记、工具输出或世界事件。
+
+先补齐以下配置，再在 `config/host.toml` 的现有 `plugins` 列表中添加 `"aurora_bot.memory"`。保留默认 Bot 的依赖插件，包括 `aurora_bot.assembly`、`aurora_adapter.model`、`aurora_config`、`aurora_agent.tools`；只安装包不等于启用插件。
+
+在模型 `profiles.toml` 添加独立向量 profile，模型名称和地址按实际供应商修改。内置适配器支持 OpenAI 兼容的 `/embeddings` 端点，`base_url` 填包含 `/v1` 的 API 根路径，不填完整 `/embeddings` 路径；不接受聊天能力和思考配置。
+
+```toml
+[memory_embedding]
+adapter = "org.aurora.adapter:adapters/model/openai_embedding"
+provider = "openai"
+model = "text-embedding-3-small"
+base_url = "https://api.openai.com/v1"
+credential = "AURORA_EMBEDDING_API_KEY"
+```
+
+在模型 `bindings.toml` 增加 `memory = "memory_embedding"`，保留原有 `reasoning` 等绑定。凭证从运行期环境读取；无鉴权的本地兼容服务可省略 `credential`。适配器的 HTTP 依赖属于 `aurora-adapter[embedding]`，Bot 分发已包含此 extra；基础 adapter 和独立 agent 不因此依赖 HTTP 客户端。
+
+`config/org.aurora.bot/memory.toml` 在首次加载插件时从[包模板](../packages/aurora_bot/src/aurora_bot/memory/config.tomls/memory.toml)补缺，也可预先写入：
+
+```toml
+model_role = "memory"
+chunk_chars = 800
+overlap_chars = 120
+index_version = "1"
+```
+
+在 Bot 的 `config/org.aurora.bot/config.toml` 中添加所需的工具选择，放在顶层 `[[tools]]` 数组内：
+
+```toml
+[[tools]]
+tool = "org.aurora.bot:tools/memory/write"
+instance_id = "memory/write"
+
+[[tools]]
+tool = "org.aurora.bot:tools/memory/search"
+instance_id = "memory/search"
+
+[[tools]]
+tool = "org.aurora.bot:tools/memory/read"
+instance_id = "memory/read"
+
+[[tools]]
+tool = "org.aurora.bot:tools/memory/delete"
+instance_id = "memory/delete"
+
+[[tools]]
+tool = "org.aurora.bot:tools/memory/reindex"
+instance_id = "memory/reindex"
+```
+
+工具配置不接受所有者覆盖，所有者取自装配绑定的 Bot `instance_id`。可只连接搜索和读取工具以提供只读记忆；重建工具也可在维护时单独连接。重启宿主后生效，发现定义和启动过程不发送 embedding 请求。
+
+| 工具 | 用法 |
+| --- | --- |
+| `memory_write` | 提供 `memory_id`、`text`、`source`、`expected_revision`；新建时版本为空字符串，更新时使用上次读取返回的版本 |
+| `memory_search` | 提供 `query`；`top_k` 默认 5、最多 10，`min_score` 默认 0.3，返回满足阈值的分块、来源、版本与字符偏移 |
+| `memory_read` | 按 `memory_id` 读取完整原文与版本 |
+| `memory_delete` | 提供 `memory_id` 与当前 `expected_revision`，同时删除原文及索引 |
+| `memory_reindex` | 无参数，显式为当前实例的全部记忆重新计算向量；会调用所选 embedding 服务 |
+
+每个实例最多保存 1000 条记忆，单条正文最多 16000 字符。版本是不透明字符串，调用方不能自行递增或推断。正文与来源均为显式记录，来源说明不表示事实已经核实。
+
+原文与向量保存在 `namespaces/ns-org.aurora.bot/memory.sqlite3`，不写入 ctx 快照；备份需在停止宿主后同时保存此数据库与业务快照。更换模型、端点、分块参数或 `index_version` 后，搜索明确报告索引不匹配，须调用 `memory_reindex`；同名模型背后的向量空间发生变化时应手动增加 `index_version`。重建失败或取消不会提交部分索引，也不会删除原文。重建也受 Bot 的 `tool_timeout` 限制，大语料维护时需按供应商速度调整该超时。
 
 ## 本地 terminal MCP
 

@@ -1,6 +1,6 @@
 # AuroraBot 公共 ID 目录
 
-核对日期：2026-11-09。文件名沿用现有引用；本页由当前工作区的 bootstrap、ctx 操作、生命周期、CLI 命令和全部已安装 aurora.plugins 定义实际登记后枚举。未启动装配、模型、MCP 或世界来源。旧设计中的规划 ID 见[归档](archive/2026-11-09/aurorabot-id-catalog-v0.2.3.md)。
+核对日期：2026-11-10。文件名沿用现有引用；本页由当前工作区的 bootstrap、ctx 操作、生命周期、CLI 命令和全部已安装 aurora.plugins 定义实际登记后枚举。未启动装配、模型、MCP 或世界来源。旧设计中的规划 ID 见[归档](archive/2026-11-09/aurorabot-id-catalog-v0.2.3.md)。
 
 ## 身份与使用
 
@@ -28,6 +28,7 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | `aurora_api` | 无 |
 | `aurora_bot.assembly` | `aurora_config`, `aurora_adapter.model`, `aurora_agent.model`, `aurora_agent.react`, `aurora_agent.tools`, `aurora_agent.react_defaults` |
 | `aurora_bot.cadence` | `aurora_bot.assembly`, `aurora_world`, `aurora_config` |
+| `aurora_bot.memory` | `aurora_bot.assembly`, `aurora_adapter.model`, `aurora_config`, `aurora_agent.tools` |
 | `aurora_config` | 无 |
 | `aurora_control` | 无 |
 | `aurora_world` | 无 |
@@ -42,6 +43,7 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | --- | --- | --- |
 | `org.aurora.adapter:adapters/model/litellm` | `adapter` | `aurora_adapter.model` |
 | `org.aurora.adapter:adapters/model/litellm_choice` | `adapter` | `aurora_adapter.model` |
+| `org.aurora.adapter:adapters/model/openai_embedding` | `adapter` | `aurora_adapter.model` |
 | `org.aurora.adapter:assemblies/mcp/default_bot` | `assembly` | `aurora_adapter.mcp.bot` |
 | `org.aurora.adapter:components/mcp/tool` | `component` | `aurora_adapter.mcp.tools` |
 | `org.aurora.adapter:components/mcp/tool/execute` | `hook_handler` | `aurora_adapter.mcp.tools` |
@@ -55,12 +57,14 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | `org.aurora.adapter:handlers/mcp/tools/prepare` | `hook_handler` | `aurora_adapter.mcp.tools` |
 | `org.aurora.adapter:registries/model/adapters` | `registry` | `aurora_adapter.model` |
 | `org.aurora.adapter:registries/model/choice_adapters` | `registry` | `aurora_adapter.model` |
+| `org.aurora.adapter:registries/model/embedding_adapters` | `registry` | `aurora_adapter.model` |
 | `org.aurora.adapter:schemas/model/capabilities` | `schema` | `aurora_adapter.model` |
 | `org.aurora.adapter:schemas/model/chunk` | `schema` | `aurora_adapter.model` |
 | `org.aurora.adapter:schemas/model/request` | `schema` | `aurora_adapter.model` |
 | `org.aurora.adapter:schemas/model/response` | `schema` | `aurora_adapter.model` |
 | `org.aurora.adapter:services/model/choice_client` | `service` | `aurora_adapter.model` |
 | `org.aurora.adapter:services/model/client` | `service` | `aurora_adapter.model` |
+| `org.aurora.adapter:services/model/embedding_client` | `service` | `aurora_adapter.model` |
 | `org.aurora.adapter:sources/mcp/resources` | `source` | `aurora_adapter.mcp.world` |
 | `org.aurora.adapter:state/mcp/clients` | `state_key` | `aurora_adapter.mcp` |
 | `org.aurora.adapter:state/mcp/config` | `state_key` | `aurora_adapter.mcp` |
@@ -111,6 +115,8 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | `org.aurora.bot:commands/run/submit` | `command` | `aurora_bot` |
 | `org.aurora.bot:components/actions/read` | `component` | `aurora_bot` |
 | `org.aurora.bot:components/actions/read/execute` | `hook_handler` | `aurora_bot` |
+| `org.aurora.bot:components/memory` | `component` | `aurora_bot.memory` |
+| `org.aurora.bot:components/memory/execute` | `hook_handler` | `aurora_bot.memory` |
 | `org.aurora.bot:components/notes` | `component` | `aurora_bot` |
 | `org.aurora.bot:components/notes/execute` | `hook_handler` | `aurora_bot` |
 | `org.aurora.bot:components/self_control` | `component` | `aurora_bot` |
@@ -119,6 +125,7 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | `org.aurora.bot:components/world/read_event/execute` | `hook_handler` | `aurora_bot` |
 | `org.aurora.bot:configs/cadence` | `config` | `aurora_bot.cadence` |
 | `org.aurora.bot:configs/default` | `config` | `aurora_bot` |
+| `org.aurora.bot:configs/memory` | `config` | `aurora_bot.memory` |
 | `org.aurora.bot:endpoints/conversation` | `endpoint` | `aurora_bot` |
 | `org.aurora.bot:handlers/assembly/clean_bot` | `hook_handler` | `aurora_bot` |
 | `org.aurora.bot:handlers/assembly/clean_model` | `hook_handler` | `aurora_bot` |
@@ -138,12 +145,18 @@ MCP 动态工具以 `org.aurora.adapter:tools/mcp/<工具名>` 登记；连接�
 | `org.aurora.bot:state/cadence` | `state_key` | `aurora_bot.cadence` |
 | `org.aurora.bot:state/cadence_config` | `state_key` | `aurora_bot.cadence` |
 | `org.aurora.bot:state/config` | `state_key` | `aurora_bot` |
+| `org.aurora.bot:state/memory/config` | `state_key` | `aurora_bot.memory` |
 | `org.aurora.bot:state/messages` | `state_key` | `aurora_bot` |
 | `org.aurora.bot:state/notes` | `state_key` | `aurora_bot` |
 | `org.aurora.bot:state/react_work` | `state_key` | `aurora_bot` |
 | `org.aurora.bot:state/run` | `state_key` | `aurora_bot` |
 | `org.aurora.bot:state/self_control` | `state_key` | `aurora_bot` |
 | `org.aurora.bot:tools/actions/read` | `tool` | `aurora_bot` |
+| `org.aurora.bot:tools/memory/delete` | `tool` | `aurora_bot.memory` |
+| `org.aurora.bot:tools/memory/read` | `tool` | `aurora_bot.memory` |
+| `org.aurora.bot:tools/memory/reindex` | `tool` | `aurora_bot.memory` |
+| `org.aurora.bot:tools/memory/search` | `tool` | `aurora_bot.memory` |
+| `org.aurora.bot:tools/memory/write` | `tool` | `aurora_bot.memory` |
 | `org.aurora.bot:tools/notes/list` | `tool` | `aurora_bot` |
 | `org.aurora.bot:tools/notes/read` | `tool` | `aurora_bot` |
 | `org.aurora.bot:tools/notes/write` | `tool` | `aurora_bot` |
