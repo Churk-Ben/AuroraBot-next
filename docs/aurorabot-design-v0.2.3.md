@@ -47,7 +47,19 @@ ReAct 提供 prepare、infer、act、observe、finish、error 阶段连接。默
 
 模型消息支持文本和结构化内容，思考文本及供应商需要的思考块保留在工具往返中。输入预算以应用层 JSON 字符和内嵌文件字节计，不是 token 上限。详见[上下文与运行](context.md)。
 
-记忆插件 `aurora_bot.memory` 通过现有工具工厂接入，Bot 所有者负责关闭它的数据库与向量客户端。向量协议及 OpenAI 兼容传输归 `aurora_adapter.model`，模型 profile 通过独立 embedding 注册表解析。原文和可重建索引保存在插件 SQLite，不增加 agent 调度所有者、不将记忆策略下沉到 core。使用与持久化约束见[文本记忆配置](configuration.md#显式文本记忆朴素-rag)。
+记忆插件 `aurora_bot.memory` 通过现有工具工厂接入，Bot 所有者负责关闭它的数据库与向量客户端。向量协议及 LiteLLM 传输归 `aurora_adapter.model`，模型 profile 通过统一模型注册表按 embedding 用途解析。原文和可重建索引保存在插件 SQLite，不增加 agent 调度所有者、不将记忆策略下沉到 core。使用与持久化约束见[文本记忆配置](configuration.md#显式文本记忆朴素-rag)。
+
+## 模型边界
+
+`aurora_adapter.model` 按职责平铺：`contract.py` 提供 SDK 无关的数据与 ChatClient、ChoiceClient、EmbeddingClient、泛型 ModelFactory；`config.py` 解析配置与用途；`content.py` 校验输入及预算；`response.py` 收集响应与校验向量；`litellm.py` 持有供应商客户端，`_codec.py` 转换 Aurora 消息；`testing.py` 提供确定性假模型，`plugin.py` 登记定义并延迟导入 SDK。
+
+三类客户端共用 LiteLLMClient 的实例传输、并发约束、错误脱敏与关闭逻辑；聊天调用 `acompletion`，向量调用 `aembedding`。流中的文本即时交付，工具及思考碎片使用 LiteLLM 的 ChunkProcessor 合并，再校验完整身份、参数及签名；不调用完整 stream_chunk_builder 重算 token 或重复缓存正文。SDK 类型不进入 ctx 或上层协议。
+
+LiteLLM 固定在 `>=1.106.6,<1.107`。当前高层 decisions 接口不透传实例 client，choice 使用 SDK 的 prepare_call、供应商转换及底层 handler 注入连接。OpenAI embedding 分支会覆盖零重试设置，因此自有 OpenAI 客户端固定零重试；DeepSeek 聊天沿用 OpenAI 兼容路由保留文件及思考字段。这些是升级 SDK 时须复验的薄适配边界，未引入共享 Router。
+
+自定义插件迁移：旧 `models/protocols/decisions/embeddings` 的协议统一从包公共出口或 `contract` 导入，响应收集和向量校验从 `response` 导入，`configuration` 改为 `config`，`fake` 改为 `testing`；`ModelClient/Request/Response/Chunk/Capabilities` 分别改为对应的 `Chat*`。三个 resolver 合并为 `resolve_model(..., kind="chat"|"choice"|"embedding")`，返回 `ResolvedModel[T]`；工厂使用 `ModelAdapter(kind, factory)` 登记到 `registries/model/adapters`，不再使用 choice_adapters 或 embedding_adapters。
+
+公共 ID 的命名空间仍为 `org.aurora.adapter`：`services/model/client` 改为 `services/model/chat_client`；四个 `schemas/model/{request,response,chunk,capabilities}` 改为 `schemas/model/chat/{request,response,chunk,capabilities}`。choice/embedding 服务、插件名、配置及业务状态 ID 保持原值。旧模块、旧工厂类型和旧 ID 无兼容转发；TOML 与索引迁移见[升级说明](configuration.md#从旧模型配置升级)。
 
 ## MCP 与世界输入
 
