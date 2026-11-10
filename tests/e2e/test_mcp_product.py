@@ -15,8 +15,8 @@ import tomli_w
 import uvicorn
 from aurora_adapter.mcp.catalog import automatic_name
 from aurora_adapter.mcp.preset import initialize
-from aurora_adapter.model.configuration import ADAPTERS
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.config import ADAPTERS, ModelAdapter
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_cli.commander import run_cli
 from aurora_core import Id
 from aurora_core.discovery import Plugin
@@ -87,7 +87,10 @@ def fake_plugin(name, clients):
         clients.append(client)
         return client
 
-    return Plugin("test.product", (RegistryEntry(ADAPTER, "adapter", factory, "test.product", register_to=ADAPTERS),))
+    return Plugin(
+        "test.product",
+        (RegistryEntry(ADAPTER, "adapter", ModelAdapter("chat", factory), "test.product", register_to=ADAPTERS),),
+    )
 
 
 @pytest.mark.parametrize("transport,explicit", [("remote", True), ("local", False)])

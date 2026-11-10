@@ -70,7 +70,7 @@ def test_explicit_plugin_and_assembly_selection_override_host_defaults(tmp_path,
 
     async def execute(context, command, values, **options):
         selections.append(options["assembly"])
-        assert context.registry.get(Id("org.aurora.adapter:adapters/model/litellm"))
+        assert context.registry.get(Id("org.aurora.adapter:adapters/model/litellm/chat"))
         return 0
 
     monkeypatch.setattr("aurora_cli.host.execute", execute)

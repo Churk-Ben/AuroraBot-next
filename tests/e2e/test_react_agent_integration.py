@@ -4,8 +4,8 @@ import asyncio
 from typing import cast
 
 import pytest
-from aurora_adapter.model import Message, ModelError, ModelRequest, ToolDefinition
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model import ChatRequest, Message, ModelError, ToolDefinition
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import ModelCall, ModelCallState
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import Guidance, ReActAgent
@@ -62,7 +62,7 @@ def assemble(data_dir, *, fail_tool=False, fail_model=False):
     history, accepted = fixed("history"), fixed("accepted")
     model_input, model_output, observations = transient("model_input"), transient("model_output"), transient("tools")
 
-    def respond(request: ModelRequest) -> FakeReply:
+    def respond(request: ChatRequest) -> FakeReply:
         if fail_model:
             return FakeReply(("保留部分推理",), error=ModelError("模型失败"))
         if any(message["content"] == "无需行动" for message in request["messages"]):

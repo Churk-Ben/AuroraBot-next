@@ -2,6 +2,17 @@
 
 ## 2026-11-10
 
+### 合并模型适配层并复用 LiteLLM 原生能力
+
+- `aurora_adapter.model` 从 13 个文件、1450 行合并为 9 个文件、1349 行，按 contract、config、content、response、litellm、内部 codec、testing 和 plugin 职责平铺。聊天类型统一命名为 ChatClient / ChatRequest / ChatResponse / ChatChunk / ChatCapabilities；去除旧模块、兼容别名和三套重复工厂解析。
+- 聊天、choice、embedding 共用类型化 ModelAdapter、泛型 ModelFactory / ResolvedModel 与 resolve_model(kind=...)，统一登记到 model/adapters。LiteLLMClient 统一管理实例连接、用途、在途调用、错误脱敏和关闭；向量请求改用原生 aembedding，流式工具与思考碎片改用 SDK ChunkProcessor，保留完整性与签名校验。移除独立 OpenAI embedding HTTP 实现和 embedding extra，Bot 统一依赖 litellm extra；该 extra 不再额外安装 MCP。
+- 保留 SDK 版本约束 `>=1.106.6,<1.107`。当前高层 decisions 不透传实例 client，继续使用 SDK 请求转换和底层 handler；OpenAI embedding 会覆盖零重试值，自有客户端固定零重试；DeepSeek 使用兼容路由保留文件和思考。没有引入共享 Router 或修改 SDK 全局配置，模型能力范围以已接入实例传输的供应商为准。
+- adapter ID 改为 model/litellm/chat、choice、embedding；聊天服务改为 model/chat_client，聊天 schema 移入 model/chat/，移除独立 choice/embedding 注册表。同步迁移消费者、测试夹具、包模板和安装助手；插件入口、配置及持久业务状态 ID 不变。旧用户 TOML 不自动覆盖，旧向量 profile 须补 provider=openai；记忆索引指纹包含 adapter ID，升级后须显式重建，原文保留。完整手动迁移说明见[配置指南](configuration.md#从旧模型配置升级)与[模型边界](aurorabot-design-v0.2.3.md#模型边界)。
+- 复用既有协议、装配、资源生命周期与记忆往返测试；只增加一个 Voyage 参数用例，独有价值是验证原生非 OpenAI 向量传输，同一用例同时覆盖顺序、无重试、重定向拒绝、错误脱敏和关闭。更新既有冷发现断言验证统一工厂用途与无 SDK 导入，保留全部业务及关闭断言。
+- 同一已安装开发环境实测：`uv run --locked aurora check` 12.73 秒，`uv run --locked aurora check --full` 39.33 秒；1205 项 Python、131 项前端、5 项原生终端测试全部通过。保持现有 4 worker，未跳过检查；Pydantic、aiohttp 依赖警告仍存在。验证全部使用假模型或模拟传输，未调用真实供应商。
+- 11 个 wheel 构建成功；干净环境验证 control 无需 agent/adapter/模型 SDK，agent 无需 Bot/CLI/API/HTTP/模型 SDK，并实际完成控制流与 agent 工具往返及恢复。安装 Bot 后确认无 MCP/CLI/API 依赖，模型插件发现不加载 LiteLLM，模板资源齐全，原生聊天、choice、OpenAI/Voyage embedding 模拟往返与关闭通过。
+- 当前文档 31 个本地链接、5 段 TOML 和全部 15 个模型定义核对通过；未修改 README.md 或 AGENTS.md。
+
 ### 增加显式文本记忆插件与向量协议
 
 - 新增独立 `aurora_bot.memory` 插件，通过现有工具工厂提供 `memory_write / memory_search / memory_read / memory_delete / memory_reindex`。按 Bot 实例隔离，正文分块后做 embedding 与精确余弦 top-k 检索；显式保存，不自动提炼聊天、复制工作笔记或注入每轮业务视图。

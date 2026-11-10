@@ -5,7 +5,7 @@ import json
 from typing import cast
 
 import pytest
-from aurora_adapter.model.fake import FakeReply
+from aurora_adapter.model.testing import FakeReply
 from aurora_agent.input_budget import ModelInputBudget
 from aurora_bot.assembly_config import CONFIG, MESSAGES, parse_config
 from aurora_core.json_data import encode_json

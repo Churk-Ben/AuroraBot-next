@@ -5,8 +5,8 @@ import json
 from functools import partial
 from typing import cast
 
-from aurora_adapter.model.configuration import BINDINGS, resolve_embedding
-from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_adapter.model.config import BINDINGS, resolve_model
+from aurora_adapter.model.config import CONFIG as MODEL_CONFIG
 from aurora_agent.tools import TOOLS, ToolInstance, ToolSpec
 from aurora_config import ConfigSchema, ConfigSpec, ConfigTemplate, config_entries
 from aurora_control import ExecutionPlug, ExecutionRequest, component_entries
@@ -113,7 +113,9 @@ async def _factory(action, *, ctx, storage, instance_id, input_state, output_sta
     ):
         raise ValueError("记忆工具需要同一 bot 的工作状态绑定，不接受所有者或配置覆盖")
     options = cast(dict, SCHEMA.parse(ctx.get(CONFIG)))
-    resolved = resolve_embedding(ctx.registry, ctx.get(MODEL_CONFIG), ctx.get(BINDINGS), options["model_role"])
+    resolved = resolve_model(
+        ctx.registry, ctx.get(MODEL_CONFIG), ctx.get(BINDINGS), options["model_role"], kind="embedding"
+    )
     fingerprint = hashlib.sha256(
         json.dumps(
             [

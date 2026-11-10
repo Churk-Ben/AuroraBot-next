@@ -7,8 +7,8 @@ import math
 from pathlib import Path
 from typing import cast
 
-from aurora_adapter.model import ModelRequest
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model import ChatRequest
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import ModelCall
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import ReActAgent
@@ -73,7 +73,7 @@ async def run(args: argparse.Namespace) -> None:
         max_iterations=5,
     )
 
-    def respond(model_request: ModelRequest) -> FakeReply:
+    def respond(model_request: ChatRequest) -> FakeReply:
         if args.text == "无需行动":
             return FakeReply()
         if len(client.requests) == 1:

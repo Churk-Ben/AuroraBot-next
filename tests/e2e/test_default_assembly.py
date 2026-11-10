@@ -10,11 +10,11 @@ import httpx
 import pytest
 import tomli_w
 from aiohttp import ClientSession
-from aurora_adapter.model import JsonValue, ModelCapabilities, ToolDefinition, UnsupportedCapability
-from aurora_adapter.model.configuration import ADAPTERS, BINDINGS
-from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model import ChatCapabilities, JsonValue, ToolDefinition, UnsupportedCapability
+from aurora_adapter.model.config import ADAPTERS, BINDINGS, ModelAdapter
+from aurora_adapter.model.config import CONFIG as MODEL_CONFIG
 from aurora_adapter.model.plugin import plugin as adapter_plugin
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import AgentBusyError
 from aurora_agent.react import plugin as react_plugin
@@ -54,10 +54,9 @@ COMPONENT = Id("dev.assembly:handlers/echo")
 @pytest.mark.parametrize("streaming,provider", [(False, "openai"), (True, "compatible")])
 def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypatch, streaming, provider):
     monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-    import openai
-    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+    from aurora_adapter.model.litellm import LiteLLMClient
 
-    original = openai.AsyncOpenAI.__init__
+    original = LiteLLMClient.__init__
     transports, requests = [], []
 
     def handle(request):
@@ -94,19 +93,11 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
             headers={"content-type": "text/event-stream"},
         )
 
-    def create_transport(self, **kwargs):
-        transport = httpx.AsyncClient(transport=httpx.MockTransport(handle))
-        transports.append(transport)
-        original(self, http_client=transport, **kwargs)
+    def create_transport(self, config, **kwargs):
+        original(self, config, transport=httpx.MockTransport(handle), **kwargs)
+        transports.append(self._transport)
 
-    monkeypatch.setattr(openai.AsyncOpenAI, "__init__", create_transport)
-
-    def create_http(self, **kwargs):
-        transport = httpx.AsyncClient(transport=httpx.MockTransport(handle))
-        transports.append(transport)
-        return transport
-
-    monkeypatch.setattr(AsyncHTTPHandler, "create_client", create_http)
+    monkeypatch.setattr(LiteLLMClient, "__init__", create_transport)
 
     async def scenario():
         host, assembly, ctx, _, _, _, _, _ = setup(tmp_path)
@@ -114,7 +105,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
         def configure():
             ctx.set(CONFIG, {**settings(), "streaming": streaming})
             profile: dict[str, object] = {
-                "adapter": "org.aurora.adapter:adapters/model/litellm",
+                "adapter": "org.aurora.adapter:adapters/model/litellm/chat",
                 "model": "openai/gpt-4o-mini",
                 "credential": "MODEL_TEST_KEY",
             }
@@ -155,7 +146,7 @@ def test_litellm_default_assembly_tool_roundtrip_and_restore(tmp_path, monkeypat
             assert cast(dict, other.defaults.context_state.get(other_ctx, execution))["messages"] == messages
         finally:
             await restarted.stop()
-        assert len(transports) == 2 and all(transport.is_closed for transport in transports)
+        assert len(transports) == 2 and all(transport.is_closed() for transport in transports)
 
     asyncio.run(scenario())
 
@@ -248,7 +239,9 @@ def setup(
     async def placeholder(request):
         raise AssertionError("应调用工厂创建的实例")
 
-    registry.register(RegistryEntry(ADAPTER, "adapter", model_factory, "test", register_to=ADAPTERS))
+    registry.register(
+        RegistryEntry(ADAPTER, "adapter", ModelAdapter("chat", model_factory), "test", register_to=ADAPTERS)
+    )
     registry.register_many(component_entries(COMPONENT, placeholder, placeholder, provider="test"))
     definition: ToolDefinition = {
         "name": "echo",
@@ -461,7 +454,7 @@ def test_failed_model_close_can_retry_without_reclosing_tools(tmp_path):
 
 def test_capability_rejection_closes_created_model_before_tools(tmp_path):
     async def scenario():
-        host, _, ctx, _, clients, _, events, _ = setup(tmp_path, capabilities=ModelCapabilities(streaming=False))
+        host, _, ctx, _, clients, _, events, _ = setup(tmp_path, capabilities=ChatCapabilities(streaming=False))
         with pytest.raises(UnsupportedCapability):
             await host.start(configure=lambda: seed(ctx))
         assert events == ["model.created", "model.closed"] and clients[0].closed
@@ -1275,7 +1268,7 @@ import runpy
 import signal
 import sys
 from pathlib import Path
-from aurora_adapter.model.fake import FakeModel
+from aurora_adapter.model.testing import FakeModel
 
 source = runpy.run_path(sys.argv[1])
 entry = importlib.import_module("aurora_cli.main")

@@ -8,24 +8,23 @@ from typing import TYPE_CHECKING, cast
 import httpx
 import pytest
 from aurora_adapter.model import (
-    ModelCapabilities,
+    ChatCapabilities,
+    ChatRequest,
     ModelConfig,
     ModelError,
     ModelProtocolError,
-    ModelRequest,
     ToolCall,
     UnsupportedCapability,
     collect_response,
 )
-from aurora_adapter.model.adapters import create_litellm
-from aurora_adapter.model.configuration import resolve_model
-from aurora_adapter.model.plugin import plugin
+from aurora_adapter.model.config import resolve_model
+from aurora_adapter.model.plugin import create_client, plugin
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import register_plugins
 from aurora_core.json_data import decode_json, encode_json
 
 if TYPE_CHECKING:
-    from aurora_adapter.model.adapters.litellm import LiteLLMClient
+    from aurora_adapter.model.litellm import LiteLLMClient
 
 
 @pytest.fixture
@@ -36,7 +35,7 @@ def sdk(monkeypatch):
     return litellm
 
 
-def request() -> ModelRequest:
+def request() -> ChatRequest:
     return {"messages": [{"role": "user", "content": "计算"}]}
 
 
@@ -148,12 +147,12 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
     async def scenario():
         client = cast(
             "LiteLLMClient",
-            await create_litellm(
+            await create_client(
                 ModelConfig(
                     "private-model",
                     "https://model.test/v1",
                     provider=provider,
-                    capabilities=ModelCapabilities(True, True),
+                    capabilities=ChatCapabilities(True, True),
                     thinking={"type": "enabled"},
                     reasoning_effort="high",
                 ),
@@ -162,7 +161,7 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
         )
         await client._transport._client.aclose()
         client._transport._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
-        value: ModelRequest = {
+        value: ChatRequest = {
             "messages": [
                 {
                     "role": "user",
@@ -229,7 +228,7 @@ def test_signed_and_redacted_thinking_stream_is_preserved(sdk, monkeypatch):
     calls = mock_completion(monkeypatch, sdk, stream)
 
     async def scenario():
-        client = await create_litellm(
+        client = await create_client(
             ModelConfig("anthropic/claude-sonnet-4-5", thinking={"type": "enabled", "budget_tokens": 2048}),
             api_key="test",
         )
@@ -284,9 +283,9 @@ def test_explicit_provider_preserves_model_and_supports_custom_capabilities(sdk,
     async def scenario():
         client = cast(
             "LiteLLMClient",
-            await create_litellm(
+            await create_client(
                 ModelConfig(
-                    model, "https://profile.test/v1", provider=provider, capabilities=ModelCapabilities(True, True)
+                    model, "https://profile.test/v1", provider=provider, capabilities=ChatCapabilities(True, True)
                 ),
                 api_key="isolated-key",
             ),
@@ -300,10 +299,10 @@ def test_explicit_provider_preserves_model_and_supports_custom_capabilities(sdk,
         }
         try:
             if streaming:
-                async with client.stream(cast(ModelRequest, request)) as chunks:
+                async with client.stream(cast(ChatRequest, request)) as chunks:
                     result = await collect_response(chunks)
             else:
-                result = await client.complete(cast(ModelRequest, request))
+                result = await client.complete(cast(ChatRequest, request))
             assert result["tool_calls"] == [tool] and result["finish_reason"] == "tool_calls"
             assert len(sent) == 1
         finally:
@@ -322,12 +321,12 @@ def test_profile_credentials_addresses_and_capabilities_are_isolated(sdk):
             for label, enabled in (("one", True), ("two", False)):
                 client = cast(
                     "LiteLLMClient",
-                    await create_litellm(
+                    await create_client(
                         ModelConfig(
                             "team/shared-name",
                             f"https://{label}.test/v1",
                             provider="openai",
-                            capabilities=ModelCapabilities(enabled, enabled),
+                            capabilities=ChatCapabilities(enabled, enabled),
                         ),
                         api_key=f"key-{label}",
                     ),
@@ -344,8 +343,8 @@ def test_profile_credentials_addresses_and_capabilities_are_isolated(sdk):
                 http = httpx.AsyncClient(transport=httpx.MockTransport(handle))
                 transports.append(http)
                 client._transport._client = http
-            assert clients[0].capabilities == ModelCapabilities(True, True)
-            assert clients[1].capabilities == ModelCapabilities(False, False)
+            assert clients[0].capabilities == ChatCapabilities(True, True)
+            assert clients[1].capabilities == ChatCapabilities(False, False)
             assert not sdk.supports_function_calling("team/shared-name", custom_llm_provider="openai")
             await clients[0].complete(request())
             await clients[0].aclose()
@@ -369,10 +368,10 @@ def test_profile_credentials_addresses_and_capabilities_are_isolated(sdk):
 def test_explicit_provider_retains_catalog_defaults_and_unknown_capabilities_stay_disabled(sdk):
     async def scenario():
         for model, capabilities in (
-            ("gpt-4o-mini", ModelCapabilities(True, True)),
-            ("team/unknown", ModelCapabilities(False, False)),
+            ("gpt-4o-mini", ChatCapabilities(True, True)),
+            ("team/unknown", ChatCapabilities(False, False)),
         ):
-            client = await create_litellm(ModelConfig(model, provider="openai"), api_key="test-only")
+            client = await create_client(ModelConfig(model, provider="openai"), api_key="test-only")
             try:
                 assert client.capabilities == capabilities
             finally:
@@ -389,7 +388,7 @@ def test_registered_factory_uses_real_sdk_and_maps_tool_history(sdk, provider):
         registry,
         {
             "main": {
-                "adapter": "org.aurora.adapter:adapters/model/litellm",
+                "adapter": "org.aurora.adapter:adapters/model/litellm/chat",
                 "model": "openai/gpt-4o-mini" if provider == "openai" else "deepseek/deepseek-flash",
             }
         },
@@ -506,7 +505,7 @@ def test_real_sdk_streaming_and_owned_transport_close(sdk, provider):
     async def scenario():
         client = cast(
             "LiteLLMClient",
-            await create_litellm(
+            await create_client(
                 ModelConfig(
                     model,
                     "https://model.test/v1",
@@ -562,7 +561,7 @@ def test_interleaved_tool_fragments_are_complete_and_sorted(sdk, monkeypatch):
     calls = mock_completion(monkeypatch, sdk, stream)
 
     async def scenario():
-        client = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
         try:
             async with client.stream(request()) as chunks:
                 assert await anext(chunks) == {"type": "text", "text": "检查"}
@@ -588,7 +587,7 @@ def test_invalid_tool_arguments_never_escape_as_a_tool_call(sdk, monkeypatch, ar
     mock_completion(monkeypatch, sdk, value)
 
     async def scenario():
-        client = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
         try:
             with pytest.raises(ModelProtocolError):
                 if streaming:
@@ -629,7 +628,7 @@ def test_invalid_stream_termination_or_identity_fails(sdk, monkeypatch, values):
     mock_completion(monkeypatch, sdk, stream)
 
     async def scenario():
-        client = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
         try:
             with pytest.raises(ModelProtocolError):
                 async with client.stream(request()) as chunks:
@@ -646,7 +645,7 @@ def test_finish_reasons_are_preserved(sdk, monkeypatch, reason):
     mock_completion(monkeypatch, sdk, response(reason=reason))
 
     async def scenario():
-        client = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
         try:
             assert (await client.complete(request()))["finish_reason"] == reason
         finally:
@@ -659,9 +658,9 @@ def test_capability_rejection_precedes_sdk_and_instances_close_independently(sdk
     calls = mock_completion(monkeypatch, sdk, response())
 
     async def scenario():
-        first = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
-        second = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
-        cast("LiteLLMClient", first).capabilities = ModelCapabilities(streaming=False, tool_calls=False)
+        first = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        second = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        cast("LiteLLMClient", first).capabilities = ChatCapabilities(streaming=False, tool_calls=False)
         try:
             with pytest.raises(UnsupportedCapability):
                 async with first.stream(request()):
@@ -687,7 +686,7 @@ def test_stream_exit_always_releases_response(sdk, monkeypatch, mode):
     mock_completion(monkeypatch, sdk, stream)
 
     async def scenario():
-        client = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
 
         async def consume():
             async with client.stream(request()) as chunks:
@@ -735,7 +734,7 @@ def test_sdk_errors_are_mapped_without_payload_or_credentials(sdk, monkeypatch, 
     mock_completion(monkeypatch, sdk, stream if streaming else error)
 
     async def scenario():
-        client = await create_litellm(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
         try:
             with pytest.raises(TimeoutError if timeout else ModelError) as caught:
                 if streaming:

@@ -8,8 +8,8 @@ from typing import cast
 
 import pytest
 import tomli_w
-from aurora_adapter.model.configuration import BINDINGS, CHOICE_ADAPTERS
-from aurora_adapter.model.configuration import CONFIG as MODEL_CONFIG
+from aurora_adapter.model.config import ADAPTERS, BINDINGS, ModelAdapter
+from aurora_adapter.model.config import CONFIG as MODEL_CONFIG
 from aurora_agent.react import AgentBusyError
 from aurora_bot.assembly_config import CONFIG
 from aurora_bot.cadence import plugin as cadence_plugin
@@ -96,12 +96,12 @@ def configured(root, *, decision_config=None):
         root, extra_plugins=(world_plugin(), cadence_plugin()), assembly_options={"cadence_timing": clock.timing}
     )
 
-    async def factory(config, *, api_key):
+    async def factory(config, *, api_key=None):
         events.append("decision.created")
         return decisions
 
     adapter = Id("dev.cadence:adapters/choice")
-    registry.register(RegistryEntry(adapter, "adapter", factory, "test", register_to=CHOICE_ADAPTERS))
+    registry.register(RegistryEntry(adapter, "adapter", ModelAdapter("choice", factory), "test", register_to=ADAPTERS))
 
     def configure():
         seed(ctx, tools=False)

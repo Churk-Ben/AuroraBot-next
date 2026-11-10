@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 from aurora_adapter.model import JsonValue, ModelProtocolError, ToolCall
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import ModelCall
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import ReActAgent

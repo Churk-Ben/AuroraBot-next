@@ -4,33 +4,33 @@ import asyncio
 
 import pytest
 from aurora_adapter.model import (
-    ModelCapabilities,
-    ModelClient,
+    ChatCapabilities,
+    ChatClient,
+    ChatRequest,
     ModelConfig,
     ModelError,
     ModelFactory,
     ModelProtocolError,
-    ModelRequest,
     ResponseBuffer,
     ToolCall,
     UnsupportedCapability,
     collect_response,
 )
-from aurora_adapter.model.fake import FakeModel, FakeReply
 from aurora_adapter.model.plugin import plugin
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_core.admission import AdmissionStatus, inspect_admissions
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import register_plugins
 from aurora_core.json_data import decode_json, encode_json
 
 
-def request() -> ModelRequest:
+def request() -> ChatRequest:
     return {"messages": [{"role": "user", "content": "你好"}]}
 
 
 def test_stream_and_complete_have_same_json_result():
     async def scenario():
-        client: ModelClient = FakeModel(lambda _: FakeReply(("你好", "，世界")))
+        client: ChatClient = FakeModel(lambda _: FakeReply(("你好", "，世界")))
         async with client.stream(request()) as chunks:
             streamed = await collect_response(chunks)
         assert streamed == await client.complete(request())
@@ -52,7 +52,7 @@ def test_complete_tool_call_and_correlated_tool_message():
 
     async def scenario():
         client = FakeModel(respond)
-        value: ModelRequest = request()
+        value: ChatRequest = request()
         value["tools"] = [{"name": "add", "description": "求和", "parameters": {"type": "object"}}]
         async with client.stream(value) as chunks:
             events = [chunk async for chunk in chunks]
@@ -72,13 +72,13 @@ def test_complete_tool_call_and_correlated_tool_message():
 
 def test_nonstreaming_client_rejects_stream_without_silent_fallback():
     async def scenario():
-        client = FakeModel(lambda _: FakeReply(("回答",)), capabilities=ModelCapabilities(streaming=False))
+        client = FakeModel(lambda _: FakeReply(("回答",)), capabilities=ChatCapabilities(streaming=False))
         with pytest.raises(UnsupportedCapability, match="流式"):
             async with client.stream(request()):
                 pytest.fail("不应打开流")
         assert not client.requests
         assert (await client.complete(request()))["text"] == "回答"
-        value: ModelRequest = request()
+        value: ChatRequest = request()
         value["tools"] = [{"name": "add", "description": "求和", "parameters": {}}]
         with pytest.raises(UnsupportedCapability, match="工具"):
             await client.complete(value)
@@ -168,7 +168,7 @@ def test_factory_creates_independent_instances_and_plugin_registers_existing_ids
     from aurora_config import plugin as configuration_plugin
     from aurora_core.lifecycle import install_lifecycle_slots
 
-    async def create(config: ModelConfig, *, api_key: str | None = None) -> ModelClient:
+    async def create(config: ModelConfig, *, api_key: str | None = None) -> ChatClient:
         assert api_key == "test-only"
         return FakeModel(lambda _: FakeReply((config.model,)))
 

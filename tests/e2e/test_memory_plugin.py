@@ -6,9 +6,9 @@ import json
 import httpx
 import tomli_w
 from aurora_adapter.model import JsonValue
-from aurora_adapter.model.adapters.openai_embedding import OpenAIEmbeddingClient
-from aurora_adapter.model.configuration import EMBEDDING_ADAPTERS
-from aurora_adapter.model.fake import FakeReply
+from aurora_adapter.model.config import ADAPTERS, ModelAdapter
+from aurora_adapter.model.litellm import LiteLLMClient
+from aurora_adapter.model.testing import FakeReply
 from aurora_bot.memory import MEMORY_TOOLS
 from aurora_bot.memory import plugin as memory_plugin
 from aurora_core import Id
@@ -31,15 +31,19 @@ def test_memory_plugin_roundtrip_restore_and_resource_ownership(tmp_path, monkey
                 200, json={"data": [{"index": i, "embedding": [1, 0]} for i, _ in enumerate(body["input"])]}
             )
 
-        async def factory(config, *, api_key):
-            client = OpenAIEmbeddingClient(config, api_key=api_key, transport=httpx.MockTransport(handle))
+        async def factory(config, *, api_key=None):
+            client = LiteLLMClient(
+                kind="embedding", config=config, api_key=api_key, transport=httpx.MockTransport(handle)
+            )
             embeddings.append(client)
             return client
 
         for phase in ("write", "search"):
             host, assembly, _, registry, models, _, _, _ = setup(tmp_path, extra_plugins=(memory_plugin(),))
             adapter = Id("dev.memory:adapters/embedding")
-            registry.register(RegistryEntry(adapter, "adapter", factory, "test", register_to=EMBEDDING_ADAPTERS))
+            registry.register(
+                RegistryEntry(adapter, "adapter", ModelAdapter("embedding", factory), "test", register_to=ADAPTERS)
+            )
 
             if phase == "write":
                 files = {
@@ -55,6 +59,7 @@ def test_memory_plugin_roundtrip_restore_and_resource_ownership(tmp_path, monkey
                         "embedding": {
                             "adapter": str(adapter),
                             "model": "test-vector",
+                            "provider": "openai",
                             "base_url": "https://embedding.test/v1",
                             "credential": "MEMORY_TEST_KEY",
                         },
@@ -91,7 +96,7 @@ def test_memory_plugin_roundtrip_restore_and_resource_ownership(tmp_path, monkey
                 assert result.status == "completed"
             finally:
                 await host.stop()
-            assert all(client._client.is_closed for client in embeddings)
+            assert all(client._transport.is_closed() for client in embeddings)
         assert len(requests) == 2
         assert observations[1]["items"][0]["revision"] == observations[0]["revision"]
         assert observations[1]["items"][0]["text"] == "喜欢喝茶"

@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from aurora_adapter.model import Message, ModelRequest
+from aurora_adapter.model import ChatRequest, Message
 from aurora_adapter.model.content import MAX_FILE_BYTES, request_size
 from aurora_core.json_data import encode_json
 
@@ -44,9 +44,7 @@ class ModelInputBudget:
             raise ValueError("完整模型输入预算必须为至少 1024 的整数")
         self.max_chars = max_chars
 
-    def apply(
-        self, request: ModelRequest, *, history_start: int, exchange_ends: list[int] | None = None
-    ) -> ModelRequest:
+    def apply(self, request: ChatRequest, *, history_start: int, exchange_ends: list[int] | None = None) -> ChatRequest:
         messages = request["messages"]
         history = messages[history_start:]
         if exchange_ends is None:
@@ -57,7 +55,7 @@ class ModelInputBudget:
             ]
         ends = read_exchange_ends(history, exchange_ends)
 
-        def fits(candidate: ModelRequest) -> bool:
+        def fits(candidate: ChatRequest) -> bool:
             chars, file_bytes = request_size(candidate)
             return chars <= self.max_chars and file_bytes <= MAX_FILE_BYTES
 
@@ -65,7 +63,7 @@ class ModelInputBudget:
             return request
         boundaries = [end for end in ends if end < len(history)]
 
-        def candidate_at(removed: int) -> ModelRequest:
+        def candidate_at(removed: int) -> ChatRequest:
             notice = {
                 "kind": "input_budget",
                 "omitted_messages": removed,

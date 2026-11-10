@@ -7,10 +7,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import tomli_w
-from aurora_adapter.model import ModelConfig, ModelRequest
-from aurora_adapter.model.configuration import ADAPTERS, BINDINGS
-from aurora_adapter.model.fake import FakeModel, FakeReply
+from aurora_adapter.model import ChatRequest, ModelConfig
+from aurora_adapter.model.config import ADAPTERS, BINDINGS, ModelAdapter
 from aurora_adapter.model.plugin import plugin as adapter_plugin
+from aurora_adapter.model.testing import FakeModel, FakeReply
 from aurora_agent.model import plugin as model_plugin
 from aurora_agent.react import plugin as react_plugin
 from aurora_agent.react_defaults import plugin as defaults_plugin
@@ -40,7 +40,7 @@ COMPONENT = Id("dev.example.default:handlers/echo")
 async def create_model(config: ModelConfig, *, api_key: str | None = None) -> FakeModel:
     """示例工厂按模型配置创建独立客户端，不读取凭证。"""
 
-    def respond(request: ModelRequest) -> FakeReply:
+    def respond(request: ChatRequest) -> FakeReply:
         if not request["messages"]:
             return FakeReply()
         latest = request["messages"][-1]
@@ -89,7 +89,9 @@ async def run(args: argparse.Namespace) -> None:
         ),
     )
     install_lifecycle_slots(registry)
-    registry.register(RegistryEntry(ADAPTER, "adapter", create_model, "default_example", register_to=ADAPTERS))
+    registry.register(
+        RegistryEntry(ADAPTER, "adapter", ModelAdapter("chat", create_model), "default_example", register_to=ADAPTERS)
+    )
 
     async def declared_execute(request):
         raise RuntimeError("工具执行必须绑定工厂创建的实例")

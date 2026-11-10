@@ -1,7 +1,7 @@
 # 每个表是一份独立模型 profile；密钥仅填写环境变量名称。
 # 取消以下示例的注释后，配置相应环境变量。
 # [primary]
-# adapter = "org.aurora.adapter:adapters/model/litellm"
+# adapter = "org.aurora.adapter:adapters/model/litellm/chat"
 # provider = "deepseek"
 # model = "deepseek-flash"
 # credential = "DEEPSEEK_API_KEY"

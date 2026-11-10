@@ -6,9 +6,9 @@ import json
 import httpx
 import pytest
 from aurora_adapter.model import ModelConfig, ModelError
-from aurora_adapter.model.adapters.litellm_choice import LiteLLMChoiceClient
-from aurora_adapter.model.configuration import resolve_choice, resolve_model
-from aurora_adapter.model.decisions import ChoiceRequest
+from aurora_adapter.model.config import resolve_model
+from aurora_adapter.model.contract import ChoiceRequest
+from aurora_adapter.model.litellm import LiteLLMClient
 from aurora_adapter.model.plugin import plugin
 from aurora_config import plugin as config_plugin
 from aurora_core.bootstrap import bootstrap
@@ -49,8 +49,9 @@ def test_jev_choice_uses_typed_endpoint_and_runtime_credential():
                 },
             )
 
-        client = LiteLLMChoiceClient(
-            ModelConfig("typesafe/jev-latest", "https://decision.test"),
+        client = LiteLLMClient(
+            kind="choice",
+            config=ModelConfig("typesafe/jev-latest", "https://decision.test"),
             api_key="runtime-secret",
             transport=httpx.MockTransport(handle),
         )
@@ -75,13 +76,16 @@ def test_http_errors_do_not_retry_follow_redirect_or_expose_body(status):
                 status, text="runtime-secret private-state", headers={"location": "https://other.test"}
             )
 
-        client = LiteLLMChoiceClient(
-            ModelConfig("typesafe/jev-latest"), api_key="runtime-secret", transport=httpx.MockTransport(handle)
+        client = LiteLLMClient(
+            kind="choice",
+            config=ModelConfig("typesafe/jev-latest"),
+            api_key="runtime-secret",
+            transport=httpx.MockTransport(handle),
         )
         try:
             with pytest.raises(ModelError) as error:
                 await client.choose(request())
-            assert "决策供应商调用失败" in str(error.value)
+            assert "模型供应商调用失败" in str(error.value)
             assert "runtime-secret" not in str(error.value) and "private-state" not in str(error.value)
             assert len(calls) == 1
         finally:
@@ -103,8 +107,9 @@ def test_http_errors_do_not_retry_follow_redirect_or_expose_body(status):
 )
 def test_malformed_answers_are_not_decisions(body):
     async def scenario():
-        client = LiteLLMChoiceClient(
-            ModelConfig("typesafe/jev-latest"),
+        client = LiteLLMClient(
+            kind="choice",
+            config=ModelConfig("typesafe/jev-latest"),
             api_key="secret",
             transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body)),
         )
@@ -128,8 +133,11 @@ def test_cancel_waits_for_transport_cleanup():
             finally:
                 cleaned.set()
 
-        client = LiteLLMChoiceClient(
-            ModelConfig("typesafe/jev-latest"), api_key="secret", transport=httpx.MockTransport(handle)
+        client = LiteLLMClient(
+            kind="choice",
+            config=ModelConfig("typesafe/jev-latest"),
+            api_key="secret",
+            transport=httpx.MockTransport(handle),
         )
         task = asyncio.create_task(client.choose(request()))
         await entered.wait()
@@ -146,15 +154,15 @@ def test_chat_and_choice_profiles_cannot_be_interchanged():
     registry = bootstrap()
     register_plugins(registry, (config_plugin(), plugin()))
     profiles = {
-        "decision": {"adapter": "org.aurora.adapter:adapters/model/litellm_choice", "model": "typesafe/jev-latest"},
-        "chat": {"adapter": "org.aurora.adapter:adapters/model/litellm", "model": "test"},
+        "decision": {"adapter": "org.aurora.adapter:adapters/model/litellm/choice", "model": "typesafe/jev-latest"},
+        "chat": {"adapter": "org.aurora.adapter:adapters/model/litellm/chat", "model": "test"},
     }
     bindings = {"cadence": "decision", "reasoning": "chat"}
-    assert resolve_choice(registry, profiles, bindings, "cadence").profile_name == "decision"
+    assert resolve_model(registry, profiles, bindings, "cadence", kind="choice").profile_name == "decision"
     with pytest.raises(TypeError):
         resolve_model(registry, profiles, bindings, "cadence")
     with pytest.raises(TypeError):
-        resolve_choice(registry, profiles, bindings, "reasoning")
+        resolve_model(registry, profiles, bindings, "reasoning", kind="choice")
 
 
 def test_openai_decisions_translation_and_independent_transports(monkeypatch):
@@ -198,13 +206,15 @@ def test_openai_decisions_translation_and_independent_transports(monkeypatch):
                 },
             )
 
-        first = LiteLLMChoiceClient(
-            ModelConfig("openai/gpt-6-luna", "https://decision.test/v1"),
+        first = LiteLLMClient(
+            kind="choice",
+            config=ModelConfig("openai/gpt-6-luna", "https://decision.test/v1"),
             api_key="first",
             transport=httpx.MockTransport(handle),
         )
-        second = LiteLLMChoiceClient(
-            ModelConfig("openai/gpt-6-luna", "https://decision.test/v1"),
+        second = LiteLLMClient(
+            kind="choice",
+            config=ModelConfig("openai/gpt-6-luna", "https://decision.test/v1"),
             api_key="second",
             transport=httpx.MockTransport(handle),
         )
