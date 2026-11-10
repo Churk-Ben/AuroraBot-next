@@ -1,5 +1,17 @@
 # 变更记录
 
+## 2026-11-10
+
+### 增加显式文本记忆插件与向量协议
+
+- 新增独立 `aurora_bot.memory` 插件，通过现有工具工厂提供 `memory_write / memory_search / memory_read / memory_delete / memory_reindex`。按 Bot 实例隔离，正文分块后做 embedding 与精确余弦 top-k 检索；显式保存，不自动提炼聊天、复制工作笔记或注入每轮业务视图。
+- 原文、来源、修订与索引保存到 `namespaces/ns-org.aurora.bot/memory.sqlite3`，不进入 ctx 快照；每实例最多 1000 条，每条最多 16000 字符。更新和删除检查不透明版本，embedding 等待后再次核对版本；原文与索引事务提交，失败或取消保留已提交数据。删除不清理已有会话历史副本。
+- adapter 增加 SDK 无关的 `EmbeddingClient`、独立 embedding 注册表和角色解析，以及 OpenAI 兼容 HTTP 适配器。请求不重试、不跟随重定向，校验响应数量、索引顺序、维数和有限非零向量；凭证只在运行期解析，传输错误不返回正文。HTTP 依赖通过 `embedding` extra 安装，Bot 显式依赖它，adapter 基础包与独立 agent 依赖不变。
+- 插件配置通过 aurora_config 的包模板和非持久状态接入。模型、端点、分块或 index_version 变化使旧索引不可搜索，须显式重建；原文仍可读取和删除。没有改名或删除既有公共 ID，也不迁移既有笔记、快照或用户 TOML；安装助手仍仅启用原有 ReAct 与 terminal MCP。
+- 新增 6 项用例的独有价值：存储层覆盖重启召回、旧版本冲突、删除后重建身份、实例隔离、分块来源、索引失效，以及等待中的取消、并发更新和重建冲突；适配器验证 HTTP 参数、乱序向量、无重试脱敏和协议类型边界；仅保留一条真实配置与 ReAct 的跨包往返，验证写入后重启召回、浮点整数参数、资源关闭和凭证不落盘。扩展已有独立发现测试，确认 HTTP 依赖不在发现时导入。
+- 同一开发环境实测：`uv run --locked aurora check` 12.19 秒；`uv run --locked aurora check --full` 38.73 秒。1204 项 Python、131 项前端及 5 项原生终端测试全部通过，未增加 worker 或跳过检查；现有 Pydantic、aiohttp 依赖警告保留。验证全程使用假模型或模拟 HTTP，未调用真实供应商。
+- 11 个 wheel 构建成功；干净安装环境确认 control 无需 agent/adapter/模型 SDK、agent 无需 bot/CLI/API/HTTP/模型 SDK，并运行控制流及 agent 工具往返和恢复。随后从 wheel 安装 Bot，验证记忆插件发现、模板资源、模拟 HTTP 和数据库重开检索，无 CLI/API 依赖。
+
 ## 2026-11-09
 
 ### 约束开发过程中新增测试
