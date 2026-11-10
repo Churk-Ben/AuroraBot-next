@@ -1,6 +1,6 @@
 # AuroraBot 当前架构
 
-核对日期：2026-11-09。文件名沿用现有引用，内容描述当前实现；旧 v0.2.3 设计保存在[历史归档](archive/2026-11-09/aurorabot-design-v0.2.3.md)。
+核对日期：2026-11-10。文件名沿用现有引用，内容描述当前实现；旧 v0.2.3 设计保存在[历史归档](archive/2026-11-09/aurorabot-design-v0.2.3.md)。
 
 Aurora 以 ID 登记、共享 ctx 和显式连接组织插件。后端负责装配与执行，TUI 和 Panel 通过共享客户端观察、提交输入和取消运行。面向个人单租户使用；命名空间和实例 ID 用于组织定义与数据，不构成租户隔离。
 
@@ -13,7 +13,7 @@ Aurora 以 ID 登记、共享 ctx 和显式连接组织插件。后端负责装�
 | aurora_control | 仅依赖 core；执行身份、状态绑定、插头插槽与 Serial、Branch、While、Parallel |
 | aurora_agent | ReAct、模型调用、工具执行、默认阶段与 AgentRuntime；不依赖 bot、CLI、API |
 | aurora_adapter | 基础包依赖 core；model 提供模型契约与供应商适配，mcp 提供协议与工具/世界桥；额外依赖通过 extra 安装 |
-| aurora_bot | 默认配置、装配、资源、运行操作、直接交流、笔记、业务视图、cadence 与自身控制 |
+| aurora_bot | 默认配置、装配、资源、运行操作、直接交流、笔记、显式文本记忆、业务视图、cadence 与自身控制 |
 | aurora_cli / aurora_api | 宿主、命令交互、HTTP/WS 传输；复用 bot 运行语义 |
 | aurora_world | 来源管理、事件原文归档、近期视图、环境观察；含时间、天气及可选 MCP 世界接入 |
 | aurora_logging | 日志配置 |
@@ -46,6 +46,8 @@ ctx 值使用可序列化 JSON，运行期客户端和连接不进入快照。�
 ReAct 提供 prepare、infer、act、observe、finish、error 阶段连接。默认阶段构造模型输入、调用模型、执行工具，把完整请求与返回一起写回历史。模型无工具调用且正常 stop 时结束；工具错误作为观察返回，不自动重试副作用。
 
 模型消息支持文本和结构化内容，思考文本及供应商需要的思考块保留在工具往返中。输入预算以应用层 JSON 字符和内嵌文件字节计，不是 token 上限。详见[上下文与运行](context.md)。
+
+记忆插件 `aurora_bot.memory` 通过现有工具工厂接入，Bot 所有者负责关闭它的数据库与向量客户端。向量协议及 OpenAI 兼容传输归 `aurora_adapter.model`，模型 profile 通过独立 embedding 注册表解析。原文和可重建索引保存在插件 SQLite，不增加 agent 调度所有者、不将记忆策略下沉到 core。使用与持久化约束见[文本记忆配置](configuration.md#显式文本记忆朴素-rag)。
 
 ## MCP 与世界输入
 

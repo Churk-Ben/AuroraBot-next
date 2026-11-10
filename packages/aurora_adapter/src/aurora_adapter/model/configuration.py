@@ -9,11 +9,13 @@ from aurora_core.ids import Id
 from aurora_core.registry import DefinitionRegistry
 
 from .decisions import ChoiceFactory
+from .embeddings import EmbeddingFactory
 from .models import ModelCapabilities, ModelConfig, ThinkingConfig
 from .protocols import ModelFactory
 
 ADAPTERS = Id("org.aurora.adapter:registries/model/adapters")
 CHOICE_ADAPTERS = Id("org.aurora.adapter:registries/model/choice_adapters")
+EMBEDDING_ADAPTERS = Id("org.aurora.adapter:registries/model/embedding_adapters")
 CONFIG = Id("org.aurora.adapter:state/model/config")
 BINDINGS = Id("org.aurora.adapter:state/model/bindings")
 
@@ -104,6 +106,29 @@ class ResolvedChoice:
     factory: ChoiceFactory
     config: ModelConfig
     credential: str | None
+
+
+@dataclass(frozen=True)
+class ResolvedEmbedding:
+    """向量模型工厂及公开索引身份；凭证变更不改变向量空间。"""
+
+    profile_name: str
+    factory: EmbeddingFactory
+    config: ModelConfig
+    credential: str | None
+    adapter: str
+
+
+def resolve_embedding(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedEmbedding:
+    name, profile, config = _profile(profiles, bindings, role)
+    entry = registry.get(Id(profile["adapter"]))
+    if entry.kind != "adapter" or entry.register_to != EMBEDDING_ADAPTERS or not callable(entry.target):
+        raise TypeError("向量配置目标必须为 embedding_adapters 注册表中的可调用工厂")
+    if config.capabilities is not None or config.thinking is not None or config.reasoning_effort is not None:
+        raise ValueError("向量模型不接受聊天能力或思考配置")
+    return ResolvedEmbedding(
+        name, cast(EmbeddingFactory, entry.target), config, profile.get("credential"), str(entry.id)
+    )
 
 
 def resolve_model(registry: DefinitionRegistry, profiles: object, bindings: object, role: str) -> ResolvedModel:

@@ -225,6 +225,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+embedding = [
+    { name = "aurora-config" },
+    { name = "httpx" },
+]
 litellm = [
     { name = "aurora-config" },
     { name = "litellm", extra = ["mcp"] },
@@ -272,6 +276,7 @@ requires-dist = [
     { name = "aurora-adapter", extras = ["mcp"], marker = "extra == 'mcp-tools'", editable = "packages/aurora_adapter" },
     { name = "aurora-adapter", extras = ["mcp"], marker = "extra == 'mcp-world'", editable = "packages/aurora_adapter" },
     { name = "aurora-adapter", extras = ["mcp-tools", "mcp-world"], marker = "extra == 'mcp-bot'", editable = "packages/aurora_adapter" },
+    { name = "aurora-adapter", extras = ["model"], marker = "extra == 'embedding'", editable = "packages/aurora_adapter" },
     { name = "aurora-adapter", extras = ["model"], marker = "extra == 'litellm'", editable = "packages/aurora_adapter" },
     { name = "aurora-agent", marker = "extra == 'mcp-tools'", editable = "packages/aurora_agent" },
     { name = "aurora-bot", marker = "extra == 'mcp-bot'", editable = "packages/aurora_bot" },
@@ -279,12 +284,13 @@ requires-dist = [
     { name = "aurora-config", marker = "extra == 'model'", editable = "packages/aurora_config" },
     { name = "aurora-core", editable = "packages/aurora_core" },
     { name = "aurora-world", extras = ["config"], marker = "extra == 'mcp-world'", editable = "packages/aurora_world" },
+    { name = "httpx", marker = "extra == 'embedding'", specifier = ">=0.28,<1" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.16,<3" },
     { name = "litellm", extras = ["mcp"], marker = "extra == 'litellm'", specifier = ">=1.106.6,<1.107" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "==2.3.0" },
     { name = "tomli-w", marker = "extra == 'mcp'", specifier = ">=1.2,<2" },
 ]
-provides-extras = ["model", "litellm", "mcp", "mcp-world", "mcp-tools", "mcp-bot"]
+provides-extras = ["model", "embedding", "litellm", "mcp", "mcp-world", "mcp-tools", "mcp-bot"]
 
 [[package]]
 name = "aurora-agent"
@@ -327,7 +333,7 @@ name = "aurora-bot"
 version = "0.1.0"
 source = { editable = "packages/aurora_bot" }
 dependencies = [
-    { name = "aurora-adapter", extra = ["litellm"] },
+    { name = "aurora-adapter", extra = ["embedding", "litellm"] },
     { name = "aurora-agent" },
     { name = "aurora-config" },
     { name = "aurora-control" },
@@ -337,7 +343,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aurora-adapter", extras = ["litellm"], editable = "packages/aurora_adapter" },
+    { name = "aurora-adapter", extras = ["litellm", "embedding"], editable = "packages/aurora_adapter" },
     { name = "aurora-agent", editable = "packages/aurora_agent" },
     { name = "aurora-config", editable = "packages/aurora_config" },
     { name = "aurora-control", editable = "packages/aurora_control" },

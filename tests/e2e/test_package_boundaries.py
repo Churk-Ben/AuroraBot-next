@@ -92,7 +92,7 @@ def test_model_protocol_and_plugin_discovery_do_not_import_sdks():
     launcher = """
 import importlib.abc
 import sys
-blocked = {'litellm', 'mcp', 'httpx2', 'aurora_agent', 'aurora_bot', 'aurora_world'}
+blocked = {'litellm', 'mcp', 'httpx', 'httpx2', 'aurora_agent', 'aurora_bot', 'aurora_world'}
 class AbsentPackages(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split('.')[0] in blocked:
@@ -106,6 +106,8 @@ assert {
     'org.aurora.adapter:registries/model/choice_adapters',
     'org.aurora.adapter:services/model/choice_client',
     'org.aurora.adapter:adapters/model/litellm_choice',
+    'org.aurora.adapter:registries/model/embedding_adapters',
+    'org.aurora.adapter:adapters/model/openai_embedding',
 } <= {str(entry.id) for entry in plugin.entries}
 assert all(entry.id.namespace == 'org.aurora.adapter' for entry in plugin.entries)
 assert not blocked.intersection(name.split('.')[0] for name in sys.modules)
