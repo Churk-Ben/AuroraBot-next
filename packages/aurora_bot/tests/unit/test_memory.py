@@ -1,6 +1,7 @@
 """记忆事务、索引失效与并发取消；检索排序使用可控向量，不调用真实模型。"""
 
 import asyncio
+import json
 
 import pytest
 from aurora_adapter.model import ModelError
@@ -35,6 +36,54 @@ def store(path, client, *, owner="bot", fingerprint="model-v1", chunk_chars=800,
         chunk_chars=chunk_chars,
         overlap_chars=overlap_chars,
     )
+
+
+def test_compaction_queue_migrates_preserves_sources_and_never_resurrects_deleted_memory(tmp_path):
+    async def scenario():
+        path, client = tmp_path / "memory.db", Embeddings()
+        current = store(path, client)
+        original = await current.write("manual", "喜欢茶", "用户", "")
+        current.db.execute("DROP TABLE compactions")
+        current.db.execute("PRAGMA user_version = 1")
+        current.close()
+        current, other = store(path, client), store(path, client, owner="other")
+        record = {
+            "run_id": "task",
+            "start": 0,
+            "end": 1,
+            "digest": "a" * 64,
+            "messages": [{"role": "user", "content": "喜欢茶"}],
+            "previous_summary": "",
+        }
+        try:
+            assert current.read("manual") == original
+            current.archive(record)
+            current.queue_summary(record["digest"], "喜欢茶，待确认饮料")
+            assert json.loads(current.pending_compactions()[0]["record"]) == record
+            assert not other.pending_compactions()
+            assert (await current.search("饮料"))["pending_index_count"] == 1
+            client.error = ModelError("离线")
+            with pytest.raises(ModelError):
+                await current.index_compaction(current.pending_compactions()[0])
+            current.close()
+            current = store(path, client)
+            client.error = None
+            await current.index_compaction(current.pending_compactions()[0])
+            identity = "auto_" + "a" * 59
+            indexed = current.read(identity)
+            assert "run_id=task" in indexed["source"]
+            current.delete(identity, indexed["revision"])
+            current.archive(record)
+            current.queue_summary(record["digest"], "不得复活")
+            assert not current.pending_compactions()
+            assert (await current.search("饮料"))["items"][0]["memory_id"] == "manual"
+            with pytest.raises(ToolExecutionError, match="没有这条记忆"):
+                current.read(identity)
+        finally:
+            current.close()
+            other.close()
+
+    asyncio.run(scenario())
 
 
 def test_persistent_semantic_search_revision_delete_and_instance_isolation(tmp_path):

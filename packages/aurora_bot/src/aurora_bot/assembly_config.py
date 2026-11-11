@@ -1,6 +1,6 @@
 """默认单 bot 装配的 TOML 配置结构及显式状态地址。"""
 
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 from aurora_adapter.model import JsonValue
 from aurora_config import ConfigSchema
@@ -45,7 +45,7 @@ class BotConfig(TypedDict):
     instance_id: str
     model_role: str
     tools: list[ToolSelection]
-    max_iterations: int
+    max_iterations: NotRequired[int]
     tool_timeout: float
     streaming: bool
     system_prompt: str
@@ -85,7 +85,7 @@ BOT_SCHEMA = ConfigSchema(
         "properties": {
             "instance_id": _TEXT,
             "model_role": _TEXT,
-            "max_iterations": {"type": "integer", "minimum": 1, "default": 8},
+            "max_iterations": {"type": "integer", "minimum": 1},
             "tool_timeout": {"type": "number", "exclusiveMinimum": 0, "default": 30.0},
             "streaming": {"type": "boolean", "default": True},
             "system_prompt": {"type": "string", "default": ""},

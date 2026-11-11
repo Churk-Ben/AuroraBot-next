@@ -34,7 +34,7 @@ def runtime():
     ctx.close()
 
 
-def assemble(runtime, *, instance_id="bot", max_iterations=8):
+def assemble(runtime, *, instance_id="bot", max_iterations=None):
     registry, ctx, hooks = runtime
 
     def binding(name):
@@ -87,6 +87,34 @@ def assemble(runtime, *, instance_id="bot", max_iterations=8):
 
 def guidance(sequence):
     return {"sequence": sequence, "id": f"event-{sequence}", "payload": {"content": f"引导 {sequence}"}}
+
+
+def test_unbounded_run_accepts_guidance_and_cancellation_after_many_iterations(runtime):
+    async def scenario():
+        _, ctx, _ = runtime
+        agent, seen, _, _, replace = assemble(runtime)
+        request = ExecutionRequest("continuous")
+        reached = asyncio.Event()
+
+        async def infer(current):
+            iteration = record(agent, ctx, current)["iterations"]
+            if iteration == 20:
+                agent.inbox.set(ctx, request, [guidance(1)])
+            if iteration >= 25:
+                reached.set()
+            agent.decision.set(ctx, current, "continue")
+
+        replace("infer", infer)
+        task = asyncio.create_task(agent.execute(request))
+        await asyncio.wait_for(reached.wait(), 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert seen == [guidance(1)]
+        assert record(agent, ctx, request)["status"] == "cancelled"
+        assert record(agent, ctx, request)["iterations"] >= 25
+
+    asyncio.run(scenario())
 
 
 def record(agent, ctx, request):

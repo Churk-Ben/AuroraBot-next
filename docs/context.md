@@ -16,7 +16,7 @@
 
 Bot 的 input_budget 开启后对完整应用层模型请求限制 JSON 文本字符，并限制内嵌文件合计 10 MiB。system、临时视图、工具定义保留；超过预算时从请求中省略较早的完整交流段，至少保留最新交流。当前交流加固定输入仍超限时抛错，不拆断工具调用关系。
 
-单独启用 input_budget 不生成摘要、不压缩工具正文、不删除持久历史。max_iterations 限制一次运行的迭代次数，不限制跨运行历史。供应商传输还可能增加协议包装，字符预算不能替代真实 token 统计。超限日志列出实际所需字符、附件字节、system / view / history / tools / overhead 分项，不打印输入正文。
+单独启用 input_budget 不生成摘要、不压缩工具正文、不删除持久历史。默认不限制一次激活的轮次；有界任务可显式设置正整数 max_iterations，达到该上限仍会报 LoopLimitExceeded。删除既有 TOML 中的该字段才会移除旧上限。模型结束、bot_finish、取消和宿主关闭仍能收束运行；正常结束后由调度所有者等待和接纳下一次输入，不会自动空转推理。供应商传输还可能增加协议包装，字符预算不能替代真实 token 统计。超限日志列出实际所需字符、附件字节、system / view / history / tools / overhead 分项，不打印输入正文。
 
 | 配置 | 包模板默认值 | 安装助手 |
 | --- | --- | --- |
@@ -24,13 +24,13 @@ Bot 的 input_budget 开启后对完整应用层模型请求限制 JSON 文本�
 | context_view.max_chars | 12000 | 未使用 |
 | input_budget.enabled | false | true |
 | input_budget.max_chars | 128000 | 48000 |
-| max_iterations | 8 | 12 |
+| max_iterations | 省略，不限轮次 | 省略，不限轮次 |
 
 既有用户 TOML 不因模板变化而更新。实现：[ModelInputBudget](../packages/aurora_agent/src/aurora_agent/input_budget.py)。
 
 ## 长任务上下文管理
 
-Bot 配置的 `context_management` 默认关闭，开启时必须同时启用 `input_budget` 和 `actions`。摘要串行复用当前聊天模型，会增加模型调用；它与向量记忆插件独立，不把所有聊天自动写入长期记忆。
+Bot 配置的 `context_management` 默认关闭，开启时必须同时启用 `input_budget` 和 `actions`。摘要串行复用当前聊天模型，会增加模型调用；额外启用记忆插件的 `auto_compaction` 可将压缩材料和摘要保存到长期记忆存储，配置见下文。
 
 ```toml
 [input_budget]
@@ -57,6 +57,25 @@ timeout_seconds = 60.0
 摘要保存于原有 ReActContext 的可选 compaction 字段，记录覆盖位置与历史摘要校验值。旧快照无需迁移，重启可以复用已提交摘要，不自动继续执行或重新调用摘要模型。原消息及交流结束位置不删除；宿主若另行修改已覆盖的历史，必须同步处理 compaction，校验不符会明确拒绝。关闭功能后按原始历史执行原有预算逻辑。
 
 固定输入或最近两组消息本身已超过硬预算时仍会报错，不能保证所有输入都能压缩成功。应减少开放工具、缩小业务视图或分页读取大内容；不要把增加字符预算当作模型 token 上限的保证。实现：[HistoryCompactor](../packages/aurora_agent/src/aurora_agent/compaction.py)、[行动证据与预览](../packages/aurora_bot/src/aurora_bot/action_evidence.py)。
+
+## 压缩时自动保存长期记忆
+
+显式启用 `aurora_bot.memory`、配置 embedding 角色，并在 `config/org.aurora.bot/memory.toml` 中添加：
+
+```toml
+[auto_compaction]
+enabled = true
+index_timeout_seconds = 15.0
+retry_seconds = 60.0
+```
+
+该功能要求同时启用 context_management。压缩前，同步把本次被压缩的消息、旧摘要、run_id、覆盖范围及历史校验值提交到记忆数据库的 compactions 表；摘要通过预算检查后，先提交待索引摘要，再替换上下文。原始消息不删除，超长工具原文仍通过 actions_read 读取。未触发压缩的对话及仅被省略的已完成交流不会自动写入此队列；需要主动保存的事实仍可使用 memory_write。
+
+宿主持有独立后台索引任务，成功后将摘要发布为 `auto_` 开头的普通记忆，memory_search/read 可检索和读取。供应商失败、超时或取消保留队列，按 retry_seconds 重试；启动会补处理待索引记录，关闭会取消等待并关闭客户端，不续跑旧 agent 或重放工具动作。检索结果中的 pending_index_count 表示尚未发布的摘要数量。本地归档或队列提交失败会阻止提交压缩状态，避免声称已保存却丢失材料。
+
+自动摘要保留来源但不是事实证明，检索不会自动注入每轮输入；Bot 仍按需调用 memory_search。同一历史前缀重复压缩按所有者与校验值去重，已发布后手动编辑或删除不会被后台重新覆盖。删除记忆不清理原始归档或会话副本。记忆数据库从 v1 增量升级到 v2，保留已有记忆、索引与版本；不改公共 ID 和快照。
+
+已索引记忆仍有每实例 1000 条容量上限；满容量时待索引摘要保留，释放容量后继续处理。原始归档与待索引队列不会自动裁剪，长期运行需关注磁盘占用。摘要调用、embedding 与远程故障仍有各自的成本和失败边界，移除轮次上限不等于无限上下文或永不失败。
 
 ## cadence 决策
 

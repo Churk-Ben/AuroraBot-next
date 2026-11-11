@@ -7,7 +7,9 @@ from time import time
 from uuid import uuid4
 
 from aurora_adapter.model import EmbeddingClient, normalize_vectors
+from aurora_agent.compaction import CompactionRecord
 from aurora_agent.tools import ToolExecutionError
+from aurora_core.json_data import encode_json
 
 MAX_MEMORIES = 1000
 
@@ -33,7 +35,7 @@ class MemoryStore:
         self.db.row_factory = sqlite3.Row
         try:
             version = self.db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ValueError("不支持的记忆数据库版本")
             with self.db:
                 self.db.execute(
@@ -42,7 +44,12 @@ class MemoryStore:
                     "text TEXT NOT NULL, source TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL, "
                     "fingerprint TEXT NOT NULL, vectors TEXT NOT NULL, PRIMARY KEY(owner, memory_id))"
                 )
-                self.db.execute("PRAGMA user_version = 1")
+                self.db.execute(
+                    "CREATE TABLE IF NOT EXISTS compactions ("
+                    "owner TEXT NOT NULL, digest TEXT NOT NULL, record TEXT NOT NULL, summary TEXT, "
+                    "status TEXT NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY(owner, digest))"
+                )
+                self.db.execute("PRAGMA user_version = 2")
         except BaseException:
             self.db.close()
             raise
@@ -52,6 +59,74 @@ class MemoryStore:
             dict(row)
             for row in self.db.execute("SELECT * FROM memories WHERE owner = ? ORDER BY memory_id", (self.owner,))
         ]
+
+    def archive(self, record: CompactionRecord) -> None:
+        """先提交原始材料；同一历史前缀重复压缩不重复入库。"""
+        with self.db:
+            self.db.execute(
+                "INSERT OR IGNORE INTO compactions VALUES (?, ?, ?, NULL, 'archived', ?)",
+                (self.owner, record["digest"], encode_json(record), time()),
+            )
+
+    def queue_summary(self, digest: str, text: str) -> None:
+        with self.db:
+            self.db.execute(
+                "UPDATE compactions SET summary = ?, status = 'pending', updated_at = ? "
+                "WHERE owner = ? AND digest = ? AND status = 'archived'",
+                (text, time(), self.owner, digest),
+            )
+
+    def pending_compactions(self, limit: int = 16) -> list[dict]:
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT * FROM compactions WHERE owner = ? AND status = 'pending' ORDER BY updated_at, digest LIMIT ?",
+                (self.owner, limit),
+            )
+        ]
+
+    def defer_compaction(self, digest: str) -> None:
+        """失败记录移到队尾，避免阻塞其他待索引摘要。"""
+        with self.db:
+            self.db.execute(
+                "UPDATE compactions SET updated_at = ? WHERE owner = ? AND digest = ?", (time(), self.owner, digest)
+            )
+
+    async def index_compaction(self, job: dict) -> None:
+        """索引成功后原子发布记忆并确认队列；已发布记录的删除和编辑不会被重放覆盖。"""
+        vectors = await self._index(job["summary"])
+        memory_id = "auto_" + job["digest"][:59]
+        self.db.execute("BEGIN IMMEDIATE")
+        with self.db:
+            row = self.db.execute(
+                "SELECT status FROM compactions WHERE owner = ? AND digest = ?", (self.owner, job["digest"])
+            ).fetchone()
+            if row is None or row["status"] != "pending":
+                return
+            if self._row(memory_id) is not None:
+                self.db.execute(
+                    "UPDATE compactions SET status = 'conflict' WHERE owner = ? AND digest = ?",
+                    (self.owner, job["digest"]),
+                )
+                return
+            self._capacity(None)
+            record = json.loads(job["record"])
+            now = time()
+            source = f"上下文压缩摘要；run_id={record['run_id']}；messages={record['start']}:{record['end']}；digest={job['digest']}"
+            self.db.execute(
+                "INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (self.owner, memory_id, uuid4().hex, job["summary"], source, now, now, self.fingerprint, vectors),
+            )
+            self.db.execute(
+                "UPDATE compactions SET status = 'indexed', updated_at = ? WHERE owner = ? AND digest = ?",
+                (now, self.owner, job["digest"]),
+            )
+
+    def _search_result(self, items: list) -> dict:
+        pending = self.db.execute(
+            "SELECT count(*) FROM compactions WHERE owner = ? AND status = 'pending'", (self.owner,)
+        ).fetchone()[0]
+        return {"items": items, **({"pending_index_count": pending} if pending else {})}
 
     def _row(self, memory_id: str) -> dict | None:
         row = self.db.execute(
@@ -148,7 +223,7 @@ class MemoryStore:
     async def search(self, query: str, top_k: int = 5, min_score: float = 0.3) -> dict:
         rows = self._rows()
         if not rows:
-            return {"items": []}
+            return self._search_result([])
         self._check_index(rows)
         vector = (await self._embed([query]))[0]
         rows = self._rows()
@@ -176,7 +251,7 @@ class MemoryStore:
                         }
                     )
         matches.sort(key=lambda item: (-item["score"], item["memory_id"], item["chunk"]))
-        return {"items": matches[:top_k]}
+        return self._search_result(matches[:top_k])
 
     async def reindex(self) -> dict:
         """显式重建当前实例全部索引；失败、取消或语料变化时保留原索引。"""

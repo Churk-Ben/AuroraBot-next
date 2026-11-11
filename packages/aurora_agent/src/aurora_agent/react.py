@@ -1,6 +1,7 @@
 """可重复激活的 ReAct 组件；在推理边界接纳引导，阶段行为由显式连接提供。"""
 
 import asyncio
+from itertools import count
 from typing import Literal, TypedDict, cast
 from uuid import uuid4
 
@@ -70,10 +71,10 @@ class ReActAgent:
         runtime: InstanceStateBinding,
         batch: StateBinding,
         decision: StateBinding,
-        max_iterations: int,
+        max_iterations: int | None = None,
         instance_id: str | None = None,
     ) -> None:
-        if type(max_iterations) is not int or max_iterations < 1:
+        if max_iterations is not None and (type(max_iterations) is not int or max_iterations < 1):
             raise ValueError("循环上限必须为正整数")
         self.instance_id = uuid4().hex if instance_id is None else instance_id
         self.ctx = ctx
@@ -171,7 +172,9 @@ class ReActAgent:
 
     async def _run(self, request: ExecutionRequest) -> None:
         self._require("prepare", "infer")
-        for iteration in range(1, self.max_iterations + 1):
+        for iteration in count(1):
+            if self.max_iterations is not None and iteration > self.max_iterations:
+                raise LoopLimitExceeded(f"ReAct 循环达到 {self.max_iterations} 次上限")
             self._update(request, iterations=iteration)
             incoming = self.pending(request)
             self.batch.set(self.ctx, request, incoming)
@@ -196,7 +199,6 @@ class ReActAgent:
             if self._finish_requested:
                 await self._phase("finish", request)
                 return
-        raise LoopLimitExceeded(f"ReAct 循环达到 {self.max_iterations} 次上限")
 
     async def execute(self, request: ExecutionRequest) -> None:
         """串行执行一次激活；异常与取消传播，runtime 保留唯一终态及当前运行身份。"""

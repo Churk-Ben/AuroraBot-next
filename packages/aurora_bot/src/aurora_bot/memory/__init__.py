@@ -14,6 +14,7 @@ from aurora_core import Id
 from aurora_core.discovery import Plugin
 from aurora_core.registry import RegistryEntry
 
+from ..assembly_config import CONFIG as BOT_CONFIG
 from ..assembly_config import WORK
 from .store import MemoryStore
 
@@ -39,6 +40,16 @@ SCHEMA = ConfigSchema(
             "chunk_chars": {"type": "integer", "minimum": 100, "maximum": 2000, "default": 800},
             "overlap_chars": {"type": "integer", "minimum": 0, "maximum": 500, "default": 120},
             "index_version": {"type": "string", "minLength": 1, "maxLength": 64, "default": "1"},
+            "auto_compaction": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    "enabled": {"type": "boolean", "default": False},
+                    "index_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 15.0},
+                    "retry_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 60.0},
+                },
+            },
         },
     },
     check=_check_options,
@@ -48,6 +59,8 @@ SCHEMA = ConfigSchema(
 def _check_bindings(values) -> None:
     if values[CONFIG]["model_role"] not in values[BINDINGS]:
         raise ValueError("记忆模型角色未绑定")
+    if values[CONFIG]["auto_compaction"]["enabled"] and not values[BOT_CONFIG]["context_management"]["enabled"]:
+        raise ValueError("自动压缩记忆需要启用上下文管理")
 
 
 _ID = {"type": "string", "minLength": 1, "maxLength": 64, "pattern": r"^[A-Za-z0-9_-]+$"}
@@ -100,18 +113,8 @@ async def _declared(request: ExecutionRequest) -> None:
     raise RuntimeError("记忆工具需要通过工厂实例化")
 
 
-async def _factory(action, *, ctx, storage, instance_id, input_state, output_state, config):
-    from ..assembly import environment_credential
-
-    owner = dict(input_state.location).get("instance_id")
-    if (
-        config
-        or not owner
-        or input_state.key != WORK
-        or output_state.key != WORK
-        or dict(output_state.location).get("instance_id") != owner
-    ):
-        raise ValueError("记忆工具需要同一 bot 的工作状态绑定，不接受所有者或配置覆盖")
+def configured_store(ctx, storage, owner):
+    """显式工具与自动归档共享模型解析、索引身份和实例隔离。"""
     options = cast(dict, SCHEMA.parse(ctx.get(CONFIG)))
     resolved = resolve_model(
         ctx.registry, ctx.get(MODEL_CONFIG), ctx.get(BINDINGS), options["model_role"], kind="embedding"
@@ -130,22 +133,37 @@ async def _factory(action, *, ctx, storage, instance_id, input_state, output_sta
             ensure_ascii=False,
         ).encode()
     ).hexdigest()
+    return MemoryStore(
+        storage.directory("org.aurora.bot") / "memory.sqlite3",
+        owner,
+        client=None,
+        fingerprint=fingerprint,
+        chunk_chars=options["chunk_chars"],
+        overlap_chars=options["overlap_chars"],
+    ), resolved
+
+
+async def _factory(action, *, ctx, storage, instance_id, input_state, output_state, config):
+    from ..assembly import environment_credential
+
+    owner = dict(input_state.location).get("instance_id")
+    if (
+        config
+        or not owner
+        or input_state.key != WORK
+        or output_state.key != WORK
+        or dict(output_state.location).get("instance_id") != owner
+    ):
+        raise ValueError("记忆工具需要同一 bot 的工作状态绑定，不接受所有者或配置覆盖")
+    store, resolved = configured_store(ctx, storage, owner)
     client = None
-    if action in ("write", "search", "reindex"):
-        api_key = None if resolved.credential is None else environment_credential(resolved.credential)
-        client = await resolved.factory(resolved.config, api_key=api_key)
     try:
-        store = MemoryStore(
-            storage.directory("org.aurora.bot") / "memory.sqlite3",
-            owner,
-            client=client,
-            fingerprint=fingerprint,
-            chunk_chars=options["chunk_chars"],
-            overlap_chars=options["overlap_chars"],
-        )
+        if action in ("write", "search", "reindex"):
+            api_key = None if resolved.credential is None else environment_credential(resolved.credential)
+            client = await resolved.factory(resolved.config, api_key=api_key)
+            store.client = client
     except BaseException:
-        if client is not None:
-            await client.aclose()
+        store.close()
         raise
 
     async def execute(request):

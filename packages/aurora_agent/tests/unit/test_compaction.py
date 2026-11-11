@@ -64,6 +64,32 @@ def test_compaction_chunks_preserve_recent_batches_and_restore_without_model_cal
     asyncio.run(scenario())
 
 
+def test_archive_precedes_summary_and_durable_queue_failure_prevents_compaction_commit():
+    async def scenario():
+        records = []
+
+        class Recorder:
+            def archive(self, record):
+                records.append(record)
+
+            def remember(self, digest, text):
+                assert digest == records[0]["digest"] and text == "摘要"
+                raise OSError("磁盘写入失败")
+
+        def respond(request):
+            assert records and records[0]["run_id"] == "run"
+            return FakeReply(("摘要",))
+
+        messages = history()
+        original = deepcopy(messages)
+        compactor = HistoryCompactor(FakeModel(respond), ModelInputBudget(8000), summary_chars=500, recorder=Recorder())
+        with pytest.raises(OSError, match="磁盘写入失败"):
+            await compactor.apply({"messages": messages}, history_start=0, exchange_ends=[], state=None, run_id="run")
+        assert messages == original and records[0]["messages"] == original[: records[0]["end"]]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("failure", ["error", "cancel", "timeout", "invalid"])
 def test_incomplete_summary_does_not_mutate_history_or_leave_client_busy(failure):
     async def scenario():

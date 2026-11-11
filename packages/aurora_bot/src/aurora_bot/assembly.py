@@ -55,6 +55,9 @@ from .context_view import BusinessContextView
 from .conversation import CONVERSATION, ENDPOINTS, ConversationEndpoint
 from .event_archive import READ_EVENT, create_reader
 from .event_archive import entries as archive_entries
+from .memory import CONFIG as MEMORY_CONFIG
+from .memory import configured_store
+from .memory.automatic import CompactionMemory
 from .operations import RUN_CONTROL, RunOperations
 from .self_control import SELF_TOOLS, SelfControl, create_tool
 from .self_control import entries as self_control_entries
@@ -128,6 +131,7 @@ class DefaultAssembly:
         self.world_records: WorldRecords | None = None
         self.action_evidence: ActionEvidence | None = None
         self.self_control: SelfControl | None = None
+        self.compaction_memory: CompactionMemory | None = None
 
     def _runtime_agent(self) -> ReActAgent:
         if self.agent is None:
@@ -359,6 +363,21 @@ class DefaultAssembly:
         if management["enabled"]:
             assert self.action_evidence is not None and budget is not None
             self.action_evidence.max_chars = min(self.action_evidence.max_chars, management["tool_result_chars"] - 512)
+        if any(entry.id == MEMORY_CONFIG for entry in self.registry.entries()):
+            automatic = self.ctx.get(MEMORY_CONFIG)["auto_compaction"]
+            if automatic["enabled"]:
+                store, resolved = configured_store(self.ctx, self.storage, identity)
+
+                async def create_embedding():
+                    api_key = None if resolved.credential is None else self.credential_resolver(resolved.credential)
+                    return await resolved.factory(resolved.config, api_key=api_key)
+
+                self.compaction_memory = CompactionMemory(
+                    store,
+                    create_embedding,
+                    index_timeout_seconds=automatic["index_timeout_seconds"],
+                    retry_seconds=automatic["retry_seconds"],
+                )
         self.agent = ReActAgent(
             self.ctx,
             self.hooks,
@@ -368,7 +387,7 @@ class DefaultAssembly:
             runtime=self._fixed(RUN),
             batch=self._work("batch"),
             decision=self._work("decision"),
-            max_iterations=self.config["max_iterations"],
+            max_iterations=self.config.get("max_iterations"),
         )
         model = ModelCall(
             self.ctx,
@@ -402,6 +421,7 @@ class DefaultAssembly:
                     cast(ModelInputBudget, budget),
                     summary_chars=management["summary_chars"],
                     timeout=management["timeout_seconds"],
+                    recorder=self.compaction_memory,
                 )
                 if management["enabled"]
                 else None
@@ -476,6 +496,8 @@ class DefaultAssembly:
         if entry.kind != "service" or not isinstance(entry.target, RunOperations):
             raise TypeError("run_control 必须为 RunOperations 服务")
         self.runtime.start()
+        if self.compaction_memory is not None:
+            self.compaction_memory.start()
         entry.target.bind(self.config["instance_id"], self.runtime)
         self._run_operations = entry.target
         self._accepting = True
@@ -549,12 +571,17 @@ class DefaultAssembly:
         await self.runtime.close()
         if self._executing:
             raise RuntimeError("停止前须通过宿主结束在途激活")
+        if self.compaction_memory is not None:
+            await self.compaction_memory.stop()
         self._compact()
 
     @hook_handler("org.aurora.bot:handlers/assembly/clean_bot", slot=CLEAN)
     async def clean_bot(self) -> None:
         if self.self_control is not None:
             await self.self_control.close()
+        if self.compaction_memory is not None:
+            await self.compaction_memory.close()
+            self.compaction_memory = None
         while self._owned_tools:
             owned = self._owned_tools[-1]
             if owned.aclose is not None:

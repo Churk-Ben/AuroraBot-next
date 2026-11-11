@@ -63,7 +63,7 @@ file_input = false
 
 长任务的工具结果限制与中途摘要由独立的 [context_management 配置](context.md#长任务上下文管理)提供；记忆插件不自动压缩当前模型输入。
 
-`aurora_bot.memory` 是独立启用的 Bot 插件，首次安装助手不默认启用。插件使用普通 ReAct 工具，按需保存和检索文本，不自动收集聊天、笔记、工具输出或世界事件。
+`aurora_bot.memory` 是独立启用的 Bot 插件，首次安装助手不默认启用。插件默认使用普通 ReAct 工具，按需保存和检索文本；可额外开启 [压缩时自动保存](context.md#压缩时自动保存长期记忆)，将被压缩记录先落盘、摘要后台索引，不依赖模型主动调用保存工具。
 
 先补齐以下配置，再在 `config/host.toml` 的现有 `plugins` 列表中添加 `"aurora_bot.memory"`。保留默认 Bot 的依赖插件，包括 `aurora_bot.assembly`、`aurora_adapter.model`、`aurora_config`、`aurora_agent.tools`；只安装包不等于启用插件。
 
@@ -113,7 +113,7 @@ tool = "org.aurora.bot:tools/memory/reindex"
 instance_id = "memory/reindex"
 ```
 
-工具配置不接受所有者覆盖，所有者取自装配绑定的 Bot `instance_id`。可只连接搜索和读取工具以提供只读记忆；重建工具也可在维护时单独连接。重启宿主后生效，发现定义和启动过程不发送 embedding 请求。
+工具配置不接受所有者覆盖，所有者取自装配绑定的 Bot `instance_id`。可只连接搜索和读取工具以提供只读记忆；重建工具也可在维护时单独连接。重启宿主后生效，发现定义不创建资源或发送 embedding 请求；启用 auto_compaction 后，启动会在后台处理已落盘的待索引摘要。
 
 | 工具 | 用法 |
 | --- | --- |
