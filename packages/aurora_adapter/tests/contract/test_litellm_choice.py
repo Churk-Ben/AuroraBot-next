@@ -10,6 +10,7 @@ from aurora_adapter.model.config import resolve_model
 from aurora_adapter.model.contract import ChoiceRequest
 from aurora_adapter.model.litellm import LiteLLMClient
 from aurora_adapter.model.plugin import plugin
+from aurora_adapter.model.usage import usage_scope
 from aurora_config import plugin as config_plugin
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import register_plugins
@@ -19,7 +20,9 @@ def request() -> ChoiceRequest:
     return {"state": {"text": "等待核对"}, "instructions": "是否介入", "criteria": {"observe": "观察", "guide": "介入"}}
 
 
-def test_jev_choice_uses_typed_endpoint_and_runtime_credential():
+def test_jev_choice_uses_typed_endpoint_and_runtime_credential(caplog):
+    caplog.set_level("INFO", logger="aurora_adapter.model.usage")
+
     async def scenario():
         seen = []
 
@@ -56,11 +59,20 @@ def test_jev_choice_uses_typed_endpoint_and_runtime_credential():
             transport=httpx.MockTransport(handle),
         )
         try:
-            assert await client.choose(request()) == "guide"
+            with usage_scope("cadence", decision_id="decision-1"):
+                assert await client.choose(request()) == "guide"
             assert len(seen) == 1
         finally:
             await client.aclose()
         assert client._closed
+        records = [
+            json.loads(item.message.removeprefix("模型用量 "))
+            for item in caplog.records
+            if item.name == "aurora_adapter.model.usage"
+        ]
+        assert len(records) == 1 and records[0]["purpose"] == "cadence"
+        assert records[0]["decision_id"] == "decision-1"
+        assert not records[0]["usage_reported"] and records[0]["tokens"] == {}
 
     asyncio.run(scenario())
 
@@ -165,7 +177,8 @@ def test_chat_and_choice_profiles_cannot_be_interchanged():
         resolve_model(registry, profiles, bindings, "reasoning", kind="choice")
 
 
-def test_openai_decisions_translation_and_independent_transports(monkeypatch):
+def test_openai_decisions_translation_and_independent_transports(monkeypatch, caplog):
+    caplog.set_level("INFO", logger="aurora_adapter.model.usage")
     from litellm.llms.custom_httpx import llm_http_handler
 
     def reject_global_client(*args, **kwargs):
@@ -231,5 +244,12 @@ def test_openai_decisions_translation_and_independent_transports(monkeypatch):
             await first.aclose()
             await second.aclose()
         assert second_http.is_closed
+        records = [
+            json.loads(item.message.removeprefix("模型用量 "))
+            for item in caplog.records
+            if item.name == "aurora_adapter.model.usage"
+        ]
+        assert len(records) == 2 and all(item["purpose"] == "choice" for item in records)
+        assert all(item["tokens"] == {"input_tokens": 20, "output_tokens": 0, "total_tokens": 20} for item in records)
 
     asyncio.run(scenario())

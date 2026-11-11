@@ -1,6 +1,7 @@
 """通过真实宿主和可控时钟验收持续决策、引导去重及关闭恢复。"""
 
 import asyncio
+import json
 import random
 from copy import deepcopy
 from dataclasses import asdict
@@ -47,6 +48,7 @@ class Clock:
                     break
         self.now += delay
         gate.set_result(None)
+        return len(self.delays)
 
 
 class Decisions:
@@ -116,8 +118,10 @@ def configured(root, *, decision_config=None):
 
 async def tick(clock, ctx):
     previous = state(ctx)["observation"]
-    await clock.tick()
-    await until(lambda: state(ctx)["observation"] != previous or state(ctx)["error"] is not None)
+    waits = await clock.tick()
+    await until(
+        lambda: state(ctx)["observation"] != previous or state(ctx)["error"] is not None or len(clock.delays) > waits
+    )
 
 
 def note(ctx, identity="main", *, expected_revision=0, text="核对未完成事项"):
@@ -134,7 +138,7 @@ def note(ctx, identity="main", *, expected_revision=0, text="核对未完成事�
     )
 
 
-def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_path):
+def test_observe_deduplicates_material_but_rechecks_after_idle_and_on_changes(tmp_path):
     async def scenario():
         host, assembly, ctx, clients, clock, decisions, configure, _ = configured(tmp_path)
         await host.start(configure=configure)
@@ -150,14 +154,25 @@ def test_observe_keeps_events_and_random_ticks_do_not_submit_by_probability(tmp_
                 assert [record["record_id"] for record in records] == [first.record.record_id, other.record.record_id]
                 assert "不应暴露" not in encode_json(decisions.requests[-1])
             assert clients[0].requests == []
+            assert len(decisions.requests) == 1
             assert all(5 <= delay <= 72 for delay in clock.delays)
             assert len(set(clock.delays)) > 1
+            note(ctx)
+            await tick(clock, ctx)
+            assert len(decisions.requests) == 2
             decisions.choice = "attend_events"
+            clock.now += 60
             await tick(clock, ctx)
             assert len(state(ctx)["receipts"]) == 1
             assert state(ctx)["event_position"] == asdict(other.record.position)
             await until(lambda: assembly.runtime.current is None)
             assert clients[0].requests
+            guidance = next(
+                json.loads(message["content"])
+                for message in clients[0].requests[-1]["messages"]
+                if message["role"] == "user" and json.loads(message["content"]).get("kind") == "cadence_decision"
+            )
+            assert set(guidance["business"]) == {"events", "environment"}
             clock.now += 200
             await tick(clock, ctx)
             assert len(state(ctx)["receipts"]) == 1
@@ -199,6 +214,10 @@ def test_context_activity_interrupts_idle_wait_and_feedback_eventually_settles(t
             records.select("environment/time", "time")
             decisions.choice = "attend_events"
             records.append(source_id="environment/time", message_id="passive", payload={"trigger": "context"})
+            count = len(decisions.requests)
+            await tick(clock, ctx)
+            assert len(decisions.requests) == count
+            clock.now += 60
             await tick(clock, ctx)
             assert any(item["kind"] == "world_environment" for item in state(ctx)["receipts"][-1]["references"])
         finally:
@@ -231,6 +250,7 @@ def test_selected_environment_sources_enter_decisions_without_becoming_archived_
             assert state(ctx)["error"] is None and state(ctx)["receipts"] == []
             assert clients[0].requests == []
             decisions.choice = "attend_events"
+            clock.now += 60
             await tick(clock, ctx)
             if event is not None:
                 assert state(ctx)["event_position"] == asdict(event.record.position)
@@ -267,6 +287,10 @@ def test_no_event_ticks_review_notes_and_preserve_receipts_across_restart(tmp_pa
                     assert len(state(ctx)["receipts"]) == 1
                     await until(lambda assembly=assembly: assembly.runtime.current is None)
                     decisions.choice = "observe"
+                    await tick(clock, ctx)
+                    assert len(decisions.requests) == 1
+                    assert state(ctx)["observation"]["disposition"] == "submitted"
+                    clock.now += 60
                     await tick(clock, ctx)
                     assert len(state(ctx)["receipts"]) == 1
                     assert state(ctx)["observation"]["disposition"] == "observed"

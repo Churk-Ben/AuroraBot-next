@@ -19,6 +19,7 @@ from aurora_adapter.model import (
 )
 from aurora_adapter.model.config import resolve_model
 from aurora_adapter.model.plugin import create_client, plugin
+from aurora_adapter.model.usage import usage_scope
 from aurora_core.bootstrap import bootstrap
 from aurora_core.discovery import register_plugins
 from aurora_core.json_data import decode_json, encode_json
@@ -106,9 +107,18 @@ def mock_completion(monkeypatch, sdk, value):
 
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("provider", ["openai", "deepseek"])
-def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, streaming, provider):
+def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, streaming, provider, caplog):
+    caplog.set_level("INFO", logger="aurora_adapter.model.usage")
     sent = []
+    streams = []
     call = {"id": "lookup-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+    usage = {
+        "prompt_tokens": 11,
+        "completion_tokens": 5,
+        "total_tokens": 16,
+        "prompt_tokens_details": {"cached_tokens": 4},
+        "completion_tokens_details": {"reasoning_tokens": 2},
+    }
 
     def handle(incoming):
         body = json.loads(incoming.content)
@@ -126,6 +136,7 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
                 reason="tool_calls" if len(sent) == 1 else "stop",
             )
             value["choices"][0]["message"]["reasoning_content"] = "先检查文件，再查工具"
+            value["usage"] = usage
             return httpx.Response(200, json=value)
         thinking = delta()
         thinking["choices"][0]["delta"]["reasoning_content"] = "先检查文件，再查工具"
@@ -133,6 +144,8 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
             thinking,
             delta(calls=[{"index": 0, **call}]) if len(sent) == 1 else delta(content="完成"),
             delta(reason="tool_calls" if len(sent) == 1 else "stop"),
+            {"choices": [], "usage": usage},
+            {"choices": [], "usage": usage},
         ]
         body = "".join(
             "data: "
@@ -140,9 +153,21 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
             + "\n\n"
             for item in values
         )
-        return httpx.Response(
-            200, content=(body + "data: [DONE]\n\n").encode(), headers={"content-type": "text/event-stream"}
-        )
+
+        class WireStream(httpx.AsyncByteStream):
+            closed = False
+
+            async def __aiter__(self):
+                data = (body + "data: [DONE]\n\n").encode()
+                for offset in range(0, len(data), 17):
+                    yield data[offset : offset + 17]
+
+            async def aclose(self):
+                self.closed = True
+
+        wire = WireStream()
+        streams.append(wire)
+        return httpx.Response(200, stream=wire, headers={"content-type": "text/event-stream"})
 
     async def scenario():
         client = cast(
@@ -160,7 +185,9 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
             ),
         )
         await client._transport._client.aclose()
-        client._transport._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        client._transport._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handle), event_hooks={"response": [client._observe_usage]}
+        )
         value: ChatRequest = {
             "messages": [
                 {
@@ -179,11 +206,12 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
         }
         try:
             for turn in range(2):
-                if streaming:
-                    async with client.stream(value) as chunks:
-                        result = await collect_response(chunks)
-                else:
-                    result = await client.complete(value)
+                with usage_scope("summary" if turn == 0 else "inference", run_id="usage-run"):
+                    if streaming:
+                        async with client.stream(value) as chunks:
+                            result = await collect_response(chunks)
+                    else:
+                        result = await client.complete(value)
                 assert result["reasoning_content"] == "先检查文件，再查工具"
                 if turn == 0:
                     assert result["text"] == "" and result["tool_calls"][0]["id"] == "lookup-1"
@@ -203,6 +231,31 @@ def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, stream
         finally:
             await client.aclose()
         assert len(sent) == 2
+        assert all(stream.closed for stream in streams)
+        records = [
+            json.loads(item.message.removeprefix("模型用量 "))
+            for item in caplog.records
+            if item.name == "aurora_adapter.model.usage"
+        ]
+        assert [item["purpose"] for item in records] == ["summary", "inference"]
+        assert all(item["run_id"] == "usage-run" and item["status"] == "completed" for item in records)
+        assert all(
+            item["usage_reported"]
+            and item["tokens"]
+            == {
+                "input_tokens": 11,
+                "output_tokens": 5,
+                "total_tokens": 16,
+                "cached_input_tokens": 4,
+                "reasoning_tokens": 2,
+            }
+            for item in records
+        )
+        assert all(
+            "test-only" not in item.message and "先检查文件" not in item.message
+            for item in caplog.records
+            if item.name == "aurora_adapter.model.usage"
+        )
 
     asyncio.run(scenario())
 

@@ -1,6 +1,7 @@
 """按原样转发或上下文节律决策，向默认 bot 的既有运行所有者提交引导。"""
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
@@ -9,6 +10,7 @@ from uuid import uuid4
 
 from aurora_adapter.model import JsonValue
 from aurora_adapter.model.contract import ChoiceClient, ChoiceRequest
+from aurora_adapter.model.usage import usage_scope
 from aurora_agent.react import AgentBusyError
 from aurora_agent.runtime import AgentRuntime
 from aurora_control import ExecutionRequest
@@ -71,6 +73,8 @@ class Cadence:
         self._decision_client: ChoiceClient | None = None
         self._decision_view: BusinessContextView | None = None
         self._rhythm: CadenceRhythm | None = None
+        self._last_material: str | None = None
+        self._last_evaluated_at = 0.0
 
     def component(self, *, depends_on: tuple[str, ...]) -> LifecycleComponent:
         links = []
@@ -364,6 +368,13 @@ class Cadence:
         if latest is not None and (anchor is None or latest["sequence"] > anchor.sequence):
             observed = {name: latest[name] for name in ("journal_id", "sequence", "record_id")}
         current = self.runtime.current
+        material = self._material_key(business, busy=current is not None)
+        if (
+            material == self._last_material
+            and self._timing.monotonic() - self._last_evaluated_at < config["idle_seconds"]
+        ):
+            logger.debug("cadence 业务材料未变化，跳过本次模型判断")
+            return
         request: ChoiceRequest = {
             "state": cast(
                 JsonValue,
@@ -387,12 +398,15 @@ class Cadence:
         }
         if len(encode_json(request)) > config["max_chars"]:
             raise ValueError("cadence 决策请求超出完整字符预算")
-        async with asyncio.timeout(config["timeout_seconds"]):
-            choice = await self._decision_client.choose(request)
+        with usage_scope("cadence", decision_id=identity):
+            async with asyncio.timeout(config["timeout_seconds"]):
+                choice = await self._decision_client.choose(request)
         if choice not in CHOICES:
             raise ValueError("决策模型返回未声明的选项")
         if not self._accepting or self._paused():
             return
+        self._last_material = material
+        self._last_evaluated_at = self._timing.monotonic()
         evaluated_at = self._timing.now()
         decision = {"id": identity, "at": evaluated_at, "choice": choice, "disposition": "observed"}
         self._save(position=observed, observation=decision)
@@ -414,7 +428,11 @@ class Cadence:
                 else "请检查本次视图中的未归档笔记，判断是否需要接续工作。"
             ),
             "notice": "这是观察时刻的材料，不代表业务完成；允许不行动，未知动作须核对，不自动重试。",
-            "business": business,
+            "business": {
+                key: business[key]
+                for key in (("events", "environment") if choice == "attend_events" else ("notes", "actions"))
+                if key in business
+            },
         }
         decision = {**decision, "disposition": "pending"}
         event_position = (
@@ -444,6 +462,7 @@ class Cadence:
         try:
             receipt = self.runtime.submit(model_input)
         except AgentBusyError:
+            self._last_material = None
             self._save(pending=None, observation={**decision, "disposition": "busy"})
             return
         submitted = {**decision, "disposition": "submitted"}
@@ -485,3 +504,23 @@ class Cadence:
                 },
             ],
         )
+
+    def _material_key(self, business: dict, *, busy: bool) -> str:
+        """忽略观察时间、运行 ID 与被动时钟刷新；保留业务内容、修订和忙闲转换。"""
+        sections = {}
+        for name in ("events", "environment", "notes", "actions"):
+            if name not in business:
+                continue
+            section = business[name]
+            records = []
+            for item in section["records"]:
+                if name in ("events", "environment") and not item["abridged"]:
+                    try:
+                        payload = decode_json(item["text"])
+                    except ValueError:
+                        payload = None
+                    if self._passive_time(item["source_id"], payload):
+                        continue
+                records.append(item)
+            sections[name] = {**section, "records": records}
+        return hashlib.sha256(encode_json({"busy": busy, "business": sections}).encode()).hexdigest()

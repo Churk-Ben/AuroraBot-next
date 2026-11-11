@@ -13,6 +13,7 @@ from aurora_adapter.model import (
     ToolCall,
     require_capabilities,
 )
+from aurora_adapter.model.usage import usage_scope
 from aurora_control import ExecutionPlug, ExecutionRequest, StateBinding, component_entries
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
@@ -92,35 +93,36 @@ class ModelCall:
             self.output_state.set(self.ctx, execution, state)
 
         write("running")
-        try:
-            value = self.request_state.get(self.ctx, execution)
-            if not isinstance(value, dict):
-                raise TypeError("模型输入必须为 ChatRequest 字典")
-            # 地址的具体结构由装配或 StateKey 校验器约定，不建立全局 schema 匹配系统。
-            request = cast(ChatRequest, value)
-            require_capabilities(self.client, request, streaming=self.streaming)
-            if self.streaming:
-                async with self.client.stream(request) as chunks:
-                    async for chunk in chunks:
-                        buffer.append(chunk)
-                        write("running")
+        with usage_scope("inference", run_id=execution.run_id, execution_id=execution.execution_id):
+            try:
+                value = self.request_state.get(self.ctx, execution)
+                if not isinstance(value, dict):
+                    raise TypeError("模型输入必须为 ChatRequest 字典")
+                # 地址的具体结构由装配或 StateKey 校验器约定，不建立全局 schema 匹配系统。
+                request = cast(ChatRequest, value)
+                require_capabilities(self.client, request, streaming=self.streaming)
+                if self.streaming:
+                    async with self.client.stream(request) as chunks:
+                        async for chunk in chunks:
+                            buffer.append(chunk)
+                            write("running")
+                        buffer.result()
+                else:
+                    response = await self.client.complete(request)
+                    buffer.text = response["text"]
+                    buffer.reasoning_content = response.get("reasoning_content", "")
+                    buffer.thinking_blocks = response.get("thinking_blocks", [])
+                    buffer.tool_calls = response["tool_calls"]
+                    buffer.finish_reason = response["finish_reason"]
                     buffer.result()
+            except asyncio.CancelledError:
+                write("cancelled")
+                raise
+            except Exception as error:
+                write("failed", error)
+                raise
             else:
-                response = await self.client.complete(request)
-                buffer.text = response["text"]
-                buffer.reasoning_content = response.get("reasoning_content", "")
-                buffer.thinking_blocks = response.get("thinking_blocks", [])
-                buffer.tool_calls = response["tool_calls"]
-                buffer.finish_reason = response["finish_reason"]
-                buffer.result()
-        except asyncio.CancelledError:
-            write("cancelled")
-            raise
-        except Exception as error:
-            write("failed", error)
-            raise
-        else:
-            write("completed")
+                write("completed")
 
 
 def plugin() -> Plugin:

@@ -6,6 +6,7 @@ from typing import NotRequired, TypedDict, cast
 
 from aurora_adapter.model import ChatRequest, Message, ModelProtocolError, ToolCall
 from aurora_adapter.model.content import validate_content
+from aurora_adapter.model.usage import usage_scope
 from aurora_control import ExecutionLink, ExecutionPlug, ExecutionRequest, InstanceStateBinding, component_entries
 from aurora_core.ctx import Context
 from aurora_core.discovery import Plugin
@@ -205,12 +206,13 @@ class ReActDefaults:
             try:
                 history_start = len(messages) - len(context["messages"])
                 if self.compactor is not None:
-                    model_request, compacted = await self.compactor.apply(
-                        model_request,
-                        history_start=history_start,
-                        exchange_ends=context["exchange_ends"],
-                        state=context.get("compaction"),
-                    )
+                    with usage_scope("summary", run_id=request.run_id, execution_id=request.execution_id):
+                        model_request, compacted = await self.compactor.apply(
+                            model_request,
+                            history_start=history_start,
+                            exchange_ends=context["exchange_ends"],
+                            state=context.get("compaction"),
+                        )
                     if compacted is not None:
                         context["compaction"] = compacted
                         self.context_state.set(self.ctx, request, context)
