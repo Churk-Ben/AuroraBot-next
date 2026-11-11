@@ -1,6 +1,6 @@
 instance_id = "onboarding"
 model_role = "reasoning"
-max_iterations = 12
+# 默认不限推理轮次；有界任务可显式设置正整数 max_iterations。
 tool_timeout = 45.0
 streaming = true
 tools = []

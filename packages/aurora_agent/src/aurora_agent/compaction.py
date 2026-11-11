@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import logging
 from copy import deepcopy
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 from aurora_adapter.model import ChatClient, ChatRequest, Message, ModelProtocolError
 from aurora_adapter.model.content import MAX_FILE_BYTES, request_size
@@ -19,6 +19,23 @@ class CompactionState(TypedDict):
     end: int
     text: str
     digest: str
+
+
+class CompactionRecord(TypedDict):
+    run_id: str
+    start: int
+    end: int
+    digest: str
+    messages: list[Message]
+    previous_summary: str
+
+
+class CompactionRecorder(Protocol):
+    """同步持久化压缩材料和待索引摘要；返回表示本地提交完成。"""
+
+    def archive(self, record: CompactionRecord) -> None: ...
+
+    def remember(self, digest: str, text: str) -> None: ...
 
 
 def _digest(messages: list[Message]) -> str:
@@ -65,13 +82,28 @@ class HistoryCompactor:
     可提交状态；失败、超时和取消均不修改调用方数据，不自动重试摘要或工具动作。
     """
 
-    def __init__(self, client: ChatClient, budget: ModelInputBudget, *, summary_chars: int = 6000, timeout: float = 60):
+    def __init__(
+        self,
+        client: ChatClient,
+        budget: ModelInputBudget,
+        *,
+        summary_chars: int = 6000,
+        timeout: float = 60,
+        recorder: CompactionRecorder | None = None,
+    ):
         if type(summary_chars) is not int or not 256 <= summary_chars <= budget.max_chars // 4 or timeout <= 0:
             raise ValueError("摘要预算须为 256 至输入预算的四分之一，超时须为正数")
         self.client, self.budget, self.summary_chars, self.timeout = client, budget, summary_chars, timeout
+        self.recorder = recorder
 
     async def apply(
-        self, request: ChatRequest, *, history_start: int, exchange_ends: list[int], state: CompactionState | None
+        self,
+        request: ChatRequest,
+        *,
+        history_start: int,
+        exchange_ends: list[int],
+        state: CompactionState | None,
+        run_id: str = "",
     ) -> tuple[ChatRequest, CompactionState | None]:
         history = request["messages"][history_start:]
         ends = read_exchange_ends(history, exchange_ends)
@@ -135,6 +167,18 @@ class HistoryCompactor:
             cut - start,
             len(history) - cut,
         )
+        digest = _digest(history[:cut])
+        if self.recorder is not None:
+            self.recorder.archive(
+                {
+                    "run_id": run_id,
+                    "start": start,
+                    "end": cut,
+                    "digest": digest,
+                    "messages": deepcopy(history[start:cut]),
+                    "previous_summary": summary,
+                }
+            )
         try:
             async with asyncio.timeout(self.timeout):
                 text = await self._summarize(history[start:cut], summary)
@@ -145,8 +189,10 @@ class HistoryCompactor:
         chars, files = request_size(candidate)
         if chars > self.budget.max_chars or files > MAX_FILE_BYTES:
             raise self.budget.exceeded(candidate, history_start)
+        if self.recorder is not None:
+            self.recorder.remember(digest, text)
         logger.info("上下文压缩完成：输入 %s/%s 字符", chars, self.budget.max_chars)
-        return candidate, {"end": cut, "text": text, "digest": _digest(history[:cut])}
+        return candidate, {"end": cut, "text": text, "digest": digest}
 
     async def _summarize(self, messages: list[Message], previous: str) -> str:
         transcript = deepcopy(messages)

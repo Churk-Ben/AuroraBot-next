@@ -212,6 +212,7 @@ class ReActDefaults:
                             history_start=history_start,
                             exchange_ends=context["exchange_ends"],
                             state=context.get("compaction"),
+                            run_id=request.run_id,
                         )
                     if compacted is not None:
                         context["compaction"] = compacted
