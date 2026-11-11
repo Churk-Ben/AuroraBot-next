@@ -5,6 +5,7 @@ import json
 from typing import cast
 
 import pytest
+from aurora_adapter.model import ModelError
 from aurora_adapter.model.testing import FakeReply
 from aurora_agent.input_budget import ModelInputBudget
 from aurora_bot.assembly_config import CONFIG, MESSAGES, parse_config
@@ -142,6 +143,81 @@ def test_default_configuration_keeps_budget_opt_in():
         "enabled": False,
         "max_chars": 128000,
     }
+
+
+def test_long_tool_task_compacts_and_restores_with_full_action_evidence(tmp_path):
+    async def scenario():
+        host, assembly, ctx, _, clients, _, events, _ = setup(tmp_path)
+
+        def options():
+            configure(ctx, budget=8000)
+            config = cast(dict, ctx.get(CONFIG))
+            config.update(
+                context_management={"enabled": True, "tool_result_chars": 2048, "summary_chars": 500},
+                actions={"enabled": True, "max_chars": 2048},
+                context_view={"enabled": False},
+            )
+            config["tools"][0]["config"]["prefix"] = "完整原始结果" * 700
+            ctx.set(CONFIG, config)
+
+        await host.start(configure=options)
+        count = 0
+        fail_summary = True
+
+        def respond(request):
+            nonlocal count
+            if not request.get("tools"):
+                if fail_summary:
+                    return FakeReply(error=ModelError("模拟摘要失败"))
+                return FakeReply(("继续核对工具结果，已执行动作不重复；未知结果查询 actions_read。",))
+            assert len(encode_json(request)) <= 8000
+            count += 1
+            return (
+                FakeReply(("任务完成",))
+                if count == 8
+                else FakeReply(
+                    tool_calls=({"id": f"action-{count}", "name": "echo", "arguments": {"text": str(count)}},)
+                )
+            )
+
+        clients[0].respond = respond
+        try:
+            result = await assembly.runtime.submit("逐步核对七项结果").run.wait()
+            assert result.status == "failed" and result.error == "ModelError"
+            interrupted = cast(dict, ctx.get(MESSAGES, location={"instance_id": "main"}))
+            assert "compaction" not in interrupted and interrupted["pending"] is None
+            fail_summary = False
+            result = await assembly.runtime.activate().wait()
+            assert result.status == "completed" and events.count("tool.executed") == 7
+            context = cast(dict, ctx.get(MESSAGES, location={"instance_id": "main"}))
+            assert context["compaction"]["end"] > 0 and len(context["messages"]) == 16
+            assert context["messages"][0]["content"] == "逐步核对七项结果"
+            assert any("context_summary" in encode_json(r) for r in clients[0].requests if r.get("tools"))
+            observations = [json.loads(m["content"]) for m in context["messages"] if m["role"] == "tool"]
+            assert all(o["value"]["truncated"] for o in observations)
+            assert assembly.action_evidence is not None
+            parts, offset = [], 0
+            while True:
+                page = assembly.action_evidence.read(observations[0]["value"]["read"]["run_id"], "action-1", offset)
+                parts.append(page["text"])
+                if page["next_offset"] is None:
+                    break
+                offset = page["next_offset"]
+            assert json.loads("".join(parts))["result"]["value"] == "完整原始结果" * 700 + "1"
+        finally:
+            await host.stop()
+        host, assembly, ctx, _, clients, _, events, _ = setup(tmp_path)
+        await host.start()
+        try:
+            assert cast(dict, ctx.get(MESSAGES, location={"instance_id": "main"})) == context
+            assert not clients[0].requests and "tool.executed" not in events
+            clients[0].respond = lambda _: FakeReply(("已恢复",))
+            assert (await assembly.runtime.submit("继续核对").run.wait()).status == "completed"
+            assert "tool.executed" not in events
+        finally:
+            await host.stop()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("streaming,restart,initially_enabled", [(False, False, True), (True, True, False)])

@@ -24,10 +24,14 @@ def read_exchange_ends(messages: list[Message], value: object) -> list[int]:
 class ModelInputBudgetExceeded(ValueError):
     """固定输入和当前交流段无法放入预算；异常只包含长度，不包含业务内容。"""
 
-    def __init__(self, max_chars: int, required_chars: int, file_bytes: int = 0) -> None:
+    def __init__(
+        self, max_chars: int, required_chars: int, file_bytes: int = 0, *, breakdown: dict[str, int] | None = None
+    ) -> None:
         self.max_chars, self.required_chars = max_chars, required_chars
+        self.file_bytes, self.breakdown = file_bytes, breakdown or {}
         super().__init__(
             f"模型输入预算不足：需要 {required_chars} 字符和 {file_bytes} 附件字节，预算为 {max_chars} 字符及 {MAX_FILE_BYTES} 附件字节"
+            f"；分项字符数：{self.breakdown}"
         )
 
 
@@ -43,6 +47,22 @@ class ModelInputBudget:
         if type(max_chars) is not int or max_chars < 1024:
             raise ValueError("完整模型输入预算必须为至少 1024 的整数")
         self.max_chars = max_chars
+
+    def exceeded(self, request: ChatRequest, history_start: int) -> ModelInputBudgetExceeded:
+        """只报告长度；分项合计包含协议包装，不泄露输入或工具参数。"""
+        chars, files = request_size(request)
+        parts = {
+            "system": 0,
+            "view": 0,
+            "history": 0,
+            "tools": len(encode_json(request.get("tools", []))) if "tools" in request else 0,
+        }
+        empty_size = request_size({"messages": []})[0]
+        for index, message in enumerate(request["messages"]):
+            key = "history" if index >= history_start else "system" if message["role"] == "system" else "view"
+            parts[key] += request_size({"messages": [message]})[0] - empty_size
+        parts["overhead"] = chars - sum(parts.values())
+        return ModelInputBudgetExceeded(self.max_chars, chars, files, breakdown=parts)
 
     def apply(self, request: ChatRequest, *, history_start: int, exchange_ends: list[int] | None = None) -> ChatRequest:
         messages = request["messages"]
@@ -77,13 +97,12 @@ class ModelInputBudget:
             ]
             return candidate
 
-        required, file_bytes = request_size(request)
         if not boundaries:
-            raise ModelInputBudgetExceeded(self.max_chars, required, file_bytes)
+            raise self.exceeded(request, history_start)
         smallest = candidate_at(boundaries[-1])
-        smallest_size, smallest_files = request_size(smallest)
         if not fits(smallest):
-            raise ModelInputBudgetExceeded(self.max_chars, min(required, smallest_size), smallest_files)
+            required = min((request, smallest), key=lambda value: request_size(value)[0])
+            raise self.exceeded(required, history_start)
         low, high = 0, len(boundaries) - 1
         while low < high:
             middle = (low + high) // 2

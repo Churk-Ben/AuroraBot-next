@@ -1,5 +1,6 @@
 """默认 ReAct 阶段：准备上下文、解释模型决定和回填工具观察。"""
 
+import logging
 from collections.abc import Callable
 from typing import NotRequired, TypedDict, cast
 
@@ -11,10 +12,13 @@ from aurora_core.discovery import Plugin
 from aurora_core.ids import Id
 from aurora_core.json_data import encode_json
 
+from .compaction import CompactionState, HistoryCompactor, validate_compaction
 from .input_budget import ModelInputBudget, ModelInputBudgetExceeded, read_exchange_ends
 from .model import ModelCall, ModelCallState
 from .react import Guidance, ReActAgent
-from .tools import ToolBatchState, ToolExecutor, failure, read_request
+from .tools import ToolBatchState, ToolExecutor, ToolResult, failure, read_request
+
+logger = logging.getLogger(__name__)
 
 
 class PendingTurn(TypedDict):
@@ -36,6 +40,7 @@ class ReActContext(TypedDict):
     guidance_sequence: int
     pending: PendingTurn | None
     exchange_ends: NotRequired[list[int]]
+    compaction: NotRequired[CompactionState]
 
 
 class ReActDefaults:
@@ -62,6 +67,8 @@ class ReActDefaults:
         system_prompt: str = "",
         context_view: Callable[[ExecutionRequest], str] | None = None,
         input_budget: ModelInputBudget | None = None,
+        compactor: HistoryCompactor | None = None,
+        tool_observation: Callable[[str, ToolResult], str] | None = None,
     ) -> None:
         if agent.ctx is not model.ctx or agent.ctx is not tools.ctx:
             raise ValueError("默认 ReAct 组件必须使用同一 ctx")
@@ -72,6 +79,7 @@ class ReActDefaults:
         self.context_state, self.system_prompt = context_state, system_prompt
         self.context_view = context_view
         self.input_budget = input_budget
+        self.compactor, self.tool_observation = compactor, tool_observation
 
     def connect(self) -> None:
         """连接四个工作阶段；装配须先登记对应插件，失败时撤销本次连接。"""
@@ -127,6 +135,8 @@ class ReActDefaults:
                 if message["role"] == "assistant" and not message.get("tool_calls")
             ]
         read_exchange_ends(context["messages"], context["exchange_ends"])
+        if "compaction" in context:
+            validate_compaction(context["messages"], context["compaction"])
         return context
 
     def _settle(self, context: ReActContext, *, recovering: bool) -> None:
@@ -156,7 +166,8 @@ class ReActDefaults:
                 result = failure(call, "interrupted", "没有完整工具结果，动作是否完成需核实；未自动重试")
             if result["name"] != call["name"] or result["status"] not in ("completed", "failed", "cancelled"):
                 raise ValueError("工具结果与原始请求不符")
-            observations.append({"role": "tool", "tool_call_id": call["id"], "content": encode_json(result)})
+            content = self.tool_observation(pending["run_id"], result) if self.tool_observation else encode_json(result)
+            observations.append({"role": "tool", "tool_call_id": call["id"], "content": content})
         context["messages"].extend([pending["message"], *observations])
         context["pending"] = None
 
@@ -192,12 +203,25 @@ class ReActDefaults:
             model_request["tools"] = definitions
         if self.input_budget is not None:
             try:
-                model_request = self.input_budget.apply(
-                    model_request,
-                    history_start=len(messages) - len(context["messages"]),
-                    exchange_ends=context["exchange_ends"],
-                )
-            except ModelInputBudgetExceeded:
+                history_start = len(messages) - len(context["messages"])
+                if self.compactor is not None:
+                    model_request, compacted = await self.compactor.apply(
+                        model_request,
+                        history_start=history_start,
+                        exchange_ends=context["exchange_ends"],
+                        state=context.get("compaction"),
+                    )
+                    if compacted is not None:
+                        context["compaction"] = compacted
+                        self.context_state.set(self.ctx, request, context)
+                else:
+                    model_request = self.input_budget.apply(
+                        model_request,
+                        history_start=history_start,
+                        exchange_ends=context["exchange_ends"],
+                    )
+            except ModelInputBudgetExceeded as error:
+                logger.error("模型输入超限：%s", error)
                 address = self.model.request_state.address(request)
                 self.ctx.delete(address.key, location=dict(address.location))
                 raise

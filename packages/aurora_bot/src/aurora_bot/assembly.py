@@ -11,6 +11,7 @@ from aurora_adapter.model import ChatClient, require_capabilities
 from aurora_adapter.model.config import BINDINGS, resolve_model
 from aurora_adapter.model.config import CONFIG as MODEL_CONFIG
 from aurora_adapter.model.contract import ChoiceClient
+from aurora_agent.compaction import HistoryCompactor
 from aurora_agent.input_budget import ModelInputBudget
 from aurora_agent.model import ModelCall
 from aurora_agent.react import AgentBusyError, ReActAgent
@@ -349,6 +350,15 @@ class DefaultAssembly:
         identity = self.config["instance_id"]
         if self.action_evidence is not None:
             self.action_evidence.open()
+        management = self.config["context_management"]
+        budget = (
+            ModelInputBudget(self.config["input_budget"]["max_chars"])
+            if self.config["input_budget"]["enabled"]
+            else None
+        )
+        if management["enabled"]:
+            assert self.action_evidence is not None and budget is not None
+            self.action_evidence.max_chars = min(self.action_evidence.max_chars, management["tool_result_chars"] - 512)
         self.agent = ReActAgent(
             self.ctx,
             self.hooks,
@@ -385,9 +395,22 @@ class DefaultAssembly:
             tools,
             context_state=self._fixed(MESSAGES),
             system_prompt=self.config["system_prompt"],
-            input_budget=(
-                ModelInputBudget(self.config["input_budget"]["max_chars"])
-                if self.config["input_budget"]["enabled"]
+            input_budget=budget,
+            compactor=(
+                HistoryCompactor(
+                    self.client,
+                    cast(ModelInputBudget, budget),
+                    summary_chars=management["summary_chars"],
+                    timeout=management["timeout_seconds"],
+                )
+                if management["enabled"]
+                else None
+            ),
+            tool_observation=(
+                partial(
+                    cast(ActionEvidence, self.action_evidence).observation, max_chars=management["tool_result_chars"]
+                )
+                if management["enabled"]
                 else None
             ),
             context_view=(

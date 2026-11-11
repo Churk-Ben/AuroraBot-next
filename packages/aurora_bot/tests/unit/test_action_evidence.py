@@ -90,6 +90,34 @@ def test_duplicate_reference_rejects_entire_batch_without_overwriting(evidence):
         evidence.read("run", "new")
 
 
+def test_observation_deduplicates_exact_mcp_text_and_pages_large_failed_results(evidence):
+    request = begin(evidence, call("small"), call("large"))
+    data = {"answer": "原始结果"}
+    value = {"content": [{"type": "text", "text": encode_json(data)}], "structuredContent": data, "isError": False}
+    small = {"call_id": "small", "name": "send", "status": "completed", "value": value}
+    evidence.start(request, call("small"))
+    evidence.finish(request, small)
+    projected = json.loads(evidence.observation("run", small, max_chars=2048))
+    assert "content" not in projected["value"] and projected["value"]["structuredContent"] == data
+    assert read_all(evidence, identity="small")["result"] == small and "content" in small["value"]
+    large = {
+        "call_id": "large",
+        "name": "send",
+        "status": "failed",
+        "error": {"code": "mcp_result_unknown", "message": "未知动作"},
+        "value": {"content": [{"type": "text", "text": '结果"\\\n' * 1000}]},
+    }
+    evidence.start(request, call("large"))
+    evidence.finish(request, large)
+    text = evidence.observation("run", large, max_chars=2048)
+    preview = json.loads(text)
+    assert len(text) <= 2048 and preview["status"] == "failed" and preview["error_code"] == "mcp_result_unknown"
+    reference = preview["value"]["read"]
+    assert reference == {"tool": "actions_read", "run_id": "run", "call_id": "large", "offset": 0}
+    assert read_all(evidence, identity="large")["result"] == large
+    assert read_all(evidence, identity="large")["outcome"] == "unknown"
+
+
 @pytest.mark.parametrize(
     "code,outcome",
     [

@@ -61,6 +61,8 @@ file_input = false
 
 ## 显式文本记忆（朴素 RAG）
 
+长任务的工具结果限制与中途摘要由独立的 [context_management 配置](context.md#长任务上下文管理)提供；记忆插件不自动压缩当前模型输入。
+
 `aurora_bot.memory` 是独立启用的 Bot 插件，首次安装助手不默认启用。插件使用普通 ReAct 工具，按需保存和检索文本，不自动收集聊天、笔记、工具输出或世界事件。
 
 先补齐以下配置，再在 `config/host.toml` 的现有 `plugins` 列表中添加 `"aurora_bot.memory"`。保留默认 Bot 的依赖插件，包括 `aurora_bot.assembly`、`aurora_adapter.model`、`aurora_config`、`aurora_agent.tools`；只安装包不等于启用插件。
