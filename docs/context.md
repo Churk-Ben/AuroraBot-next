@@ -6,7 +6,7 @@
 
 按顺序发送：system_prompt、临时 business_context（启用时）、保留的 user / assistant / tool 历史；另附当前已连接工具的全部定义。工具往返中的 assistant 调用、返回及必要的 reasoning_content / thinking_blocks 保留。
 
-临时业务视图不写入消息历史。但 cadence 引导包含当时的 business 快照，会作为 user 消息持久化，所以历史引导与最新视图可能重复。工具结果也会随保留历史重复发送。默认保留完整结果；显式启用下面的上下文管理后，对已归档结果生成有界观察，并消除 MCP 中完全相同的文本与 structuredContent 副本。
+临时业务视图不写入消息历史。cadence 引导仅保存本次关注的材料：attend_events 包含未投递事件与环境变化，review_work 包含笔记与行动证据，不复制整个 business 快照。选中材料仍可能与最新视图重叠，以保留投递时的事实。工具结果也会随保留历史重复发送。默认保留完整结果；显式启用下面的上下文管理后，对已归档结果生成有界观察，并消除 MCP 中完全相同的文本与 structuredContent 副本。
 
 业务视图包含近期事件、保留的环境观察、未归档笔记和最近行动证据，按启用类别分配字符预算，优先最新材料。abridged 表示正文截短，omitted 只计当前候选中因预算省略的条目；不是完整归档，也不表示事项已完成。
 
@@ -77,11 +77,23 @@ max_chars = 12000
 
 model_role 必须绑定 choice 适配器；聊天模型适配器不能直接替代。节律受 ctx 活动刺激并随静默衰减，在窗口内随机判断，静默时仍会检查。内部反馈和被动时间刺激逐次衰减，世界事件和环境变化可重新激活。
 
-observe 只更新观察位置，不推进事件投递位置；相同未投递事件、未归档笔记和证据可能在下次请求再次出现。Bot 忙碌也可接受补充引导。当前没有按材料哈希跳过相同请求的机制，累计消耗取决于单次输入和调用频率。
+observe 只更新观察位置，不推进事件投递位置。cadence 比较业务材料与 Bot 忙闲状态的指纹；同一材料在上次成功判断后的 idle_seconds 内不再调用模型，也不写入伪造的决策或推进游标。观察时间、run_id 和被动时钟刷新不使指纹变化；新事件、笔记修订、行动状态、主动时间观察及忙闲变化仍触发重评。达到 idle_seconds 后的下一次节律检查重新判断，保留随时间变化的事项检查能力；它不是准点唤醒，明确的计划继续使用自身控制工具。
+
+Bot 忙碌时仍可接受补充引导；显式忙碌拒绝不缓存此次判断，后续可再次投递。指纹只在当前进程保存，重启会重新评估材料，已有消费游标仍防止事件重复转交。累计消耗仍取决于输入大小、实际材料变化和调用次数。
 
 观察、投递、接纳、运行完成和业务完成是不同状态。改变 cadence 模式应使用独立数据目录，不自动转换既有 checkpoint；错误会暂停自动转交，不靠重启或清空状态掩盖不确定副作用。
 
 实现：[cadence](../packages/aurora_bot/src/aurora_bot/cadence/forwarder.py)、[节律](../packages/aurora_bot/src/aurora_bot/cadence/rhythm.py)。
+
+## 实际模型用量
+
+LiteLLM 客户端每次调用输出一条 `模型用量` INFO 日志，正文为 JSON。purpose 区分 inference（主推理）、summary（任务压缩）、cadence（节律决策）与未标注用途的 chat / choice / embedding；主推理与摘要带 run_id、execution_id，节律决策带独立 decision_id，可据此汇总各类调用。用量不写入业务历史，不随下一次请求重复发送。
+
+tokens 只包含原始 HTTP JSON 或 SSE 中供应商明确报告的非负整数：input_tokens、output_tokens、total_tokens，以及可用的 cached_input_tokens、cache_write_tokens、reasoning_tokens。缺失字段不补零，也不采用 SDK 推算值；完全未报告时 usage_reported=false。流式用量按累计快照更新，不累加重复片段。缓存、思考字段与总量可能重叠，不应再次相加；供应商间 input_tokens 对缓存的包含方式可能不同，应结合各自计费口径解释。
+
+status 区分 completed、failed、cancelled 和 incomplete（响应流提前结束）；失败、取消或不完整响应中的已报告用量仅代表已观测值，不能据缺失记录断言未计费。elapsed_seconds 包含调用耗时。日志不包含消息正文、文件地址、端点或凭证；目前用于观测，不自动按价格换算费用或停止运行。
+
+实现：[用量记录](../packages/aurora_adapter/src/aurora_adapter/model/usage.py)、[原始传输采集](../packages/aurora_adapter/src/aurora_adapter/model/litellm.py)。
 
 ## 世界、笔记与证据
 
@@ -105,4 +117,4 @@ self_control.enabled 提供 wake_schedule / wake_list / wake_cancel、bot_status
 
 bot_finish 正常结束当前运行，不暂停 cadence。bot_autonomy(paused=true) 暂停自动引导，包括计划唤醒，直接交流仍可用。恢复后按当前事实判断，不自动重放未完成的外部动作。
 
-本次示例和文档整理没有修改上述上下文机制；工具结果压缩、去重与精确 token 用量统计仍需独立实现。
+工具结果限制、任务摘要和模型用量记录按上述机制工作；完整请求仍按字符约束，尚未提供供应商 token 预算或累计费用熔断。

@@ -1,5 +1,6 @@
 """LiteLLM 聊天、决策与向量客户端；实例独占传输，不修改 SDK 全局配置。"""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
@@ -40,6 +41,22 @@ from .contract import (
     UnsupportedCapability,
 )
 from .response import normalize_vectors
+from .usage import UsageRecord
+
+
+class _UsageStream(httpx.AsyncByteStream):
+    """原样交付响应字节，只提取原始 SSE 中的用量。"""
+
+    def __init__(self, stream: httpx.AsyncByteStream, usage: UsageRecord) -> None:
+        self.stream, self.usage = stream, usage
+
+    async def __aiter__(self):
+        async for chunk in self.stream:
+            self.usage.feed(chunk)
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self.stream.aclose()
 
 
 @contextmanager
@@ -87,6 +104,7 @@ class LiteLLMClient:
                 raise ValueError("模型 base_url 必须为不含凭证、查询或片段的 HTTP(S) 地址")
         self.kind, self.config, self._api_key = kind, config, api_key
         self._active = self._closed = False
+        self._usage: UsageRecord | None = None
         try:
             model, provider, _, base_url = litellm.get_llm_provider(
                 model=config.model, custom_llm_provider=config.provider, api_base=config.base_url, api_key=api_key
@@ -119,7 +137,9 @@ class LiteLLMClient:
                     api_key=api_key or "",
                     base_url=self._base_url,
                     max_retries=0,
-                    http_client=httpx.AsyncClient(transport=transport, follow_redirects=False),
+                    http_client=httpx.AsyncClient(
+                        transport=transport, follow_redirects=False, event_hooks={"response": [self._observe_usage]}
+                    ),
                 )
             elif (
                 kind == "choice"
@@ -129,13 +149,31 @@ class LiteLLMClient:
                     and provider in ("cohere", "cohere_chat", "voyage", "infinity", "openrouter", "sambanova")
                 )
             ):
-                self._transport = AsyncHTTPHandler(transport=transport, follow_redirects=False)
+                self._transport = AsyncHTTPHandler(
+                    transport=transport, follow_redirects=False, event_hooks={"response": [self._observe_usage]}
+                )
             else:
                 raise UnsupportedCapability("供应商尚未接入实例传输；兼容端点可配置 provider=openai 和 base_url")
         except ModelError:
             raise
         except Exception as error:  # noqa: BLE001 - 不上泄 SDK 凭证或供应商正文。
             raise ModelError(f"模型客户端初始化失败：{type(error).__name__}") from None
+
+    async def _observe_usage(self, response: httpx.Response) -> None:
+        if self._usage is None:
+            return
+        if "text/event-stream" in response.headers.get("content-type", ""):
+            if response.is_stream_consumed:
+                self._usage.feed(response.content)
+            else:
+                assert isinstance(response.stream, httpx.AsyncByteStream)
+                response.stream = _UsageStream(response.stream, self._usage)
+        else:
+            await response.aread()
+            try:
+                self._usage.read(response.json())
+            except ValueError:
+                pass
 
     @asynccontextmanager
     async def _using(self, kind: ModelKind):
@@ -144,9 +182,21 @@ class LiteLLMClient:
         if self.kind != kind:
             raise ModelError("模型调用用途与客户端不匹配")
         self._active = True
+        self._usage = UsageRecord(kind, self.config.model)
+        status = "incomplete"
         try:
             yield
+            if self._usage.complete:
+                status = "completed"
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        except Exception:
+            status = "failed"
+            raise
         finally:
+            self._usage.finish(status)
+            self._usage = None
             self._active = False
 
     def _options(self) -> dict[str, Any]:
@@ -167,6 +217,8 @@ class LiteLLMClient:
         payload = chat_payload(request)
         if self._provider == "deepseek":
             options["custom_llm_provider"] = "openai"
+        if streaming and self._provider in ("openai", "deepseek"):
+            payload["stream_options"] = {"include_usage": True}
         if self.config.thinking is not None:
             if self._provider == "anthropic":
                 payload["thinking"] = deepcopy(self.config.thinking)
@@ -181,7 +233,10 @@ class LiteLLMClient:
     async def complete(self, request: ChatRequest) -> ChatResponse:
         async with self._using("chat"):
             with _errors():
-                return chat_response(await self._chat(request, streaming=False))
+                result = chat_response(await self._chat(request, streaming=False))
+                assert self._usage is not None
+                self._usage.complete = True
+                return result
 
     async def _chunks(self, response) -> AsyncIterator[ChatChunk]:
         with _errors():
@@ -244,6 +299,8 @@ class LiteLLMClient:
                 yield {"type": "thinking_block", "block": block}
             for call in result["tool_calls"]:
                 yield {"type": "tool_call", "tool_call": call}
+            assert self._usage is not None
+            self._usage.complete = True
             yield {"type": "finish", "reason": reason}
 
     @asynccontextmanager
@@ -272,9 +329,12 @@ class LiteLLMClient:
                 indices = [item.get("index") for item in data]
                 if any(type(index) is not int for index in indices) or sorted(indices) != list(range(len(texts))):
                     raise ModelProtocolError("向量响应索引与输入不一致")
-                return normalize_vectors(
+                result = normalize_vectors(
                     [item["embedding"] for item in sorted(data, key=lambda item: item["index"])], len(texts)
                 )
+                assert self._usage is not None
+                self._usage.complete = True
+                return result
 
     async def choose(self, request: ChoiceRequest) -> str:
         async with self._using("choice"):
@@ -324,6 +384,8 @@ class LiteLLMClient:
                     or answer.choice not in request["criteria"]
                 ):
                     raise ModelProtocolError("决策模型必须返回唯一且已声明的 choice")
+                assert self._usage is not None
+                self._usage.complete = True
                 return answer.choice
 
     async def aclose(self) -> None:
