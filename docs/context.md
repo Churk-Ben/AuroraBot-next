@@ -1,12 +1,12 @@
 # 上下文与运行
 
-核对日期：2026-11-10。本页描述当前代码，预算单位是字符或字节，不代表供应商 token。安装助手仅启用普通 ReAct 和终端工具，未启用本页的主动行为。
+核对日期：2026-11-11。本页描述当前代码，预算单位是字符或字节，不代表供应商 token。安装助手仅启用普通 ReAct 和终端工具，未启用本页的主动行为。
 
 ## 主推理模型的每次输入
 
 按顺序发送：system_prompt、临时 business_context（启用时）、保留的 user / assistant / tool 历史；另附当前已连接工具的全部定义。工具往返中的 assistant 调用、返回及必要的 reasoning_content / thinking_blocks 保留。
 
-临时业务视图不写入消息历史。但 cadence 引导包含当时的 business 快照，会作为 user 消息持久化，所以历史引导与最新视图可能重复。工具结果也会随保留历史重复发送，MCP 当前整体保留工具结果对象，不自动去重 content 与 structuredContent。
+临时业务视图不写入消息历史。但 cadence 引导包含当时的 business 快照，会作为 user 消息持久化，所以历史引导与最新视图可能重复。工具结果也会随保留历史重复发送。默认保留完整结果；显式启用下面的上下文管理后，对已归档结果生成有界观察，并消除 MCP 中完全相同的文本与 structuredContent 副本。
 
 业务视图包含近期事件、保留的环境观察、未归档笔记和最近行动证据，按启用类别分配字符预算，优先最新材料。abridged 表示正文截短，omitted 只计当前候选中因预算省略的条目；不是完整归档，也不表示事项已完成。
 
@@ -16,7 +16,7 @@
 
 Bot 的 input_budget 开启后对完整应用层模型请求限制 JSON 文本字符，并限制内嵌文件合计 10 MiB。system、临时视图、工具定义保留；超过预算时从请求中省略较早的完整交流段，至少保留最新交流。当前交流加固定输入仍超限时抛错，不拆断工具调用关系。
 
-它不生成摘要，不压缩工具正文，不删除持久历史。max_iterations 限制一次运行的迭代次数，不限制跨运行历史。供应商传输还可能增加协议包装，字符预算不能替代真实 token 统计。
+单独启用 input_budget 不生成摘要、不压缩工具正文、不删除持久历史。max_iterations 限制一次运行的迭代次数，不限制跨运行历史。供应商传输还可能增加协议包装，字符预算不能替代真实 token 统计。超限日志列出实际所需字符、附件字节、system / view / history / tools / overhead 分项，不打印输入正文。
 
 | 配置 | 包模板默认值 | 安装助手 |
 | --- | --- | --- |
@@ -27,6 +27,36 @@ Bot 的 input_budget 开启后对完整应用层模型请求限制 JSON 文本�
 | max_iterations | 8 | 12 |
 
 既有用户 TOML 不因模板变化而更新。实现：[ModelInputBudget](../packages/aurora_agent/src/aurora_agent/input_budget.py)。
+
+## 长任务上下文管理
+
+Bot 配置的 `context_management` 默认关闭，开启时必须同时启用 `input_budget` 和 `actions`。摘要串行复用当前聊天模型，会增加模型调用；它与向量记忆插件独立，不把所有聊天自动写入长期记忆。
+
+```toml
+[input_budget]
+enabled = true
+max_chars = 128000
+
+[actions]
+enabled = true
+max_chars = 8000
+
+[context_management]
+enabled = true
+tool_result_chars = 6000
+summary_chars = 6000
+timeout_seconds = 60.0
+```
+
+工具执行先把完整结果写入行动证据，再生成进入上下文的观察。超长结果提供明确的截短预览、原状态、错误码和 `actions_read` 的 run_id/call_id 引用；分页读取原结果，不重跑动作。MCP 文本只有在它是唯一文本块且解码后与 structuredContent 完全相等时才去重，附加说明和非文本内容保留。actions_read 本身直接交付分页，页预算自动不超过 tool_result_chars 减 512，避免把读取工具的结果再次变成读取引用。已有历史中的大结果不会被就地改写。
+
+每次推理前先按 80% 预算尝试省略已结束的旧交流；当前任务仍过长时，在收齐工具批次结果的边界生成续接摘要。至少保留最近两组完整消息（assistant 工具调用及全部返回视为一组），尽量把请求降到 60%；固定系统提示、业务视图、工具定义与最近往返保持完整。摘要保留目标、约束、关键事实、执行结果、未知状态和待办，作为低优先级历史材料注入；它可能遗漏细节，不是执行证据。
+
+摘要源不包含旧的内部思考与签名，附件只提供“未读取附件”的标记；原始消息仍保留，最近往返的思考和签名原样交付。过长源材料按实际 JSON 大小分片，每次摘要请求都受同一硬预算约束，总耗时受 timeout_seconds 限制。返回必须正常结束、无工具调用且符合 summary_chars（JSON 编码长度）限制；失败、超时或取消不提交部分摘要，也不自动重试。
+
+摘要保存于原有 ReActContext 的可选 compaction 字段，记录覆盖位置与历史摘要校验值。旧快照无需迁移，重启可以复用已提交摘要，不自动继续执行或重新调用摘要模型。原消息及交流结束位置不删除；宿主若另行修改已覆盖的历史，必须同步处理 compaction，校验不符会明确拒绝。关闭功能后按原始历史执行原有预算逻辑。
+
+固定输入或最近两组消息本身已超过硬预算时仍会报错，不能保证所有输入都能压缩成功。应减少开放工具、缩小业务视图或分页读取大内容；不要把增加字符预算当作模型 token 上限的保证。实现：[HistoryCompactor](../packages/aurora_agent/src/aurora_agent/compaction.py)、[行动证据与预览](../packages/aurora_bot/src/aurora_bot/action_evidence.py)。
 
 ## cadence 决策
 
