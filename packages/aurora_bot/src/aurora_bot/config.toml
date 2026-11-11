@@ -38,3 +38,10 @@ max_chars = 8000
 [input_budget]
 enabled = false
 max_chars = 128000
+
+# 需要 actions 和 input_budget；摘要使用当前聊天模型，可能增加模型调用。
+[context_management]
+enabled = false
+tool_result_chars = 6000
+summary_chars = 6000
+timeout_seconds = 60.0

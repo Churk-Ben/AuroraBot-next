@@ -2,6 +2,7 @@
 
 import sqlite3
 import time
+from copy import deepcopy
 from typing import cast
 
 from aurora_adapter.model import JsonValue, ToolCall
@@ -155,6 +156,64 @@ class ActionEvidence:
             for row in rows
             for record in [cast(dict, decode_json(row[0]))]
         ]
+
+    def observation(self, run_id: str, result: ToolResult, *, max_chars: int) -> str:
+        """只压缩已归档的观察；预览保留状态和原调用引用，完整证据可分页读取。"""
+        original = encode_json(result)
+        try:
+            record = self._get(run_id, result["call_id"])
+        except KeyError:
+            return original
+        if record["result"] != result or result["name"] == "actions_read":
+            return original
+        projected = deepcopy(result)
+        value = projected.get("value")
+        if isinstance(value, dict) and "structuredContent" in value:
+            content = value.get("content")
+            if (
+                isinstance(content, list)
+                and len(content) == 1
+                and isinstance(content[0], dict)
+                and set(content[0]) == {"type", "text"}
+                and content[0]["type"] == "text"
+            ):
+                try:
+                    if decode_json(cast(str, content[0]["text"])) == value["structuredContent"]:
+                        del value["content"]
+                except (ValueError, TypeError):
+                    pass
+        encoded = encode_json(projected)
+        if len(encoded) <= max_chars:
+            return encoded
+
+        def preview(length: int) -> str:
+            return encode_json(
+                {
+                    "call_id": result["call_id"],
+                    "name": result["name"],
+                    "status": result["status"],
+                    "error_code": result.get("error", {}).get("code"),
+                    "value": {
+                        "kind": "tool_result_preview",
+                        "truncated": True,
+                        "total_chars": len(encoded),
+                        "text": encoded[:length],
+                        "read": {"tool": "actions_read", "run_id": run_id, "call_id": result["call_id"], "offset": 0},
+                        "notice": "正文为截短的 JSON 文本预览，不是完整结果；按 read 引用分页核实，禁止重跑原动作取结果。",
+                    },
+                }
+            )
+
+        if len(preview(0)) > max_chars:
+            raise ValueError("工具观察预算无法容纳完整调用身份")
+        low, high = 0, len(encoded)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if len(preview(middle)) <= max_chars:
+                low = middle
+            else:
+                high = middle - 1
+        return preview(low)
 
     def read(self, run_id: str, call_id: str, offset: int = 0) -> dict:
         if type(offset) is not int or not 0 <= offset <= 2**63 - 2:

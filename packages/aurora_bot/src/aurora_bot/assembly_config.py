@@ -34,6 +34,13 @@ class ArchiveConfig(TypedDict):
     max_chars: int
 
 
+class ContextManagementConfig(TypedDict):
+    enabled: bool
+    tool_result_chars: int
+    summary_chars: int
+    timeout_seconds: float
+
+
 class BotConfig(TypedDict):
     instance_id: str
     model_role: str
@@ -45,6 +52,7 @@ class BotConfig(TypedDict):
     context_view: ContextViewConfig
     notes: dict[str, bool]
     input_budget: ArchiveConfig
+    context_management: ContextManagementConfig
     archive: ArchiveConfig
     actions: ArchiveConfig
     self_control: dict[str, bool]
@@ -59,6 +67,13 @@ def _check_tools(value: object) -> None:
     instances = [item["instance_id"] for item in tools]
     if len(instances) != len(set(instances)):
         raise ValueError("工具实例身份重复")
+    config = cast(dict, value)
+    management = config["context_management"]
+    if management["enabled"]:
+        if not config["input_budget"]["enabled"] or not config["actions"]["enabled"]:
+            raise ValueError("上下文管理需要启用输入预算和行动证据")
+        if management["summary_chars"] > config["input_budget"]["max_chars"] // 4:
+            raise ValueError("摘要预算不能超过完整输入预算的四分之一")
 
 
 _TEXT = {"type": "string", "minLength": 1}
@@ -94,6 +109,17 @@ BOT_SCHEMA = ConfigSchema(
                 "properties": {
                     "enabled": {"type": "boolean", "default": False},
                     "max_chars": {"type": "integer", "minimum": 1024, "default": 128000},
+                },
+            },
+            "context_management": {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    "enabled": {"type": "boolean", "default": False},
+                    "tool_result_chars": {"type": "integer", "minimum": 2048, "maximum": 32000, "default": 6000},
+                    "summary_chars": {"type": "integer", "minimum": 256, "maximum": 16000, "default": 6000},
+                    "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 60.0},
                 },
             },
             "notes": {
@@ -147,5 +173,5 @@ BOT_SCHEMA = ConfigSchema(
 
 
 def parse_config(value: object) -> BotConfig:
-    """统一校验结构和缺省值，仅工具实例唯一性由本包约束。"""
+    """统一校验结构、缺省值、工具身份及上下文管理依赖。"""
     return cast(BotConfig, BOT_SCHEMA.parse(value))

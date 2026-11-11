@@ -49,6 +49,8 @@ def test_exact_budget_includes_system_tools_metadata_and_escaped_unicode():
     with pytest.raises(ModelInputBudgetExceeded) as failure:
         ModelInputBudget(size - 1).apply(request, history_start=1)
     assert failure.value.required_chars == size
+    assert sum(failure.value.breakdown.values()) == size
+    assert failure.value.breakdown["system"] > 0
     assert "文" not in str(failure.value)
 
 
