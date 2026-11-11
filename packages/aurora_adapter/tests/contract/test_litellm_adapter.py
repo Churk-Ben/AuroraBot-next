@@ -106,6 +106,151 @@ def mock_completion(monkeypatch, sdk, value):
 
 
 @pytest.mark.parametrize("streaming", [False, True])
+def test_image_download_rejection_recovers_once_without_mutating_history(sdk, streaming, caplog):
+    from aurora_adapter.model.litellm import LiteLLMClient
+
+    unavailable = "https://cdn.example/expired.jpg?rkey=private-signature"
+    available = "https://cdn.example/available.jpg"
+    history: ChatRequest = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "核对图片；不可读时说明"},
+                    {"type": "image_url", "image_url": {"url": unavailable}},
+                    {"type": "image_url", "image_url": {"url": available}},
+                ],
+            }
+        ]
+    }
+    original = deepcopy(history)
+    sent = []
+
+    def handle(request):
+        body = json.loads(request.content)
+        sent.append(body)
+        if len(sent) == 1:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": f".messages[0].image[0]: Failed to download image from {unavailable} (request_id: secret)",
+                    }
+                },
+            )
+        parts = body["messages"][0]["content"]
+        assert parts[0] == original["messages"][0]["content"][0]
+        assert parts[1]["type"] == "text" and "图片未读取" in parts[1]["text"]
+        assert parts[2]["image_url"]["url"] == available
+        if streaming:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content="".join(
+                    f"data: {json.dumps(value)}\n\n" for value in (delta(content="说明"), delta(reason="stop"))
+                )
+                + "data: [DONE]\n\n",
+            )
+        return httpx.Response(200, json=response(content="说明"))
+
+    async def scenario():
+        client = LiteLLMClient(
+            ModelConfig("deepseek/deepseek-flash", "https://model.test/v1"),
+            api_key="test-only",
+            transport=httpx.MockTransport(handle),
+        )
+        try:
+            for _ in range(2):
+                if streaming:
+                    async with client.stream(history) as chunks:
+                        result = await collect_response(chunks)
+                else:
+                    result = await client.complete(history)
+                assert result["text"] == "说明" and history == original
+            assert len(sent) == 3
+        finally:
+            await client.aclose()
+        assert client._transport.is_closed()
+
+    asyncio.run(scenario())
+    own_logs = "\n".join(record.getMessage() for record in caplog.records if record.name.startswith("aurora_"))
+    assert "image_download_failed" in own_logs and "private-signature" not in own_logs
+
+
+def test_image_failure_after_partial_stream_is_not_replayed(sdk, monkeypatch):
+    url = "https://cdn.example/failed.jpg"
+    error = sdk.BadRequestError(
+        message=f"Failed to download image from {url}", model="gpt-4o-mini", llm_provider="openai"
+    )
+    stream = Stream([delta(content="部分输出")], error=error)
+    calls = mock_completion(monkeypatch, sdk, stream)
+
+    async def scenario():
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        try:
+            with pytest.raises(ModelError, match="无法下载"):
+                async with client.stream(
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "image_url", "image_url": {"url": url}},
+                                ],
+                            }
+                        ]
+                    }
+                ) as chunks:
+                    assert await anext(chunks) == {"type": "text", "text": "部分输出"}
+                    await anext(chunks)
+            assert len(calls) == 1 and stream.closed
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_image_recovery_has_one_retry_and_does_not_retry_unmatched_urls(sdk, monkeypatch):
+    calls = []
+    urls = ["https://cdn.example/a.jpg", "https://cdn.example/b.jpg"]
+
+    async def reject(**kwargs):
+        calls.append(kwargs)
+        raise sdk.BadRequestError(
+            message=f"Failed to download image from {urls[min(len(calls) - 1, 1)]}",
+            model="gpt-4o-mini",
+            llm_provider="openai",
+        )
+
+    monkeypatch.setattr(sdk, "acompletion", reject)
+
+    async def scenario():
+        client = await create_client(ModelConfig("openai/gpt-4o-mini"), api_key="test-only")
+        try:
+            with pytest.raises(ModelError):
+                async with client.stream(
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [{"type": "image_url", "image_url": {"url": url}} for url in urls],
+                            }
+                        ]
+                    }
+                ) as chunks:
+                    await collect_response(chunks)
+            assert len(calls) == 2
+            with pytest.raises(ModelError):
+                await client.complete(request())
+            assert len(calls) == 3
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("provider", ["openai", "deepseek"])
 def test_real_sdk_preserves_files_and_thinking_across_tool_roundtrip(sdk, streaming, provider, caplog):
     caplog.set_level("INFO", logger="aurora_adapter.model.usage")
