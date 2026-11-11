@@ -1,6 +1,9 @@
 """LiteLLM 聊天、决策与向量客户端；实例独占传输，不修改 SDK 全局配置。"""
 
 import asyncio
+import hashlib
+import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
@@ -43,6 +46,16 @@ from .contract import (
 from .response import normalize_vectors
 from .usage import UsageRecord
 
+logger = logging.getLogger(__name__)
+
+
+class _ImageDownloadError(ModelError):
+    """仅保存失败图片地址的摘要，不向日志和调用方暴露签名 URL。"""
+
+    def __init__(self, url: str):
+        super().__init__("供应商无法下载远程图片")
+        self.digest = hashlib.sha256(url.encode()).hexdigest()
+
 
 class _UsageStream(httpx.AsyncByteStream):
     """原样交付响应字节，只提取原始 SSE 中的用量。"""
@@ -68,6 +81,18 @@ def _errors():
     except litellm.Timeout:
         raise TimeoutError("模型供应商请求超时") from None
     except Exception as error:  # noqa: BLE001 - SDK 错误可能携带凭证和完整输入。
+        status = getattr(error, "status_code", None)
+        if type(status) is not int or not 100 <= status <= 599:
+            status = None
+        image = re.search(r"Failed to download image from (https://[^\s\"']+)", str(error)) if status == 400 else None
+        logger.warning(
+            "模型供应商调用失败：%s，HTTP=%s，category=%s",
+            type(error).__name__,
+            status,
+            "image_download_failed" if image else "provider_error",
+        )
+        if image is not None:
+            raise _ImageDownloadError(image[1]) from None
         raise ModelError(f"模型供应商调用失败：{type(error).__name__}") from None
 
 
@@ -105,6 +130,7 @@ class LiteLLMClient:
         self.kind, self.config, self._api_key = kind, config, api_key
         self._active = self._closed = False
         self._usage: UsageRecord | None = None
+        self._unavailable_images: dict[str, None] = {}
         try:
             model, provider, _, base_url = litellm.get_llm_provider(
                 model=config.model, custom_llm_provider=config.provider, api_base=config.base_url, api_key=api_key
@@ -233,7 +259,13 @@ class LiteLLMClient:
     async def complete(self, request: ChatRequest) -> ChatResponse:
         async with self._using("chat"):
             with _errors():
-                result = chat_response(await self._chat(request, streaming=False))
+                try:
+                    response = await self._chat(self._image_request(request), streaming=False)
+                except _ImageDownloadError as error:
+                    if not self._remember_image(request, error):
+                        raise
+                    response = await self._chat(self._image_request(request), streaming=False)
+                result = chat_response(response)
                 assert self._usage is not None
                 self._usage.complete = True
                 return result
@@ -303,17 +335,71 @@ class LiteLLMClient:
             self._usage.complete = True
             yield {"type": "finish", "reason": reason}
 
+    def _remember_image(self, request: ChatRequest, error: _ImageDownloadError) -> bool:
+        matched = any(
+            part["type"] == "image_url"
+            and hashlib.sha256(part["image_url"]["url"].encode()).hexdigest() == error.digest
+            for message in request["messages"]
+            if isinstance(message["content"], list)
+            for part in message["content"]
+        )
+        if not matched or error.digest in self._unavailable_images:
+            return False
+        self._unavailable_images[error.digest] = None
+        if len(self._unavailable_images) > 128:
+            del self._unavailable_images[next(iter(self._unavailable_images))]
+        logger.warning("远程图片无法读取，模型请求改用未读取标记；原始历史保留")
+        return True
+
+    def _image_request(self, request: ChatRequest) -> ChatRequest:
+        if not self._unavailable_images:
+            return request
+        projected = deepcopy(request)
+        for message in projected["messages"]:
+            if isinstance(message["content"], list):
+                message["content"] = [
+                    {
+                        "type": "text",
+                        "text": "[图片未读取：供应商无法下载该远程图片。不能推断图片内容；如需分析请重新上传图片。]",
+                    }
+                    if part["type"] == "image_url"
+                    and hashlib.sha256(part["image_url"]["url"].encode()).hexdigest() in self._unavailable_images
+                    else part
+                    for part in message["content"]
+                ]
+        return projected
+
+    async def _stream_with_image_recovery(self, request: ChatRequest) -> AsyncIterator[ChatChunk]:
+        """仅对首个有效片段前明确拒绝的图片请求补发一次，不重放部分输出。"""
+        for attempt in range(2):
+            response = chunks = None
+            emitted = False
+            try:
+                response = await self._chat(self._image_request(request), streaming=True)
+                chunks = self._chunks(response)
+                async for chunk in chunks:
+                    emitted = True
+                    yield chunk
+                return
+            except _ImageDownloadError as error:
+                if emitted or not self._remember_image(request, error) or attempt:
+                    raise
+            finally:
+                if chunks is not None:
+                    await chunks.aclose()
+                if response is not None:
+                    with _errors():
+                        await response.aclose()
+
     @asynccontextmanager
     async def stream(self, request: ChatRequest) -> AsyncIterator[AsyncIterator[ChatChunk]]:
         async with self._using("chat"):
-            response = await self._chat(request, streaming=True)
-            chunks = self._chunks(response)
+            require_capabilities(self, request, streaming=True)
+            chunks = self._stream_with_image_recovery(request)
             try:
                 yield chunks
             finally:
                 await chunks.aclose()
-                with _errors():
-                    await response.aclose()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts or any(not isinstance(text, str) or not text.strip() for text in texts):
